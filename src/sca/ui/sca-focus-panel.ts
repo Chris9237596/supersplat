@@ -62,6 +62,11 @@ class ScaFocusPanel extends Container {
             text: 'Use for selected hotspot'
         });
 
+        const resetOriginButton = new Button({
+            class: ['sca-hotspot-form-button', 'sca-focus-action-button'],
+            text: 'Reset Focus to Origin'
+        });
+
         const clearButton = new Button({
             class: ['sca-hotspot-form-button', 'sca-focus-action-button'],
             text: 'Clear Focus'
@@ -71,6 +76,7 @@ class ScaFocusPanel extends Container {
         this.append(positionRow);
         this.append(copyButton);
         this.append(useForHotspotButton);
+        this.append(resetOriginButton);
         this.append(clearButton);
 
         this.modeButton.on('click', () => {
@@ -101,6 +107,10 @@ class ScaFocusPanel extends Container {
 
         useForHotspotButton.on('click', () => {
             this.events.fire('sca.focus.useForSelectedHotspot');
+        });
+
+        resetOriginButton.on('click', () => {
+            this.events.fire('sca.focus.position.set', [0, 0, 0] as ScaFocusPosition);
         });
 
         clearButton.on('click', () => {

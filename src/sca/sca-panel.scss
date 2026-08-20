@@ -192,6 +192,74 @@
     .sca-focus-action-button {
         margin-top: 4px;
     }
+
+    .sca-export-section {
+        flex-direction: column;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid $bcg-lighter;
+    }
+
+    .sca-export-preview-row {
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+    }
+
+    .sca-export-preview-label {
+        font-size: 12px;
+        color: $clr-default;
+    }
+
+    .sca-export-preview-checkbox {
+        flex-shrink: 0;
+        background-color: $bcg-dark;
+        border: 1px solid $bcg-lighter;
+        border-radius: 3px;
+
+        &:focus {
+            outline: none;
+        }
+
+        &:hover {
+            background-color: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 102, 0, 0.45);
+        }
+
+        &:focus,
+        &.pcui-focus {
+            border-color: rgba(255, 102, 0, 0.7);
+            box-shadow: 0 0 0 1px rgba(255, 102, 0, 0.35);
+        }
+
+        // PCUI renders the tick via ::after icon font (content: '\E372') with color, not background.
+        &.pcui-boolean-input-ticked {
+            background-color: $clr-hilight;
+            border-color: $clr-hilight;
+
+            &::after {
+                color: $clr-active;
+                background-color: inherit;
+            }
+
+            &:hover,
+            &:focus {
+                background-color: $clr-icon-hilight;
+                border-color: $clr-icon-hilight;
+                box-shadow: 0 0 0 1px rgba(255, 102, 0, 0.45);
+
+                &::after {
+                    color: $clr-active;
+                }
+            }
+        }
+    }
+
+    .sca-export-runtime-package-button {
+        margin-top: 8px;
+        background-color: rgba(255, 255, 255, 0.06);
+        border-color: rgba(255, 255, 255, 0.2);
+    }
 }
 
 #right-toolbar-sca-panel.sca-toolbar-button {

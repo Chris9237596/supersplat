@@ -1,7 +1,11 @@
 import { Events } from '../events';
+import { Splat } from '../splat';
+import { i18n } from '../ui/localization';
 
 import { createDefaultHotspot } from './hotspot-defaults';
 import { registerScaFocusEvents } from './focus/sca-focus-events';
+import { exportScaRuntime } from './export/export-sca-runtime';
+import { exportScaRuntimePackage, WebGPUUnavailableError } from './export/export-sca-runtime-package';
 import { stringifyProjectJson } from './serialize/project-json';
 import { HotspotStore } from './store/hotspot-store';
 import { createEmptyProject, ScaHotspot, ScaProject } from './types/project';
@@ -78,6 +82,43 @@ const registerScaEvents = (events: Events): HotspotStore => {
     });
 
     registerScaFocusEvents(events);
+
+    events.on('sca.export.runtime', () => {
+        exportScaRuntime(store.getProject());
+    });
+
+    events.on('sca.export.runtimePackage', async (includePreview = true) => {
+        const splats = events.invoke('scene.splats') as Splat[] | undefined;
+
+        if (!Array.isArray(splats) || splats.length === 0) {
+            await events.invoke('showPopup', {
+                type: 'error',
+                header: 'Export Failed',
+                message: 'Load a Gaussian splat before exporting the SCA runtime package.'
+            });
+            return;
+        }
+
+        try {
+            await exportScaRuntimePackage(splats, store.getProject(), events, { includePreview });
+        } catch (error) {
+            if (error instanceof WebGPUUnavailableError) {
+                await events.invoke('showPopup', {
+                    type: 'error',
+                    header: i18n.t('popup.error'),
+                    message: i18n.t('popup.webgpu-unavailable')
+                });
+                return;
+            }
+
+            console.error('[SCA] runtime package export failed:', error);
+            await events.invoke('showPopup', {
+                type: 'error',
+                header: 'Export Failed',
+                message: error instanceof Error ? error.message : 'Unknown export error'
+            });
+        }
+    });
 
     console.log('[SCA] hotspot store ready');
     console.log('[SCA] project json:', events.invoke('sca.project.getJson'));

@@ -1,4 +1,4 @@
-import { Button, Container, Label } from '@playcanvas/pcui';
+import { Button, BooleanInput, Container, Label } from '@playcanvas/pcui';
 
 import { Events } from '../events';
 import { Tooltips } from '../ui/tooltips';
@@ -84,6 +84,38 @@ class ScaPanel extends Container {
         body.append(listHeader);
         body.append(listContainer);
         body.append(hotspotForm);
+
+        const exportSection = new Container({ class: 'sca-export-section' });
+        const exportTitle = new Label({
+            class: 'sca-panel-section-label',
+            text: 'Export'
+        });
+        const exportRuntimePackageButton = new Button({
+            class: ['sca-hotspot-form-button', 'sca-export-runtime-package-button'],
+            text: 'Export SCA Runtime Package'
+        });
+        const includePreviewRow = new Container({ class: 'sca-export-preview-row' });
+        const includePreviewInput = new BooleanInput({
+            class: 'sca-export-preview-checkbox',
+            type: 'checkbox',
+            value: true
+        });
+        const includePreviewLabel = new Label({
+            class: 'sca-export-preview-label',
+            text: 'Include standalone preview.html'
+        });
+
+        includePreviewRow.append(includePreviewInput);
+        includePreviewRow.append(includePreviewLabel);
+
+        exportSection.append(exportTitle);
+        exportSection.append(includePreviewRow);
+        exportSection.append(exportRuntimePackageButton);
+        body.append(exportSection);
+
+        exportRuntimePackageButton.on('click', () => {
+            events.fire('sca.export.runtimePackage', includePreviewInput.value);
+        });
 
         this.append(header);
         this.append(body);
