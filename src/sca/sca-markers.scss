@@ -1,0 +1,121 @@
+// SuperSplat Viewer annotation dimensions (Annotation.hotspotSize = 25).
+$hotspot-size: 25px;
+$hotspot-hit-size: 30px;
+$hotspot-hit-inset: 2.5px;
+
+// Editor port of SuperSplat Viewer annotation styles (_injectStyles in viewer Annotation script).
+
+.sca-hotspot-markers-overlay {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 4;
+}
+
+.sca-hotspot-marker-anchor {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+    will-change: transform;
+
+    &.is-hidden {
+        display: none;
+    }
+}
+
+// Visible editor badge based on Viewer canvas texture (_createHotspotTexture):
+// black fill, white border (~6px at 64px), bold white label.
+.sca-hotspot-marker-badge.pc-annotation-hotspot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: $hotspot-hit-size;
+    height: $hotspot-hit-size;
+    opacity: 1;
+    cursor: pointer;
+    pointer-events: auto;
+    user-select: none;
+    transform: translate(-50%, -50%);
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    color: #fff;
+    font: bold 13px Arial, Helvetica, sans-serif;
+    line-height: 1;
+    text-align: center;
+
+    &::before {
+        content: '';
+        position: absolute;
+        inset: $hotspot-hit-inset;
+        border-radius: 50%;
+        background-color: #000;
+        border: 2px solid #fff;
+        box-sizing: border-box;
+        z-index: -1;
+    }
+
+    &.is-selected::before {
+        background-color: rgb(255, 102, 0);
+    }
+}
+
+// Ported from SuperSplat Viewer Annotation._injectStyles()
+.pc-annotation.sca-hotspot-marker-card {
+    display: block;
+    position: absolute;
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji';
+    pointer-events: none;
+    max-width: 200px;
+    word-wrap: break-word;
+    overflow-x: visible;
+    white-space: normal;
+    width: fit-content;
+    opacity: 1;
+    visibility: visible;
+
+    &.is-hidden {
+        display: none;
+    }
+}
+
+.pc-annotation-title {
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.pc-annotation-text:empty {
+    display: none;
+}
+
+.pc-annotation.arrow-right::before,
+.pc-annotation.arrow-left::before {
+    content: '';
+    position: absolute;
+    top: var(--arrow-top, 50%);
+    transform: translateY(-50%);
+    border-top: 8px solid transparent;
+    border-bottom: 8px solid transparent;
+}
+
+.pc-annotation.arrow-right::before {
+    left: -8px;
+    border-right: 8px solid rgba(0, 0, 0, 0.8);
+}
+
+.pc-annotation.arrow-left::before {
+    right: -8px;
+    border-left: 8px solid rgba(0, 0, 0, 0.8);
+}

@@ -14,7 +14,7 @@ import { registerPublishEvents } from './publish';
 import { registerRenderEvents } from './render';
 import { Scene } from './scene';
 import { getSceneConfig } from './scene-config';
-import { registerSca } from './sca';
+import { registerSca, registerScaEvents, registerScaScene } from './sca';
 import { registerSelectionEvents } from './selection';
 import { registerSequenceEvents } from './sequence';
 import { ShortcutManager } from './shortcut-manager';
@@ -117,6 +117,7 @@ const main = async () => {
     registerPublishEvents(events);
     registerIframeApi(events);
     registerSca();
+    registerScaEvents(events);
 
     // initialize shortcuts
     const shortcutManager = new ShortcutManager(events);
@@ -254,6 +255,7 @@ const main = async () => {
     toolManager.register('scale', new ScaleTool(events, scene));
     toolManager.register('measure', new MeasureTool(events, scene, editorUI.canvasContainer));
     toolManager.register('orient', new OrientTool(events, scene, editorUI.toolsContainer.dom, editorUI.canvasContainer));
+    registerScaScene(events, scene, editorUI.toolsContainer.dom, editorUI.canvasContainer, toolManager);
 
     const boundDimensionsOverlay = new BoundDimensionsOverlay(events, scene, editorUI.canvasContainer);
 
