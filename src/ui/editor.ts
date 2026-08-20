@@ -3,6 +3,7 @@ import { Mat4 } from 'playcanvas';
 
 import { DataPanel } from './data-panel';
 import { Events } from '../events';
+import { registerScaUi } from '../sca';
 import { AboutPopup } from './about-popup';
 import { BottomToolbar } from './bottom-toolbar';
 import { CameraInfoOverlay } from './camera-info-overlay';
@@ -110,6 +111,7 @@ class EditorUI {
         canvasContainer.append(colorPanel);
         canvasContainer.append(bottomToolbar);
         canvasContainer.append(rightToolbar);
+        registerScaUi(events, tooltips, canvasContainer, rightToolbar);
         canvasContainer.append(modeToggle);
         canvasContainer.append(menu);
 

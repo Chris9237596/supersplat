@@ -1,0 +1,33 @@
+@use '../ui/scss/colors.scss' as *;
+
+#sca-panel {
+    top: 50%;
+    transform: translate(0, -50%);
+    right: 102px;
+    width: 320px;
+    flex-direction: column;
+
+    &:not(.pcui-hidden) {
+        display: flex;
+    }
+
+    .sca-panel-body {
+        padding: 12px;
+        color: $text-primary;
+    }
+}
+
+#right-toolbar-sca-panel.sca-toolbar-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    font-size: 11px;
+    font-weight: bold;
+    color: $clr-default;
+
+    &.active {
+        color: $clr-hilight;
+    }
+}

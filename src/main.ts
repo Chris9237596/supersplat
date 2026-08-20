@@ -14,6 +14,7 @@ import { registerPublishEvents } from './publish';
 import { registerRenderEvents } from './render';
 import { Scene } from './scene';
 import { getSceneConfig } from './scene-config';
+import { registerSca } from './sca';
 import { registerSelectionEvents } from './selection';
 import { registerSequenceEvents } from './sequence';
 import { ShortcutManager } from './shortcut-manager';
@@ -115,6 +116,7 @@ const main = async () => {
     registerTransformHandlerEvents(events);
     registerPublishEvents(events);
     registerIframeApi(events);
+    registerSca();
 
     // initialize shortcuts
     const shortcutManager = new ShortcutManager(events);
