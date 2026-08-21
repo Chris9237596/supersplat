@@ -1,10 +1,12 @@
 import {
     BooleanInput,
     Button,
+    ColorPicker,
     Container,
     Label,
     SelectInput,
     SliderInput,
+    TextInput,
     VectorInput
 } from '@playcanvas/pcui';
 
@@ -13,9 +15,11 @@ import { Events } from '../../events';
 import {
     ScaNavigationMode,
     ScaStartAnimationType,
+    ScaTurntableDirection,
     ScaViewerConfig
 } from '../types/project';
 import { computeCameraDistance } from '../viewer/viewer-config';
+import { parseHexColor, rgbToHex } from '../viewer/viewer-background';
 
 class ScaViewerPanel extends Container {
     private syncing = false;
@@ -31,9 +35,26 @@ class ScaViewerPanel extends Container {
 
     private animationTypeSelect: SelectInput;
     private animationDurationSlider: SliderInput;
+    private turntableControls: Container;
+    private turntableDegreesSlider: SliderInput;
+    private turntableDurationSlider: SliderInput;
+    private turntableDirectionSelect: SelectInput;
+    private turntableLoopInput: BooleanInput;
+    private previewAnimationButton: Button;
+    private stopAnimationPreviewButton: Button;
 
     private focusTransitionSlider: SliderInput;
     private homeTransitionSlider: SliderInput;
+    private showHotspotCardsInput: BooleanInput;
+
+    private backgroundTypeSelect: SelectInput;
+    private backgroundColorPicker: ColorPicker;
+    private backgroundHexInput: TextInput;
+    private backgroundImageButton: Button;
+    private backgroundRemoveImageButton: Button;
+    private backgroundFilenameLabel: Label;
+    private backgroundColorRow: Container;
+    private backgroundImageRow: Container;
 
     private previewButton: Button;
     private exitPreviewButton: Button;
@@ -138,7 +159,8 @@ class ScaViewerPanel extends Container {
             class: 'sca-viewer-select',
             options: [
                 { v: 'none', t: 'None' },
-                { v: 'flyTo', t: 'Fly To' }
+                { v: 'flyTo', t: 'Fly To' },
+                { v: 'turntable', t: 'Turntable' }
             ]
         });
 
@@ -148,6 +170,60 @@ class ScaViewerPanel extends Container {
             max: 10,
             precision: 2,
             step: 0.25
+        });
+
+        this.turntableControls = new Container({ class: 'sca-viewer-turntable-controls' });
+
+        this.turntableDegreesSlider = new SliderInput({
+            class: 'sca-viewer-duration-slider',
+            min: 45,
+            max: 720,
+            precision: 0,
+            step: 15
+        });
+
+        this.turntableDurationSlider = new SliderInput({
+            class: 'sca-viewer-duration-slider',
+            min: 1,
+            max: 120,
+            precision: 1,
+            step: 0.5
+        });
+
+        this.turntableDirectionSelect = new SelectInput({
+            class: 'sca-viewer-select',
+            options: [
+                { v: 'clockwise', t: 'Clockwise' },
+                { v: 'counterclockwise', t: 'Counter-clockwise' }
+            ]
+        });
+
+        const turntableLoopRow = new Container({ class: 'sca-viewer-checkbox-row' });
+        this.turntableLoopInput = new BooleanInput({
+            class: 'sca-export-preview-checkbox',
+            type: 'checkbox',
+            value: true
+        });
+        turntableLoopRow.append(this.turntableLoopInput);
+        turntableLoopRow.append(new Label({
+            class: 'sca-export-preview-label',
+            text: 'Loop'
+        }));
+
+        this.turntableControls.append(this.makeRow('Degrees', this.turntableDegreesSlider));
+        this.turntableControls.append(this.makeRow('Duration (s)', this.turntableDurationSlider));
+        this.turntableControls.append(this.makeRow('Direction', this.turntableDirectionSelect));
+        this.turntableControls.append(turntableLoopRow);
+
+        this.previewAnimationButton = new Button({
+            class: ['sca-hotspot-form-button', 'sca-viewer-action-button'],
+            text: 'Preview Animation'
+        });
+
+        this.stopAnimationPreviewButton = new Button({
+            class: ['sca-hotspot-form-button', 'sca-viewer-action-button', 'sca-viewer-exit-preview-button'],
+            text: 'Stop Preview',
+            hidden: true
         });
 
         const interactionTitle = new Label({
@@ -170,6 +246,73 @@ class ScaViewerPanel extends Container {
             precision: 2,
             step: 0.05
         });
+
+        const hotspotsTitle = new Label({
+            class: 'sca-panel-subsection-label',
+            text: 'Hotspots'
+        });
+
+        const showHotspotCardsRow = new Container({ class: 'sca-viewer-checkbox-row' });
+        this.showHotspotCardsInput = new BooleanInput({
+            class: 'sca-export-preview-checkbox',
+            type: 'checkbox',
+            value: true
+        });
+        showHotspotCardsRow.append(this.showHotspotCardsInput);
+        showHotspotCardsRow.append(new Label({
+            class: 'sca-export-preview-label',
+            text: 'Show hotspot cards'
+        }));
+
+        const backgroundTitle = new Label({
+            class: 'sca-panel-subsection-label',
+            text: 'Background'
+        });
+
+        this.backgroundTypeSelect = new SelectInput({
+            class: 'sca-viewer-select',
+            options: [
+                { v: 'color', t: 'Color' },
+                { v: 'transparent', t: 'Transparent' },
+                { v: 'image', t: 'Image' },
+                { v: 'panorama', t: 'Panorama / HDRI' }
+            ]
+        });
+
+        this.backgroundColorPicker = new ColorPicker({
+            class: 'sca-viewer-background-color-picker',
+            channels: 3,
+            value: [0, 0, 0]
+        });
+
+        this.backgroundHexInput = new TextInput({
+            class: ['sca-hotspot-form-input', 'sca-viewer-background-hex-input'],
+            value: '#000000'
+        });
+
+        this.backgroundImageButton = new Button({
+            class: ['sca-hotspot-form-button', 'sca-viewer-action-button'],
+            text: 'Choose Image…'
+        });
+
+        this.backgroundRemoveImageButton = new Button({
+            class: ['sca-hotspot-form-button', 'sca-viewer-action-button'],
+            text: 'Remove Image'
+        });
+
+        this.backgroundFilenameLabel = new Label({
+            class: 'sca-viewer-background-filename',
+            text: 'No image selected'
+        });
+
+        this.backgroundColorRow = new Container({ class: 'sca-viewer-background-controls' });
+        this.backgroundColorRow.append(this.makeRow('Color', this.backgroundColorPicker));
+        this.backgroundColorRow.append(this.makeRow('Hex', this.backgroundHexInput));
+
+        this.backgroundImageRow = new Container({ class: 'sca-viewer-background-controls' });
+        this.backgroundImageRow.append(this.backgroundImageButton);
+        this.backgroundImageRow.append(this.backgroundFilenameLabel);
+        this.backgroundImageRow.append(this.backgroundRemoveImageButton);
 
         this.previewButton = new Button({
             class: ['sca-hotspot-form-button', 'sca-viewer-action-button'],
@@ -197,6 +340,9 @@ class ScaViewerPanel extends Container {
         this.append(animationTitle);
         this.append(this.makeRow('Type', this.animationTypeSelect));
         this.append(this.makeRow('Duration (s)', this.animationDurationSlider));
+        this.append(this.turntableControls);
+        this.append(this.previewAnimationButton);
+        this.append(this.stopAnimationPreviewButton);
         this.append(interactionTitle);
         this.append(this.makeRow('Duration (s)', this.focusTransitionSlider));
 
@@ -206,6 +352,12 @@ class ScaViewerPanel extends Container {
         });
         this.append(homeTitle);
         this.append(this.makeRow('Duration (s)', this.homeTransitionSlider));
+        this.append(hotspotsTitle);
+        this.append(showHotspotCardsRow);
+        this.append(backgroundTitle);
+        this.append(this.makeRow('Type', this.backgroundTypeSelect));
+        this.append(this.backgroundColorRow);
+        this.append(this.backgroundImageRow);
         this.append(this.previewButton);
         this.append(this.exitPreviewButton);
 
@@ -261,6 +413,34 @@ class ScaViewerPanel extends Container {
             this.emitAnimationPatch({ duration: value });
         });
 
+        this.turntableDegreesSlider.on('change', (value: number) => {
+            this.emitTurntablePatch({ degrees: value });
+        });
+
+        this.turntableDurationSlider.on('change', (value: number) => {
+            this.emitTurntablePatch({ duration: value });
+        });
+
+        this.turntableDirectionSelect.on('change', (value: string) => {
+            this.emitTurntablePatch({ direction: value as ScaTurntableDirection });
+        });
+
+        this.turntableLoopInput.on('change', (value: boolean) => {
+            this.emitTurntablePatch({ loop: value });
+        });
+
+        this.previewAnimationButton.on('click', () => {
+            this.events.fire('sca.viewer.animation.preview.start');
+        });
+
+        this.stopAnimationPreviewButton.on('click', () => {
+            this.events.fire('sca.viewer.animation.preview.stop');
+        });
+
+        this.bindSliderHistory(this.animationDurationSlider);
+        this.bindSliderHistory(this.turntableDegreesSlider);
+        this.bindSliderHistory(this.turntableDurationSlider);
+
         this.focusTransitionSlider.on('change', (value: number) => {
             this.emitInteractionPatch({ focusTransition: { duration: value } });
         });
@@ -268,6 +448,61 @@ class ScaViewerPanel extends Container {
         this.homeTransitionSlider.on('change', (value: number) => {
             this.emitInteractionPatch({ homeTransition: { duration: value } });
         });
+
+        this.showHotspotCardsInput.on('change', (value: boolean) => {
+            this.emitHotspotsPatch({ showCards: value });
+        });
+
+        this.backgroundTypeSelect.on('change', (value: string) => {
+            if (this.syncing) {
+                return;
+            }
+            this.events.fire('sca.viewer.background.type.set', value);
+        });
+
+        this.backgroundColorPicker.on('change', (value: number[]) => {
+            if (this.syncing) {
+                return;
+            }
+            const hex = rgbToHex(value[0], value[1], value[2]);
+            this.syncing = true;
+            this.backgroundHexInput.value = hex;
+            this.syncing = false;
+            this.events.fire('sca.viewer.background.color.set', hex);
+        });
+
+        this.backgroundHexInput.on('change', (value: string) => {
+            if (this.syncing) {
+                return;
+            }
+            const trimmed = value.trim();
+            if (!/^#[0-9A-Fa-f]{6}$/.test(trimmed)) {
+                return;
+            }
+            const hex = trimmed.toLowerCase();
+            const { r, g, b } = parseHexColor(hex);
+            this.syncing = true;
+            this.backgroundColorPicker.value = [r, g, b];
+            this.syncing = false;
+            this.events.fire('sca.viewer.background.color.set', hex);
+        });
+
+        this.backgroundImageButton.on('click', () => {
+            this.events.fire('sca.viewer.background.image.import');
+        });
+
+        this.backgroundRemoveImageButton.on('click', () => {
+            this.events.fire('sca.viewer.background.image.remove');
+        });
+
+        this.bindVectorHistory(this.positionInput);
+        this.bindVectorHistory(this.targetInput);
+        this.bindSliderHistory(this.fovSlider);
+        this.bindSliderHistory(this.animationDurationSlider);
+        this.bindSliderHistory(this.focusTransitionSlider);
+        this.bindSliderHistory(this.homeTransitionSlider);
+        this.bindTextHistory(this.backgroundHexInput);
+        this.bindColorPickerHistory(this.backgroundColorPicker);
 
         events.on('sca.project.changed', () => {
             this.refresh();
@@ -277,12 +512,16 @@ class ScaViewerPanel extends Container {
             this.refreshPreviewState();
         });
 
+        events.on('sca.viewer.animation.preview.changed', () => {
+            this.refreshAnimationPreviewState();
+        });
+
         this.refresh();
     }
 
     private makeRow(
         labelText: string,
-        control: VectorInput | SliderInput | SelectInput
+        control: VectorInput | SliderInput | SelectInput | ColorPicker | TextInput
     ): Container {
         const row = new Container({ class: 'sca-hotspot-form-row' });
         const label = new Label({
@@ -322,6 +561,13 @@ class ScaViewerPanel extends Container {
         this.events.fire('sca.viewer.camera.animation.update', patch);
     }
 
+    private emitTurntablePatch(patch: Partial<NonNullable<ScaViewerConfig['camera']['animation']['turntable']>>): void {
+        if (this.syncing) {
+            return;
+        }
+        this.events.fire('sca.viewer.camera.animation.turntable.update', patch);
+    }
+
     private emitInteractionPatch(patch: Partial<ScaViewerConfig['interaction']>): void {
         if (this.syncing) {
             return;
@@ -329,10 +575,77 @@ class ScaViewerPanel extends Container {
         this.events.fire('sca.viewer.interaction.update', patch);
     }
 
+    private emitHotspotsPatch(patch: Partial<NonNullable<ScaViewerConfig['hotspots']>>): void {
+        if (this.syncing) {
+            return;
+        }
+        this.events.fire('sca.viewer.hotspots.update', patch);
+    }
+
+    private bindVectorHistory(input: VectorInput): void {
+        input.dom.addEventListener('focusin', () => {
+            this.events.invoke('sca.history.beginTransaction');
+        });
+        input.dom.addEventListener('focusout', () => {
+            this.events.invoke('sca.history.commitTransaction');
+        });
+    }
+
+    private bindSliderHistory(slider: SliderInput): void {
+        slider.on('slide:start', () => {
+            this.events.invoke('sca.history.beginTransaction');
+        });
+        slider.on('slide:end', () => {
+            this.events.invoke('sca.history.commitTransaction');
+        });
+    }
+
+    private bindTextHistory(input: TextInput): void {
+        input.dom.addEventListener('focusin', () => {
+            this.events.invoke('sca.history.beginTransaction');
+        });
+        input.dom.addEventListener('focusout', () => {
+            this.events.invoke('sca.history.commitTransaction');
+        });
+    }
+
+    private bindColorPickerHistory(picker: ColorPicker): void {
+        picker.dom.addEventListener('pointerdown', () => {
+            this.events.invoke('sca.history.beginTransaction');
+        });
+        picker.dom.addEventListener('pointerup', () => {
+            this.events.invoke('sca.history.commitTransaction');
+        });
+        picker.dom.addEventListener('pointerleave', () => {
+            this.events.invoke('sca.history.commitTransaction');
+        });
+    }
+
     private refreshPreviewState(): void {
         const active = this.events.invoke('sca.viewer.preview.active') as boolean;
         this.previewButton.hidden = active;
         this.exitPreviewButton.hidden = !active;
+    }
+
+    private refreshAnimationPreviewState(): void {
+        const active = this.events.invoke('sca.viewer.animation.preview.active') as boolean;
+        this.previewAnimationButton.hidden = active;
+        this.stopAnimationPreviewButton.hidden = !active;
+        this.refreshAnimationControlsEnabled(active);
+    }
+
+    private refreshAnimationControlsEnabled(previewActive = false): void {
+        const viewer = this.events.invoke('sca.viewer.get') as ScaViewerConfig | null;
+        const animationType = viewer?.camera.animation.type ?? 'none';
+        const disableEditing = previewActive;
+
+        this.animationTypeSelect.enabled = !disableEditing;
+        this.animationDurationSlider.enabled = !disableEditing && animationType === 'flyTo';
+        this.turntableDegreesSlider.enabled = !disableEditing && animationType === 'turntable';
+        this.turntableDurationSlider.enabled = !disableEditing && animationType === 'turntable';
+        this.turntableDirectionSelect.enabled = !disableEditing && animationType === 'turntable';
+        this.turntableLoopInput.enabled = !disableEditing && animationType === 'turntable';
+        this.previewAnimationButton.enabled = !disableEditing && animationType !== 'none';
     }
 
     private refresh(): void {
@@ -342,7 +655,7 @@ class ScaViewerPanel extends Container {
         }
 
         const { initial, animation } = viewer.camera;
-        const { navigation, interaction } = viewer;
+        const { navigation, interaction, background, hotspots } = viewer;
 
         this.syncing = true;
         this.positionInput.value = [...initial.position];
@@ -359,12 +672,41 @@ class ScaViewerPanel extends Container {
         this.animationTypeSelect.value = animation.type;
         this.animationDurationSlider.value = animation.duration;
         this.animationDurationSlider.enabled = animation.type === 'flyTo';
+
+        const turntable = animation.turntable!;
+        this.turntableControls.hidden = animation.type !== 'turntable';
+        this.turntableDegreesSlider.value = turntable.degrees;
+        this.turntableDurationSlider.value = turntable.duration;
+        this.turntableDirectionSelect.value = turntable.direction;
+        this.turntableLoopInput.value = turntable.loop;
+
         this.focusTransitionSlider.value = interaction.focusTransition.duration;
         this.homeTransitionSlider.value = interaction.homeTransition.duration;
+        this.showHotspotCardsInput.value = hotspots?.showCards !== false;
+
+        const bg = background ?? { type: 'color' as const, color: '#000000' };
+        this.backgroundTypeSelect.value = bg.type;
+        this.backgroundColorRow.hidden = bg.type !== 'color';
+        this.backgroundImageRow.hidden = bg.type !== 'image' && bg.type !== 'panorama';
+
+        if (bg.type === 'color') {
+            const hex = bg.color ?? '#000000';
+            const { r, g, b } = parseHexColor(hex);
+            this.backgroundColorPicker.value = [r, g, b];
+            this.backgroundHexInput.value = hex;
+        }
+
+        if (bg.type === 'image' || bg.type === 'panorama') {
+            const filename = bg.image?.filename;
+            this.backgroundFilenameLabel.text = filename ?? 'No image selected';
+            this.backgroundRemoveImageButton.enabled = !!filename;
+        }
+
         this.syncing = false;
 
         this.distanceLabel.text = `Distance: ${computeCameraDistance(initial).toFixed(2)}`;
         this.refreshPreviewState();
+        this.refreshAnimationPreviewState();
     }
 }
 

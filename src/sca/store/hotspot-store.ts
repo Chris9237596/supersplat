@@ -1,4 +1,4 @@
-import { ScaHotspot, ScaNavigationMode, ScaProject, ScaViewerConfig } from '../types/project';
+import { ScaHotspot, ScaNavigationMode, ScaProject, ScaViewerBackground, ScaViewerConfig } from '../types/project';
 import { createEmptyProject } from '../types/project';
 import {
     createDefaultViewerConfig,
@@ -42,8 +42,12 @@ class HotspotStore {
             camera: {
                 ...current.camera,
                 initial: {
-                    position: patch.position ?? current.camera.initial.position,
-                    target: patch.target ?? current.camera.initial.target,
+                    position: patch.position ?
+                        [...patch.position] as ScaViewerConfig['camera']['initial']['position'] :
+                        [...current.camera.initial.position] as ScaViewerConfig['camera']['initial']['position'],
+                    target: patch.target ?
+                        [...patch.target] as ScaViewerConfig['camera']['initial']['target'] :
+                        [...current.camera.initial.target] as ScaViewerConfig['camera']['initial']['target'],
                     fov: patch.fov ?? current.camera.initial.fov
                 }
             }
@@ -87,16 +91,20 @@ class HotspotStore {
 
     updateViewerAnimation(patch: Partial<ScaViewerConfig['camera']['animation']>): void {
         const current = this.getViewerConfig();
-        this.project.viewer = {
+        const currentAnimation = current.camera.animation;
+        this.project.viewer = normalizeViewerConfig({
             ...current,
             camera: {
                 ...current.camera,
                 animation: {
-                    type: patch.type ?? current.camera.animation.type,
-                    duration: patch.duration ?? current.camera.animation.duration
+                    type: patch.type ?? currentAnimation.type,
+                    duration: patch.duration ?? currentAnimation.duration,
+                    turntable: patch.turntable ?
+                        { ...currentAnimation.turntable, ...patch.turntable } :
+                        currentAnimation.turntable
                 }
             }
-        };
+        });
     }
 
     updateViewerInteraction(patch: Partial<ScaViewerConfig['interaction']>): void {
@@ -114,6 +122,28 @@ class HotspotStore {
                 }
             }
         });
+    }
+
+    updateViewerBackground(background: ScaViewerBackground): void {
+        const current = this.getViewerConfig();
+        this.project.viewer = normalizeViewerConfig({
+            ...current,
+            background
+        });
+    }
+
+    updateViewerHotspots(patch: Partial<NonNullable<ScaViewerConfig['hotspots']>>): void {
+        const current = this.getViewerConfig();
+        this.project.viewer = normalizeViewerConfig({
+            ...current,
+            hotspots: {
+                showCards: patch.showCards ?? current.hotspots?.showCards ?? true
+            }
+        });
+    }
+
+    getViewerBackground(): ScaViewerBackground {
+        return this.getViewerConfig().background!;
     }
 
     getHotspots(): ScaHotspot[] {

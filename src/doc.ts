@@ -8,6 +8,7 @@ import { Splat } from './splat';
 import { writeSplatFile } from './splat-serialize';
 import { Transform } from './transform';
 import { i18n } from './ui/localization';
+import { loadScaAssetsFromZip } from './sca/persistence/register-sca-doc-events';
 
 // ts compiler and vscode find this type, but eslint does not
 type FilePickerAcceptType = unknown;
@@ -130,6 +131,15 @@ const registerDocEvents = (scene: Scene, events: Events) => {
             events.invoke('docDeserialize.poseSets', document.poseSets, document.camera?.fov);
             events.invoke('docDeserialize.view', document.view);
             scene.camera.docDeserialize(document.camera);
+            events.invoke('docDeserialize.sca', document.sca);
+
+            const scaAssets = await loadScaAssetsFromZip(
+                zipFs,
+                events.invoke('sca.project.get') as { viewer?: { background?: { type?: string; image?: { filename?: string } } } }
+            );
+            if (scaAssets.length > 0) {
+                events.fire('docDeserialize.scaAssets', scaAssets);
+            }
 
             // refresh the pivot to reflect the loaded transform
             const currentSelection = events.invoke('selection');
@@ -139,6 +149,8 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                 currentSelection.getPivot(transform);
                 pivot.place(transform);
             }
+
+            events.fire('doc.loaded');
         } catch (error) {
             await events.invoke('showPopup', {
                 type: 'error',
@@ -168,7 +180,8 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                 view: events.invoke('docSerialize.view'),
                 poseSets: events.invoke('docSerialize.poseSets'),
                 timeline: events.invoke('docSerialize.timeline'),
-                splats: splats.map(s => s.docSerialize())
+                splats: splats.map(s => s.docSerialize()),
+                sca: events.invoke('docSerialize.sca')
             };
 
             const serializeSettings = {
@@ -195,6 +208,19 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                 await writeSplatFile([splats[i]], serializeSettings, 'ply', `splat_${i}.ply`, {}, zipFs);
             }
 
+            const scaAssets = events.invoke('docSerialize.scaAssets') as Array<{
+                zipPath: string;
+                data: Uint8Array;
+            }> | undefined;
+
+            if (Array.isArray(scaAssets)) {
+                for (const asset of scaAssets) {
+                    const assetWriter = await zipFs.createWriter(asset.zipPath);
+                    await assetWriter.write(asset.data);
+                    await assetWriter.close();
+                }
+            }
+
             // Close zip (also closes underlying browser writer)
             await zipFs.close();
         } catch (error) {
@@ -217,6 +243,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
         // new documents start from the user's stored preferences rather than
         // whatever view state the previous document left behind
         events.fire('preferences.apply');
+        events.fire('doc.loaded');
         return true;
     });
 
@@ -310,14 +337,33 @@ const registerDocEvents = (scene: Scene, events: Events) => {
     events.function('doc.save', async () => {
         if (documentFileHandle) {
             try {
+                if (typeof documentFileHandle.requestPermission === 'function') {
+                    const permission = await documentFileHandle.requestPermission({ mode: 'readwrite' });
+                    if (permission !== 'granted') {
+                        await events.invoke('showPopup', {
+                            type: 'error',
+                            header: i18n.t('doc.save-failed'),
+                            message: 'Write permission was not granted for this file.'
+                        });
+                        return;
+                    }
+                }
+
                 await saveDocument({
                     stream: await documentFileHandle.createWritable()
                 });
                 events.fire('doc.saved');
             } catch (error) {
-                if (error.name !== 'AbortError' && error.name !== 'NotAllowedError') {
-                    console.error(error);
+                if (error.name === 'AbortError') {
+                    return;
                 }
+
+                console.error(error);
+                await events.invoke('showPopup', {
+                    type: 'error',
+                    header: i18n.t('doc.save-failed'),
+                    message: `${error.message ?? error}`
+                });
             }
         } else {
             await events.invoke('doc.saveAs');
@@ -346,8 +392,25 @@ const registerDocEvents = (scene: Scene, events: Events) => {
             await saveDocument({
                 filename: 'scene.ssproj'
             });
+            events.fire('doc.setName', 'scene.ssproj');
             events.fire('doc.saved');
         }
+    });
+
+    events.function('doc.hasFileHandle', () => {
+        return documentFileHandle !== null;
+    });
+
+    events.function('doc.canSave', () => {
+        if (events.invoke('scene.empty')) {
+            return false;
+        }
+
+        const hasName = !!events.invoke('doc.name');
+        const dirty = events.invoke('scene.dirty');
+        const hasHandle = events.invoke('doc.hasFileHandle');
+
+        return hasName || dirty || !hasHandle;
     });
 
     // doc name
@@ -358,6 +421,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
         if (name !== docName) {
             docName = name;
             events.fire('doc.name', docName);
+            events.fire('doc.saveStateChanged');
         }
     };
 

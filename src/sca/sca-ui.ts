@@ -4,17 +4,21 @@ import { Events } from '../events';
 import { Tooltips } from '../ui/tooltips';
 
 import { ScaPanel } from './sca-panel';
+import { registerScaBackgroundPreview } from './ui/register-sca-background-preview';
+import { ScaAssetStore } from './store/sca-asset-store';
 
 const registerScaUi = (
     events: Events,
     tooltips: Tooltips,
     canvasContainer: Container,
-    rightToolbar: Container
+    rightToolbar: Container,
+    assetStore: ScaAssetStore
 ) => {
     console.log('[SCA UI] registerScaUi called');
 
     const scaPanel = new ScaPanel(events, tooltips);
     canvasContainer.append(scaPanel);
+    registerScaBackgroundPreview(events, canvasContainer, assetStore);
     console.log('[SCA UI] panel appended');
 
     const scaButton = new Button({

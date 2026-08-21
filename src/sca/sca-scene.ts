@@ -18,6 +18,9 @@ import { HotspotMarkerManager } from './markers/hotspot-marker-manager';
 
 import { HotspotPlaceTool } from './tools/hotspot-place-tool';
 
+import { ScaAssetStore } from './store/sca-asset-store';
+import { registerScaPanoramaBackground } from './viewer/sca-panorama-background';
+
 
 
 const registerScaScene = (
@@ -30,11 +33,15 @@ const registerScaScene = (
 
     canvasContainer: Container,
 
-    toolManager: ToolManager
+    toolManager: ToolManager,
+
+    assetStore: ScaAssetStore
 
 ): void => {
 
     new HotspotMarkerManager(events, scene, canvasContainer);
+
+    registerScaPanoramaBackground(events, scene, assetStore);
 
 
 

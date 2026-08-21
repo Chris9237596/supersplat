@@ -77,8 +77,41 @@
   }
 
   /**
+   * @param {object[]} hotspots
+   */
+  function buildHotspotById(hotspots) {
+    const byId = new Map()
+    if (!Array.isArray(hotspots)) {
+      return byId
+    }
+
+    for (const hotspot of hotspots) {
+      if (hotspot?.id) {
+        byId.set(hotspot.id, hotspot)
+      }
+    }
+
+    return byId
+  }
+
+  /**
+   * @param {unknown} annotation
+   * @param {Map<string, object>} byId
+   * @param {number} index
+   */
+  function resolveHotspotFromAnnotation(annotation, byId, index) {
+    const id = annotation?.extras?.id
+    if (typeof id === 'string' && id.trim() && byId.has(id.trim())) {
+      return byId.get(id.trim())
+    }
+
+    const fallbackId = resolveLegacyHotspotId(annotation, index)
+    return byId.get(fallbackId) ?? { id: fallbackId }
+  }
+
+  /**
    * @param {object} viewer
-   * @param {{ project?: object, registry?: Map<unknown, object> }} [runtime]
+   * @param {{ project?: object }} [runtime]
    */
   function initHotspotBridge(viewer, runtime = {}) {
     const global = viewer?.global
@@ -93,36 +126,30 @@
     window.SCA3D = window.SCA3D || {}
     window.SCA3D.state = window.SCA3D.state || {}
     window.SCA3D.state.project = runtime.project ?? window.SCA3D.state.project
-    window.SCA3D.state.registry = runtime.registry ?? window.SCA3D.state.registry
     window.SCA3D.state.viewer = viewer
 
+    const byId = buildHotspotById(window.SCA3D.state.project?.hotspots)
     const legacyIndex = new Map(
       annotations.map((annotation, index) => [annotation, index])
     )
 
     const onAnnotationActivate = (annotation) => {
-      const registry = window.SCA3D?.state?.registry
-      if (registry?.has(annotation)) {
-        handleHotspotClick(registry.get(annotation))
-        return
-      }
-
       const index = legacyIndex.get(annotation)
       if (index === undefined) {
         console.warn('[SCA3D] hotspotClicked ignored: unknown annotation')
         return
       }
 
-      emitHotspotClicked(resolveLegacyHotspotId(annotation, index))
+      handleHotspotClick(resolveHotspotFromAnnotation(annotation, byId, index))
     }
 
     events.on('annotation.activate', onAnnotationActivate)
 
-    const hotspotCount = window.SCA3D?.state?.registry?.size ?? annotations.length
-    console.log(`[SCA3D] hotspot bridge ready (${hotspotCount} mapped hotspot(s))`)
+    console.log(`[SCA3D] hotspot bridge ready (${byId.size || annotations.length} mapped hotspot(s))`)
   }
 
   window.initHotspotBridge = initHotspotBridge
   window.SCA3D = window.SCA3D || {}
+  window.SCA3D.handleHotspotClick = handleHotspotClick
   window.SCA3D.emitHotspotClicked = emitHotspotClicked
 })()

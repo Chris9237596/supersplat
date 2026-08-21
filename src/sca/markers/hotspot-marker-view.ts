@@ -17,6 +17,7 @@ class HotspotMarkerView {
     private screenVisible = true;
     private hotspotEnabled = true;
     private selected = false;
+    private showCards = true;
     private screenX = 0;
     private screenY = 0;
 
@@ -59,10 +60,11 @@ class HotspotMarkerView {
         });
     }
 
-    updateFromHotspot(hotspot: ScaHotspot, index: number, selected: boolean): void {
+    updateFromHotspot(hotspot: ScaHotspot, index: number, selected: boolean, showCards = true): void {
         this.hotspotId = hotspot.id;
         this.hotspotEnabled = hotspot.enabled;
         this.selected = selected;
+        this.showCards = showCards;
 
         this.badge.textContent = String(index + 1);
         this.badge.setAttribute('aria-label', `Select hotspot ${index + 1}: ${hotspot.name || 'Untitled'}`);
@@ -80,13 +82,13 @@ class HotspotMarkerView {
         this.screenY = y;
         this.screenVisible = visible;
 
-        this.anchor.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+        this.anchor.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
         this.applyVisibility();
         this.layoutCard(viewportWidth, viewportHeight);
     }
 
     private layoutCard(viewportWidth: number, viewportHeight: number): void {
-        if (!this.selected || !this.screenVisible || !this.hotspotEnabled) {
+        if (!this.selected || !this.screenVisible || !this.hotspotEnabled || !this.showCards) {
             this.card.classList.add('is-hidden');
             return;
         }
@@ -114,14 +116,14 @@ class HotspotMarkerView {
         this.card.classList.toggle('arrow-right', !flipped);
         this.card.classList.toggle('arrow-left', flipped);
         this.card.style.transform = 'none';
-        this.card.style.left = `${left}px`;
-        this.card.style.top = `${top}px`;
+        this.card.style.left = `${Math.round(left)}px`;
+        this.card.style.top = `${Math.round(top)}px`;
     }
 
     private applyVisibility(): void {
         const show = this.screenVisible && this.hotspotEnabled;
         this.anchor.classList.toggle('is-hidden', !show);
-        if (!show || !this.selected) {
+        if (!show || !this.selected || !this.showCards) {
             this.card.classList.add('is-hidden');
         }
     }

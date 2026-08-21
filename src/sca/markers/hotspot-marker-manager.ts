@@ -47,8 +47,14 @@ class HotspotMarkerManager {
         });
     }
 
+    private getShowCards(): boolean {
+        const viewer = this.events.invoke('sca.viewer.get') as { hotspots?: { showCards?: boolean } } | null;
+        return viewer?.hotspots?.showCards !== false;
+    }
+
     private syncMarkers(): void {
         const hotspots = this.events.invoke('sca.hotspot.list') as ScaHotspot[];
+        const showCards = this.getShowCards();
         const ids = new Set(hotspots.map((hotspot) => hotspot.id));
 
         for (const [id, view] of this.views) {
@@ -65,7 +71,7 @@ class HotspotMarkerManager {
                 this.views.set(hotspot.id, view);
             }
 
-            view.updateFromHotspot(hotspot, index, hotspot.id === this.selectedId);
+            view.updateFromHotspot(hotspot, index, hotspot.id === this.selectedId, showCards);
         });
 
         this.scene.forceRender = true;
@@ -73,11 +79,12 @@ class HotspotMarkerManager {
 
     private updateSelectionVisuals(): void {
         const hotspots = this.events.invoke('sca.hotspot.list') as ScaHotspot[];
+        const showCards = this.getShowCards();
 
         hotspots.forEach((hotspot, index) => {
             const view = this.views.get(hotspot.id);
             if (view) {
-                view.updateFromHotspot(hotspot, index, hotspot.id === this.selectedId);
+                view.updateFromHotspot(hotspot, index, hotspot.id === this.selectedId, showCards);
             }
         });
 

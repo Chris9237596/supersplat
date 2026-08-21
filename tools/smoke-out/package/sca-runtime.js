@@ -7,6 +7,7 @@
   const DEFAULT_ANIMATION_DURATION = 1.5
   const DEFAULT_FOCUS_TRANSITION_DURATION = 0.8
   const DEFAULT_HOME_TRANSITION_DURATION = 1.0
+  const DEFAULT_BACKGROUND_COLOR = '#000000'
   const FLY_TO_START_SCALE = 2.5
   const DISABLED_HELP_ACTIONS = new Set([
     'help.action.set-focus',
@@ -69,10 +70,41 @@
 
   /**
    * @param {unknown} raw
-   * @returns {'none' | 'flyTo'}
+   * @returns {'none' | 'flyTo' | 'turntable'}
    */
   function normalizeAnimationType(raw) {
-    return raw === 'flyTo' ? 'flyTo' : 'none'
+    if (raw === 'flyTo') {
+      return 'flyTo'
+    }
+    if (raw === 'turntable') {
+      return 'turntable'
+    }
+    return 'none'
+  }
+
+  /**
+   * @param {unknown} raw
+   */
+  function normalizeTurntable(raw) {
+    const record = raw && typeof raw === 'object' ? raw : {}
+    const duration = typeof record.duration === 'number' &&
+      Number.isFinite(record.duration) &&
+      record.duration > 0 ?
+      Math.min(record.duration, 120) :
+      10
+
+    const degrees = typeof record.degrees === 'number' &&
+      Number.isFinite(record.degrees) &&
+      record.degrees > 0 ?
+      Math.min(record.degrees, 720) :
+      360
+
+    return {
+      duration,
+      direction: record.direction === 'counterclockwise' ? 'counterclockwise' : 'clockwise',
+      degrees,
+      loop: record.loop !== false,
+    }
   }
 
   /**
@@ -90,6 +122,16 @@
   }
 
   /**
+   * @param {unknown} raw
+   */
+  function normalizeHotspots(raw) {
+    const record = raw && typeof raw === 'object' ? raw : {}
+    return {
+      showCards: record.showCards !== false,
+    }
+  }
+
+  /**
    * @param {object | undefined} settingsJson
    * @returns {{ position: number[], target: number[], fov: number } | null}
    */
@@ -104,6 +146,166 @@
     }
 
     return { position, target, fov }
+  }
+
+  /**
+   * @param {unknown} raw
+   */
+  function normalizeBackground(raw) {
+    if (!raw || typeof raw !== 'object') {
+      return { type: 'color', color: DEFAULT_BACKGROUND_COLOR }
+    }
+
+    const record = raw
+    if (record.type === 'transparent') {
+      return { type: 'transparent' }
+    }
+
+    if (record.type === 'image') {
+      const imageRaw = record.image
+      const image = imageRaw && typeof imageRaw === 'object' ? imageRaw : {}
+      const filename = typeof image.filename === 'string' && image.filename.trim() ?
+        image.filename.trim() :
+        undefined
+      return {
+        type: 'image',
+        image: {
+          assetId: typeof image.assetId === 'string' ? image.assetId : 'background',
+          ...(filename ? { filename } : {})
+        }
+      }
+    }
+
+    if (record.type === 'panorama') {
+      const imageRaw = record.image
+      const image = imageRaw && typeof imageRaw === 'object' ? imageRaw : {}
+      const filename = typeof image.filename === 'string' && image.filename.trim() ?
+        image.filename.trim() :
+        undefined
+      return {
+        type: 'panorama',
+        image: {
+          assetId: typeof image.assetId === 'string' ? image.assetId : 'background',
+          ...(filename ? { filename } : {})
+        }
+      }
+    }
+
+    const color = typeof record.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(record.color.trim()) ?
+      record.color.trim().toLowerCase() :
+      DEFAULT_BACKGROUND_COLOR
+
+    return { type: 'color', color }
+  }
+
+  /**
+   * @param {string} assetPath
+   */
+  function resolveEmbeddedAssetUrl(assetPath) {
+    const embedded = window.__SCA3D_EMBEDDED_ASSETS__
+    if (embedded && typeof embedded[assetPath] === 'string') {
+      return embedded[assetPath]
+    }
+
+    return `./${assetPath}`
+  }
+
+  /**
+   * @param {object} viewer
+   */
+  function findViewerCameraComponent(viewer) {
+    const app = viewer.global?.app
+    if (!app?.root?.findByName) {
+      return null
+    }
+
+    return app.root.findByName('camera')?.camera ?? null
+  }
+
+  /**
+   * @param {ReturnType<typeof normalizeBackground>} background
+   * @param {object} viewer
+   */
+  function applyViewerBackground(background, viewer) {
+    const canvas = document.getElementById('application-canvas')
+    let layer = document.getElementById('sca-viewer-background')
+
+    if (!layer) {
+      layer = document.createElement('div')
+      layer.id = 'sca-viewer-background'
+      layer.style.cssText = [
+        'position:fixed',
+        'inset:0',
+        'z-index:0',
+        'pointer-events:none',
+        'background-repeat:no-repeat',
+        'background-position:center',
+        'background-size:cover'
+      ].join(';')
+      document.body.insertBefore(layer, canvas || document.body.firstChild)
+    }
+
+    if (canvas && !canvas.style.position) {
+      canvas.style.position = 'fixed'
+    }
+
+    document.documentElement.style.background = 'transparent'
+    document.body.style.background = 'transparent'
+    layer.style.backgroundColor = 'transparent'
+    layer.style.backgroundImage = 'none'
+
+    const cameraComponent = findViewerCameraComponent(viewer)
+
+    if (background.type === 'transparent') {
+      if (cameraComponent?.clearColor) {
+        cameraComponent.clearColor.r = 0
+        cameraComponent.clearColor.g = 0
+        cameraComponent.clearColor.b = 0
+        cameraComponent.clearColor.a = 0
+      }
+      return
+    }
+
+    if (background.type === 'image') {
+      const filename = background.image?.filename
+      if (filename) {
+        const assetPath = `assets/${filename}`
+        layer.style.backgroundImage = `url("${resolveEmbeddedAssetUrl(assetPath)}")`
+      }
+
+      if (cameraComponent?.clearColor) {
+        cameraComponent.clearColor.r = 0
+        cameraComponent.clearColor.g = 0
+        cameraComponent.clearColor.b = 0
+        cameraComponent.clearColor.a = 0
+      }
+      return
+    }
+
+    if (background.type === 'panorama') {
+      layer.style.backgroundImage = 'none'
+      layer.style.backgroundColor = 'transparent'
+
+      if (cameraComponent?.clearColor) {
+        cameraComponent.clearColor.r = 0
+        cameraComponent.clearColor.g = 0
+        cameraComponent.clearColor.b = 0
+        cameraComponent.clearColor.a = 0
+      }
+      return
+    }
+
+    const color = background.color || DEFAULT_BACKGROUND_COLOR
+    document.body.style.background = color
+    layer.style.backgroundColor = color
+
+    if (cameraComponent?.clearColor) {
+      const hex = color.slice(1)
+      cameraComponent.clearColor.r = parseInt(hex.slice(0, 2), 16) / 255
+      cameraComponent.clearColor.g = parseInt(hex.slice(2, 4), 16) / 255
+      cameraComponent.clearColor.b = parseInt(hex.slice(4, 6), 16) / 255
+      cameraComponent.clearColor.a = 1
+    }
   }
 
   /**
@@ -151,19 +353,25 @@
       rawAnimation.duration :
       DEFAULT_ANIMATION_DURATION
 
+    const animationType = normalizeAnimationType(rawAnimation.type)
+    const turntableRaw = rawAnimation.turntable
+
     return {
       camera: {
         initial: { position, target, fov },
         animation: {
-          type: normalizeAnimationType(rawAnimation.type),
-          duration
-        }
+          type: animationType,
+          duration,
+          turntable: normalizeTurntable(turntableRaw),
+        },
       },
       navigation: {
         defaultMode,
         allowedModes
       },
-      interaction: normalizeInteraction(rawInteraction)
+      interaction: normalizeInteraction(rawInteraction),
+      background: normalizeBackground(raw?.background),
+      hotspots: normalizeHotspots(raw?.hotspots),
     }
   }
 
@@ -209,85 +417,39 @@
   }
 
   /**
-   * @param {{ position: number[], target: number[], fov: number }} pose
-   */
-  function poseToCameraSnapshot(pose) {
-    const [px, py, pz] = pose.position
-    const [tx, ty, tz] = pose.target
-    const dx = tx - px
-    const dy = ty - py
-    const dz = tz - pz
-    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
-
-    if (distance <= 1e-6) {
-      return {
-        position: [px, py, pz],
-        angles: [0, 0, 0],
-        distance: 0,
-        fov: pose.fov
-      }
-    }
-
-    const dirX = dx / distance
-    const dirY = dy / distance
-    const dirZ = dz / distance
-    const elev = Math.atan2(-dirY, Math.sqrt(dirX * dirX + dirZ * dirZ)) * (180 / Math.PI)
-    const azim = Math.atan2(-dirX, -dirZ) * (180 / Math.PI)
-
-    return {
-      position: [px, py, pz],
-      angles: [-elev, azim, 0],
-      distance,
-      fov: pose.fov
-    }
-  }
-
-  /**
-   * @param {object} cam
-   * @param {{ position: number[], angles: number[], distance: number, fov: number }} snapshot
-   */
-  function applyCameraSnapshot(cam, snapshot) {
-    cam.position.set(snapshot.position[0], snapshot.position[1], snapshot.position[2])
-    cam.angles.set(snapshot.angles[0], snapshot.angles[1], snapshot.angles[2])
-    cam.distance = snapshot.distance
-    cam.fov = snapshot.fov
-  }
-
-  /**
-   * @param {number} t
-   */
-  function easeOut(t) {
-    return 1 - Math.pow(1 - t, 3)
-  }
-
-  /**
-   * @param {object} from
-   * @param {object} to
-   * @param {number} t
-   */
-  function lerpSnapshot(from, to, t) {
-    const lerp = (a, b) => a + (b - a) * t
-    return {
-      position: from.position.map((value, index) => lerp(value, to.position[index])),
-      angles: from.angles.map((value, index) => lerp(value, to.angles[index])),
-      distance: lerp(from.distance, to.distance),
-      fov: lerp(from.fov, to.fov)
-    }
-  }
-
-  /**
-   * @type {{ cancel: () => void } | null}
-   */
-  let activeCameraTransition = null
-
-  /**
    * @param {object} viewer
+   * @param {{ position: number[], target: number[], fov: number }} startPose
+   * @param {{ position: number[], target: number[], fov: number }} endPose
+   * @param {number} durationSeconds
    */
-  function cancelCameraTransition(viewer) {
-    if (activeCameraTransition) {
-      activeCameraTransition.cancel()
-      activeCameraTransition = null
+  async function runStartupFlyTo(viewer, startPose, endPose, durationSeconds) {
+    if (typeof viewer.animateStartupTransition !== 'function') {
+      console.warn('[SCA3D] animateStartupTransition unavailable on viewer')
+      return
     }
+
+    const diag = window.__SCA3D_CAMERA_DIAG
+    diag.flyToStartCount = (diag.flyToStartCount || 0) + 1
+
+    console.log('[SCA3D] startup flyTo start', JSON.stringify({
+      startCount: diag.flyToStartCount,
+      duration: durationSeconds,
+      startPosition: startPose.position,
+      endPosition: endPose.position
+    }))
+
+    await viewer.animateStartupTransition(startPose, endPose, durationSeconds)
+  }
+
+  /**
+   * Shared diagnostic state read by patched CameraManager.update().
+   */
+  window.__SCA3D_CAMERA_DIAG = window.__SCA3D_CAMERA_DIAG || {
+    flyToActive: false,
+    flyToT: null,
+    flyToStartCount: 0,
+    startupAnimationType: null,
+    startupAnimationDuration: null
   }
 
   /**
@@ -295,7 +457,6 @@
    */
   function interruptCameraTransitions(viewer) {
     viewer.interruptScaCameraAnimations?.()
-    cancelCameraTransition(viewer)
   }
 
   /**
@@ -331,76 +492,6 @@
         interrupt()
       }
     }, true)
-  }
-
-  /**
-   * @param {object} viewer
-   * @param {{ position: number[], target: number[], fov: number }} startPose
-   * @param {{ position: number[], target: number[], fov: number }} endPose
-   * @param {number} durationSeconds
-   */
-  function runFlyToAnimation(viewer, startPose, endPose, durationSeconds) {
-    const cm = viewer.cameraManager
-    if (!cm?.camera || typeof cm.snap !== 'function') {
-      console.warn('[SCA3D] flyTo animation unavailable: camera manager missing')
-      return Promise.resolve()
-    }
-
-    cancelCameraTransition(viewer)
-
-    const from = poseToCameraSnapshot(startPose)
-    const to = poseToCameraSnapshot(endPose)
-
-    applyCameraSnapshot(cm.camera, from)
-    cm.snap()
-
-    const app = viewer.global?.app
-    if (!app) {
-      applyCameraSnapshot(cm.camera, to)
-      cm.snap()
-      return Promise.resolve()
-    }
-
-    return new Promise((resolve) => {
-      let elapsed = 0
-      let cancelled = false
-
-      const finish = () => {
-        activeCameraTransition = null
-        resolve()
-      }
-
-      const cancel = () => {
-        if (cancelled) {
-          return
-        }
-        cancelled = true
-        cm.snap()
-        finish()
-      }
-
-      activeCameraTransition = { cancel }
-
-      const step = (dt) => {
-        if (cancelled) {
-          return
-        }
-
-        elapsed += dt
-        const t = Math.min(1, elapsed / Math.max(durationSeconds, 0.001))
-        applyCameraSnapshot(cm.camera, lerpSnapshot(from, to, easeOut(t)))
-        app.renderNextFrame = true
-
-        if (t < 1) {
-          app.once('update', step)
-        } else {
-          cm.snap()
-          finish()
-        }
-      }
-
-      app.once('update', step)
-    })
   }
 
   /**
@@ -568,11 +659,53 @@
   }
 
   /**
+   * @param {object[]} hotspots
+   */
+  function buildHotspotById(hotspots) {
+    const byId = new Map()
+    if (!Array.isArray(hotspots)) {
+      return byId
+    }
+
+    for (const hotspot of hotspots) {
+      if (hotspot?.id) {
+        byId.set(hotspot.id, hotspot)
+      }
+    }
+
+    return byId
+  }
+
+  /**
    * @param {object} viewer
-   * @param {Map<unknown, object>} registry
+   * @param {ReturnType<typeof normalizeViewerConfig>} viewerConfig
+   * @param {object} hotspot
+   */
+  function activateScaHotspot(viewer, viewerConfig, hotspot) {
+    if (!hotspot?.id) {
+      return
+    }
+
+    interruptCameraTransitions(viewer)
+
+    window.SCA3D.state.selectedHotspotId = hotspot.id
+    window.SCA3D.hotspotOverlay?.setSelected(hotspot.id)
+
+    if (hotspot.position) {
+      animateHotspotFocus(
+        viewer,
+        hotspot.position,
+        viewerConfig.interaction.focusTransition.duration
+      )
+    }
+  }
+
+  /**
+   * @param {object} viewer
+   * @param {Map<string, object>} hotspotById
    * @param {ReturnType<typeof normalizeViewerConfig>} viewerConfig
    */
-  function setupScaFocusCamera(viewer, registry, viewerConfig) {
+  function setupScaFocusCamera(viewer, hotspotById, viewerConfig) {
     const events = viewer.global?.events
     if (!events) {
       return
@@ -581,16 +714,12 @@
     const focusDuration = viewerConfig.interaction.focusTransition.duration
 
     const resolveHotspot = (annotation) => {
-      if (registry.has(annotation)) {
-        return registry.get(annotation)
-      }
-
       const id = annotation?.extras?.id
-      if (typeof id !== 'string') {
-        return null
+      if (typeof id === 'string' && id.trim() && hotspotById.has(id.trim())) {
+        return hotspotById.get(id.trim())
       }
 
-      return window.SCA3D?.state?.project?.hotspots?.find((hotspot) => hotspot.id === id) ?? null
+      return null
     }
 
     let pendingDeselectTimer = null
@@ -606,11 +735,9 @@
         return
       }
 
+      activateScaHotspot(viewer, viewerConfig, hotspot)
+
       const positionBefore = readCameraPosition(viewer)
-      animateHotspotFocus(viewer, hotspot.position, focusDuration)
-
-      window.SCA3D.state.selectedHotspotId = hotspot.id
-
       console.log('[SCA3D] select animation')
       console.log('position before', positionBefore)
       console.log('position after', readCameraPosition(viewer))
@@ -626,6 +753,7 @@
       pendingDeselectTimer = setTimeout(() => {
         pendingDeselectTimer = null
         window.SCA3D.state.selectedHotspotId = null
+        window.SCA3D.hotspotOverlay?.setSelected(null)
       }, 0)
     })
   }
@@ -758,10 +886,10 @@
   /**
    * @param {object} viewer
    * @param {ReturnType<typeof normalizeViewerConfig>} viewerConfig
-   * @param {Map<unknown, object>} registry
+   * @param {Map<string, object>} hotspotById
    */
-  function applyRuntimeUx(viewer, viewerConfig, registry) {
-    setupScaFocusCamera(viewer, registry, viewerConfig)
+  function applyRuntimeUx(viewer, viewerConfig, hotspotById) {
+    setupScaFocusCamera(viewer, hotspotById, viewerConfig)
     setupAnimationInterrupt(viewer)
     setupHomeResetButton(viewer, viewerConfig)
     applyAnimationUiPolicy(viewerConfig)
@@ -815,9 +943,10 @@
     }
 
     enforceMode()
-    if (state.cameraMode !== defaultMode) {
+    if (state.cameraMode === 'anim' || state.cameraMode !== defaultMode) {
       state.cameraMode = defaultMode
     }
+    state.animationPaused = true
 
     events?.on('cameraMode:changed', enforceMode)
   }
@@ -830,9 +959,15 @@
     applyNavigationRestrictions(viewer, viewerConfig)
 
     const { animation, initial } = viewerConfig.camera
-    if (animation.type !== 'flyTo') {
-      return
-    }
+    const diag = window.__SCA3D_CAMERA_DIAG
+    diag.startupAnimationType = animation.type
+    diag.startupAnimationDuration = animation.duration
+
+    console.log('[SCA3D] viewer.camera.animation', JSON.stringify({
+      type: animation.type,
+      duration: animation.duration,
+      turntable: animation.turntable,
+    }))
 
     const waitForLoaded = () => new Promise((resolve) => {
       const { state, events } = viewer.global || {}
@@ -844,10 +979,24 @@
       events?.once('firstFrame', () => resolve())
     })
 
-    await waitForLoaded()
+    if (animation.type === 'flyTo') {
+      await waitForLoaded()
 
-    const startPose = computeFlyToStartPose(initial)
-    await runFlyToAnimation(viewer, startPose, initial, animation.duration)
+      const startPose = (window.SCA3D?.computeFlyToStartPose ?? computeFlyToStartPose)(initial)
+      await runStartupFlyTo(viewer, startPose, initial, animation.duration)
+      return
+    }
+
+    if (animation.type === 'turntable') {
+      await waitForLoaded()
+
+      const turntable = animation.turntable
+      if (turntable && typeof viewer.animateTurntable === 'function') {
+        viewer.animateTurntable(initial, turntable)
+      } else {
+        console.warn('[SCA3D] animateTurntable unavailable on viewer')
+      }
+    }
   }
 
   /**
@@ -879,48 +1028,48 @@
   }
 
   /**
-   * Map viewer annotations to project hotspots via extras.id.
-   * @param {object[]} annotations
-   * @param {object[]} hotspots
-   */
-  function buildRegistry(annotations, hotspots) {
-    const byId = new Map(hotspots.map((hotspot) => [hotspot.id, hotspot]))
-    const registry = new Map()
-
-    for (const annotation of annotations) {
-      const id = annotation?.extras?.id
-      if (typeof id === 'string' && byId.has(id)) {
-        registry.set(annotation, byId.get(id))
-      }
-    }
-
-    return registry
-  }
-
-  /**
    * @param {{ canvas: HTMLCanvasElement, settingsJson: object, config: object, main: Function }} args
    */
   async function bootstrapViewer({ canvas, settingsJson, config, main }) {
     const project = await loadProject()
     const viewerConfig = normalizeViewerConfig(project, settingsJson)
-    const annotations = Array.isArray(settingsJson?.annotations) ? settingsJson.annotations : []
-    const registry = buildRegistry(annotations, project.hotspots)
+    const hotspotById = buildHotspotById(project.hotspots)
     const settingsForViewer = applyScaNavigationSettings(settingsJson)
+
+    if (viewerConfig.background.type === 'panorama') {
+      const filename = viewerConfig.background.image?.filename
+      if (filename) {
+        config.skyboxUrl = resolveEmbeddedAssetUrl(`assets/${filename}`)
+      }
+    }
+
     const viewer = await main(canvas, settingsForViewer, config)
 
     window.SCA3D = window.SCA3D || {}
     window.SCA3D.state = window.SCA3D.state || {}
     window.SCA3D.state.project = project
     window.SCA3D.state.viewerConfig = viewerConfig
-    window.SCA3D.state.registry = registry
+    window.SCA3D.state.hotspotById = hotspotById
     window.SCA3D.state.viewer = viewer
+    window.SCA3D.activateHotspot = (hotspot) => activateScaHotspot(viewer, viewerConfig, hotspot)
 
-    applyRuntimeUx(viewer, viewerConfig, registry)
+    applyRuntimeUx(viewer, viewerConfig, hotspotById)
+    applyViewerBackground(viewerConfig.background, viewer)
+
+    viewer.global?.events?.once('firstFrame', () => {
+      applyViewerBackground(viewerConfig.background, viewer)
+    })
 
     if (typeof initHotspotBridge === 'function') {
-      initHotspotBridge(viewer, { project, registry })
+      initHotspotBridge(viewer, { project })
     } else {
       console.warn('[SCA3D] hotspot bridge not available')
+    }
+
+    if (typeof initScaHotspotOverlay === 'function') {
+      initScaHotspotOverlay(viewer, project, viewerConfig)
+    } else {
+      console.warn('[SCA3D] hotspot overlay not available')
     }
 
     applyViewerConfig(viewer, viewerConfig).catch((error) => {
@@ -934,7 +1083,8 @@
   window.SCA3D.loadProject = loadProject
   window.SCA3D.bootstrapViewer = bootstrapViewer
   window.SCA3D.normalizeViewerConfig = normalizeViewerConfig
+  window.SCA3D.normalizeBackground = normalizeBackground
+  window.SCA3D.applyViewerBackground = applyViewerBackground
   window.SCA3D.resetView = runHomeTransition
-  window.SCA3D.cancelCameraTransition = cancelCameraTransition
   window.SCA3D.interruptCameraTransitions = interruptCameraTransitions
 })()

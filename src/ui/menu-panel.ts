@@ -88,18 +88,26 @@ class MenuPanel extends Container {
         });
 
         this.on('show', async () => {
-            for (let i = 0; i < this.menuItems.length; i++) {
-                const menuItem = this.menuItems[i];
-                if (menuItem.isEnabled) {
-                    this.dom.children.item(i).ui.enabled = await menuItem.isEnabled();
-                }
-                if (menuItem.isVisible) {
-                    this.dom.children.item(i).ui.hidden = !(await menuItem.isVisible());
-                }
-            }
+            await this.refreshEnabledStates();
         });
 
         this.setItems(menuItems);
+    }
+
+    async refreshEnabledStates() {
+        for (let i = 0; i < this.menuItems.length; i++) {
+            const menuItem = this.menuItems[i];
+            const row = this.dom.children.item(i);
+            if (!row?.ui) {
+                continue;
+            }
+            if (menuItem.isEnabled) {
+                row.ui.enabled = await menuItem.isEnabled();
+            }
+            if (menuItem.isVisible) {
+                row.ui.hidden = !(await menuItem.isVisible());
+            }
+        }
     }
 
     setItems(menuItems: MenuItem[]) {

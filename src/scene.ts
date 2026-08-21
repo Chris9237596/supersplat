@@ -2,6 +2,7 @@ import {
     EVENT_POSTRENDER_LAYER,
     EVENT_PRERENDER_LAYER,
     LAYERID_DEPTH,
+    LAYERID_SKYBOX,
     SORTMODE_CUSTOM,
     BoundingBox,
     CameraComponent,

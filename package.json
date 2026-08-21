@@ -20,7 +20,11 @@
         "develop": "cross-env BUILD_TYPE=debug concurrently --kill-others \"npm run watch\" \"npm run serve\"",
         "develop:auto-launch": "concurrently --kill-others \"xdg-open 'http://localhost:3000/'\" \"npm run watch\" \"npm run serve\"",
         "lint": "eslint src",
-        "lint:locales": "node scripts/check-locales.mjs"
+        "lint:locales": "node scripts/check-locales.mjs",
+        "test:sca-persistence": "npx tsx tools/sca-ssproj-persistence-test.ts",
+        "test:sca-history": "npx tsx tools/sca-history-test.ts",
+        "test:sca-background": "npx tsx tools/sca-background-test.ts",
+        "test:sca-camera-animation": "npx tsx tools/sca-camera-animation-test.ts"
     },
     "engines": {
         "node": ">=20.19.0"

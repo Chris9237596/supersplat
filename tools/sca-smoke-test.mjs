@@ -139,8 +139,20 @@ const assertPatchApplied = (packageDir) => {
     if (!indexJs.includes('animateHomeTransition')) {
         throw new Error('exported index.js missing animateHomeTransition patch');
     }
+    if (!indexJs.includes('animateStartupTransition')) {
+        throw new Error('exported index.js missing animateStartupTransition patch');
+    }
+    if (!indexJs.includes('scaStartupFlyAnim')) {
+        throw new Error('exported index.js missing scaStartupFlyAnim patch');
+    }
     if (!indexJs.includes('interruptScaCameraAnimations')) {
         throw new Error('exported index.js missing interruptScaCameraAnimations patch');
+    }
+    if (!indexJs.includes('animateTurntable')) {
+        throw new Error('exported index.js missing animateTurntable patch');
+    }
+    if (!indexJs.includes('scaTurntableAnim')) {
+        throw new Error('exported index.js missing scaTurntableAnim patch');
     }
     if (indexJs.includes('scaLockedPivot')) {
         throw new Error('exported index.js still contains removed scaLockedPivot lock');

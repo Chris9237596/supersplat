@@ -118,6 +118,10 @@ class ScaHotspotForm extends Container {
             });
         });
 
+        this.bindTextHistory(this.nameInput);
+        this.bindTextHistory(this.textInput);
+        this.bindVectorHistory(this.positionInput);
+
         placeButton.on('click', () => {
             if (!this.selectedId) {
                 return;
@@ -195,6 +199,24 @@ class ScaHotspotForm extends Container {
         }
 
         this.events.fire('sca.hotspot.update', this.selectedId, patch);
+    }
+
+    private bindTextHistory(input: TextInput | TextAreaInput): void {
+        input.dom.addEventListener('focus', () => {
+            this.events.invoke('sca.history.beginTransaction');
+        });
+        input.dom.addEventListener('blur', () => {
+            this.events.invoke('sca.history.commitTransaction');
+        });
+    }
+
+    private bindVectorHistory(input: VectorInput): void {
+        input.dom.addEventListener('focusin', () => {
+            this.events.invoke('sca.history.beginTransaction');
+        });
+        input.dom.addEventListener('focusout', () => {
+            this.events.invoke('sca.history.commitTransaction');
+        });
     }
 }
 

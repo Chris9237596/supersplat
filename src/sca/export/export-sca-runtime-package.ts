@@ -18,6 +18,8 @@ import {
 import { stringifyProjectJson } from '../serialize/project-json';
 import { ScaProject } from '../types/project';
 import { resolveViewerConfig } from '../viewer/viewer-config';
+import { backgroundAssetPath, parseHexColor } from '../viewer/viewer-background';
+import { ScaAssetStore } from '../store/sca-asset-store';
 
 import { hotspotsToAnnotations } from './hotspot-to-annotation';
 import { patchViewerBundle } from './patch-viewer-bundle';
@@ -74,8 +76,6 @@ const createProgressRenderer = (header: string, events?: Events) => ({
 });
 
 const buildViewerExperienceSettings = (events: Events, project: ScaProject): ExperienceSettings => {
-    const bgClr = events.invoke('bgClr') as { r: number; g: number; b: number };
-
     const editorPose = events.invoke('camera.getPose') as {
         position?: { x: number; y: number; z: number };
         target?: { x: number; y: number; z: number };
@@ -89,7 +89,21 @@ const buildViewerExperienceSettings = (events: Events, project: ScaProject): Exp
     } : undefined;
 
     const viewerConfig = resolveViewerConfig(project, fallbackInitial);
+    const background = viewerConfig.background ?? { type: 'color' as const, color: '#000000' };
     const initial = viewerConfig.camera.initial;
+
+    let backgroundColor: [number, number, number] = [0, 0, 0];
+    if (background.type === 'color' && background.color) {
+        const { r, g, b } = parseHexColor(background.color);
+        backgroundColor = [r, g, b];
+    }
+
+    const backgroundSettings: ExperienceSettings['background'] = {
+        color: backgroundColor
+    };
+    if (background.type === 'panorama' && background.image?.filename) {
+        backgroundSettings.skyboxUrl = `./assets/${background.image.filename}`;
+    }
 
     const cameras = [{
         initial: {
@@ -103,9 +117,7 @@ const buildViewerExperienceSettings = (events: Events, project: ScaProject): Exp
         version: 2,
         tonemapping: 'none',
         highPrecisionRendering: false,
-        background: {
-            color: [bgClr.r, bgClr.g, bgClr.b]
-        },
+        background: backgroundSettings,
         postEffectSettings: defaultPostEffectSettings,
         animTracks: [],
         cameras,
@@ -129,8 +141,16 @@ const patchIndexHtml = (html: string): string => {
     let patched = html;
 
     patched = patched.replace(
+        '<link rel="stylesheet" href="./index.css">',
+        '<link rel="stylesheet" href="./index.css">\n' +
+        '        <link rel="stylesheet" href="./sca-hotspot-markers.css">'
+    );
+
+    patched = patched.replace(
         '        <!-- Application Script -->',
+        '        <script src="./camera-animation.js"></script>\n' +
         '        <script src="./hotspot-bridge.js"></script>\n' +
+        '        <script src="./sca-hotspot-overlay.js"></script>\n' +
         '        <script src="./sca-runtime.js"></script>\n\n' +
         '        <!-- Application Script -->'
     );
@@ -138,11 +158,25 @@ const patchIndexHtml = (html: string): string => {
     return patchViewerBootstrap(patched);
 };
 
-const patchPreviewHtml = (html: string, project: ScaProject, bridgeJs: string, runtimeJs: string): string => {
+const patchPreviewHtml = (
+    html: string,
+    project: ScaProject,
+    cameraAnimationJs: string,
+    bridgeJs: string,
+    overlayJs: string,
+    hotspotCss: string,
+    runtimeJs: string,
+    embeddedAssets: Record<string, string> = {}
+): string => {
     const embeddedProject = JSON.stringify(project);
+    const embeddedAssetsJson = JSON.stringify(embeddedAssets);
     const inlineScripts =
         `<script>\nwindow.__SCA3D_EMBEDDED_PROJECT__ = ${embeddedProject};\n</script>\n` +
+        `<script>\nwindow.__SCA3D_EMBEDDED_ASSETS__ = ${embeddedAssetsJson};\n</script>\n` +
+        `<style>\n${hotspotCss}\n</style>\n` +
+        `<script>\n${cameraAnimationJs}\n</script>\n` +
         `<script>\n${bridgeJs}\n</script>\n` +
+        `<script>\n${overlayJs}\n</script>\n` +
         `<script>\n${runtimeJs}\n</script>\n\n`;
 
     let patched = html.replace(
@@ -151,6 +185,15 @@ const patchPreviewHtml = (html: string, project: ScaProject, bridgeJs: string, r
     );
 
     return patchViewerBootstrap(patched);
+};
+
+const bytesToBase64 = (bytes: Uint8Array): string => {
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    return btoa(binary);
 };
 
 const fetchRuntimeAsset = async (filename: string): Promise<string> => {
@@ -214,6 +257,8 @@ const exportScaRuntimePackage = async (
         throw new Error('[SCA] cannot export runtime package: no splats in scene');
     }
 
+    const assetStore = events.invoke('sca.assetStore') as ScaAssetStore | undefined;
+
     const editorPose = events.invoke('camera.getPose') as {
         position?: { x: number; y: number; z: number };
         target?: { x: number; y: number; z: number };
@@ -263,12 +308,30 @@ const exportScaRuntimePackage = async (
         const encoder = new TextEncoder();
 
         memFs.results.set('index.html', encoder.encode(patchedHtml));
+        const cameraAnimationJs = await fetchRuntimeAsset('camera-animation.js');
         const bridgeJs = await fetchRuntimeAsset('hotspot-bridge.js');
+        const overlayJs = await fetchRuntimeAsset('sca-hotspot-overlay.js');
+        const hotspotCss = await fetchRuntimeAsset('sca-hotspot-markers.css');
         const runtimeJs = await fetchRuntimeAsset('sca-runtime.js');
 
         memFs.results.set('project.json', encoder.encode(stringifyProjectJson(exportProject)));
+        memFs.results.set('camera-animation.js', encoder.encode(cameraAnimationJs));
         memFs.results.set('hotspot-bridge.js', encoder.encode(bridgeJs));
+        memFs.results.set('sca-hotspot-overlay.js', encoder.encode(overlayJs));
+        memFs.results.set('sca-hotspot-markers.css', encoder.encode(hotspotCss));
         memFs.results.set('sca-runtime.js', encoder.encode(runtimeJs));
+
+        const background = exportProject.viewer?.background;
+        const embeddedAssets: Record<string, string> = {};
+        if ((background?.type === 'image' || background?.type === 'panorama') && background.image?.filename && assetStore) {
+            const assetPath = backgroundAssetPath(background.image.filename);
+            const asset = assetStore.get(assetPath);
+            if (asset) {
+                memFs.results.set(assetPath, asset.data);
+                const binary = bytesToBase64(asset.data);
+                embeddedAssets[assetPath] = `data:${asset.mimeType};base64,${binary}`;
+            }
+        }
 
         if (includePreview) {
             const previewMemFs = new MemoryFileSystem();
@@ -288,8 +351,12 @@ const exportScaRuntimePackage = async (
             const previewHtml = patchPreviewHtml(
                 new TextDecoder().decode(previewBytes),
                 exportProject,
+                cameraAnimationJs,
                 bridgeJs,
-                runtimeJs
+                overlayJs,
+                hotspotCss,
+                runtimeJs,
+                embeddedAssets
             );
             memFs.results.set(PREVIEW_FILENAME, encoder.encode(previewHtml));
         }

@@ -31,11 +31,21 @@ type ScaHotspotCamera = {
 };
 
 type ScaNavigationMode = 'orbit' | 'fly';
-type ScaStartAnimationType = 'none' | 'flyTo';
+type ScaStartAnimationType = 'none' | 'flyTo' | 'turntable';
+
+type ScaTurntableDirection = 'clockwise' | 'counterclockwise';
+
+type ScaTurntableAnimation = {
+    duration: number;
+    direction: ScaTurntableDirection;
+    degrees: number;
+    loop: boolean;
+};
 
 type ScaViewerCameraAnimation = {
     type: ScaStartAnimationType;
     duration: number;
+    turntable?: ScaTurntableAnimation;
 };
 
 type ScaViewerCamera = {
@@ -61,10 +71,29 @@ type ScaViewerInteraction = {
     homeTransition: ScaViewerHomeTransition;
 };
 
+type ScaBackgroundType = 'color' | 'transparent' | 'image' | 'panorama';
+
+type ScaBackgroundImageRef = {
+    assetId?: string;
+    filename?: string;
+};
+
+type ScaViewerBackground = {
+    type: ScaBackgroundType;
+    color?: string;
+    image?: ScaBackgroundImageRef;
+};
+
+type ScaViewerHotspots = {
+    showCards: boolean;
+};
+
 type ScaViewerConfig = {
     camera: ScaViewerCamera;
     navigation: ScaViewerNavigation;
     interaction: ScaViewerInteraction;
+    background?: ScaViewerBackground;
+    hotspots?: ScaViewerHotspots;
 };
 
 /** Application-level hotspot record (SCA project.json v1). */
@@ -98,6 +127,8 @@ const createEmptyProject = (): ScaProject => ({
 export {
     SCA_PROJECT_VERSION,
     createEmptyProject,
+    ScaBackgroundImageRef,
+    ScaBackgroundType,
     ScaCameraPose,
     ScaClickAction,
     ScaHotspot,
@@ -108,11 +139,15 @@ export {
     ScaNavigationMode,
     ScaProject,
     ScaStartAnimationType,
+    ScaTurntableAnimation,
+    ScaTurntableDirection,
     ScaViewerCamera,
     ScaViewerCameraAnimation,
+    ScaViewerBackground,
     ScaViewerConfig,
     ScaViewerFocusTransition,
     ScaViewerHomeTransition,
+    ScaViewerHotspots,
     ScaViewerInteraction,
     ScaViewerNavigation,
     Vec3

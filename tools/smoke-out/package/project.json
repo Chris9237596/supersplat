@@ -99,7 +99,13 @@
       },
       "animation": {
         "type": "none",
-        "duration": 1.5
+        "duration": 1.5,
+        "turntable": {
+          "duration": 10,
+          "direction": "clockwise",
+          "degrees": 360,
+          "loop": true
+        }
       }
     },
     "navigation": {
@@ -115,6 +121,13 @@
       "homeTransition": {
         "duration": 1
       }
+    },
+    "background": {
+      "type": "color",
+      "color": "#000000"
+    },
+    "hotspots": {
+      "showCards": true
     }
   }
 }

@@ -78499,9 +78499,11 @@ class KeyboardMouseSource extends InputSource {
 	}
 	_onWheel(event) {
 		event.preventDefault();
-		if (scaLookAnim || scaHomeAnim) {
+		if (scaLookAnim || scaHomeAnim || scaStartupFlyAnim || scaTurntableAnim) {
 			window.dispatchEvent(new CustomEvent('sca:interruptCameraAnimation'));
 		}
+		scaDiagWheelFrameCount = 3;
+		console.log('[SCA3D CAMERA MOVE] wheel event', JSON.stringify({ deltaY: event.deltaY }));
 		this.deltas.wheel.append([event.deltaY]);
 	}
 	_onPointerDown(event) {
@@ -84289,18 +84291,126 @@ const scaNavFlags = { navigationTargetsEnabled: true };
 let scaLookAnim = null;
 let scaHomeAnim = null;
 let scaHomeAnimResolve = null;
+let scaStartupFlyAnim = null;
+let scaStartupFlyAnimResolve = null;
+let scaTurntableAnim = null;
 let scaPointerWasDrag = false;
 let scaPointerDownX = 0;
 let scaPointerDownY = 0;
 let scaActiveCameraManager = null;
 const SCA_DRAG_THRESHOLD_SQ = 36;
 const scaEaseInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const scaDiagPrevPos = new Vec3();
+let scaDiagPrevDist = 0;
+let scaDiagInitialized = false;
+let scaDiagWheelFrameCount = 0;
+let scaDiagPointerDown = false;
+const scaDiagGetExternal = () => window.__SCA3D_CAMERA_DIAG || {};
+const scaDiagClassifySource = (state, transitionTimer) => {
+    const ext = scaDiagGetExternal();
+    if (scaStartupFlyAnim) {
+        return 'startupFlyTo';
+    }
+    if (scaTurntableAnim) {
+        return 'turntable';
+    }
+    if (ext.flyToActive) {
+        return 'startupFlyTo';
+    }
+    if (scaHomeAnim) {
+        return 'home';
+    }
+    if (scaLookAnim) {
+        return 'hotspot';
+    }
+    if (state.cameraMode === 'anim') {
+        return 'animTrack';
+    }
+    if (transitionTimer < 0.999) {
+        return 'modeTransition';
+    }
+    if (scaDiagWheelFrameCount > 0) {
+        return 'wheel';
+    }
+    if (scaDiagPointerDown) {
+        return 'orbit';
+    }
+    return 'orbit';
+};
+const scaDiagMaybeLogMove = (cam, state, transitionTimer) => {
+    if (!scaDiagInitialized) {
+        scaDiagPrevPos.copy(cam.position);
+        scaDiagPrevDist = cam.distance;
+        scaDiagInitialized = true;
+        return;
+    }
+    const posDelta = cam.position.distance(scaDiagPrevPos);
+    const distDelta = Math.abs(cam.distance - scaDiagPrevDist);
+    if (posDelta < 1e-5 && distDelta < 1e-5) {
+        if (scaDiagWheelFrameCount > 0) {
+            scaDiagWheelFrameCount--;
+        }
+        return;
+    }
+    const ext = scaDiagGetExternal();
+    const homeAnimT = scaHomeAnim ?
+        Math.min(1, scaHomeAnim.elapsed / scaHomeAnim.duration) :
+        null;
+    const lookAnimT = scaLookAnim ?
+        Math.min(1, scaLookAnim.elapsed / scaLookAnim.duration) :
+        null;
+    console.log('[SCA3D CAMERA MOVE]', JSON.stringify({
+        source: scaDiagClassifySource(state, transitionTimer),
+        positionBefore: [scaDiagPrevPos.x, scaDiagPrevPos.y, scaDiagPrevPos.z],
+        positionAfter: [cam.position.x, cam.position.y, cam.position.z],
+        distanceBefore: scaDiagPrevDist,
+        distanceAfter: cam.distance,
+        animationState: {
+            cameraMode: state.cameraMode,
+            transitionTimer,
+            homeAnimActive: !!scaHomeAnim,
+            homeAnimT,
+            lookAnimActive: !!scaLookAnim,
+            lookAnimT,
+            startupFlyAnimActive: !!scaStartupFlyAnim,
+            startupFlyAnimT: scaStartupFlyAnim ?
+                Math.min(1, scaStartupFlyAnim.elapsed / scaStartupFlyAnim.duration) :
+                null,
+            flyToActive: !!ext.flyToActive,
+            flyToT: ext.flyToT ?? null,
+            flyToStartCount: ext.flyToStartCount ?? 0,
+            startupAnimationType: ext.startupAnimationType ?? null,
+            startupAnimationDuration: ext.startupAnimationDuration ?? null
+        }
+    }));
+    scaDiagPrevPos.copy(cam.position);
+    scaDiagPrevDist = cam.distance;
+    if (scaDiagWheelFrameCount > 0) {
+        scaDiagWheelFrameCount--;
+    }
+};
 const scaResolveHomeAnim = () => {
     if (scaHomeAnimResolve) {
         const resolve = scaHomeAnimResolve;
         scaHomeAnimResolve = null;
         resolve();
     }
+};
+const scaResolveStartupFlyAnim = () => {
+    if (scaStartupFlyAnimResolve) {
+        const resolve = scaStartupFlyAnimResolve;
+        scaStartupFlyAnimResolve = null;
+        resolve();
+    }
+};
+const scaLogStartupFlyComplete = (cam, oc, pivot) => {
+    console.log('[SCA3D] startup flyTo complete', JSON.stringify({
+        cameraPosition: [cam.position.x, cam.position.y, cam.position.z],
+        orbitCurrentDistance: oc._childPose.position.z,
+        orbitTargetDistance: oc._targetChildPose.position.z,
+        orbitPivot: [oc._rootPose.position.x, oc._rootPose.position.y, oc._rootPose.position.z],
+        expectedPivot: pivot
+    }));
 };
 window.addEventListener('sca:interruptCameraAnimation', () => {
     scaActiveCameraManager?.interruptScaCameraAnimations?.();
@@ -84480,8 +84590,51 @@ class CameraManager {
             scaResolveHomeAnim();
             return true;
         };
+        this.interruptStartupFlyAnimation = () => {
+            if (!scaStartupFlyAnim) {
+                return false;
+            }
+            scaStartupFlyAnim = null;
+            if (state.cameraMode === 'orbit') {
+                scaSyncOrbitToCurrentCamera(controllers.orbit.controller, this.camera);
+                getController(state.cameraMode).onEnter(this.camera);
+            } else {
+                this.snap();
+            }
+            target.copy(this.camera);
+            from.copy(this.camera);
+            transitionTimer = 1;
+            global.app.renderNextFrame = true;
+            const diag = window.__SCA3D_CAMERA_DIAG;
+            if (diag) {
+                diag.flyToActive = false;
+                diag.flyToT = null;
+            }
+            scaResolveStartupFlyAnim();
+            return true;
+        };
+        this.interruptTurntableAnimation = () => {
+            if (!scaTurntableAnim) {
+                return false;
+            }
+            scaTurntableAnim = null;
+            if (state.cameraMode === 'orbit') {
+                scaSyncOrbitToCurrentCamera(controllers.orbit.controller, this.camera);
+                getController(state.cameraMode).onEnter(this.camera);
+            } else {
+                this.snap();
+            }
+            target.copy(this.camera);
+            from.copy(this.camera);
+            transitionTimer = 1;
+            global.app.renderNextFrame = true;
+            return true;
+        };
         this.interruptScaCameraAnimations = () => {
-            return this.interruptLookAnimation() || this.interruptHomeAnimation();
+            return this.interruptLookAnimation() ||
+                this.interruptHomeAnimation() ||
+                this.interruptStartupFlyAnimation() ||
+                this.interruptTurntableAnimation();
         };
         events.on('sca:interruptCameraAnimation', () => {
             this.interruptScaCameraAnimations();
@@ -84489,6 +84642,7 @@ class CameraManager {
         this.animateHomeTransition = (fromPose, toPose, durationSec) => {
             this.interruptHomeAnimation();
             this.interruptLookAnimation();
+            this.interruptTurntableAnimation();
             const applyFinal = () => {
                 scaApplyHomePose(this.camera, toPose.position, toPose.target, toPose.fov);
                 if (state.cameraMode === 'orbit') {
@@ -84526,11 +84680,71 @@ class CameraManager {
                 scaHomeAnimResolve = resolve;
             });
         };
+        this.animateStartupTransition = (fromPose, toPose, durationSec) => {
+            this.interruptStartupFlyAnimation();
+            this.interruptHomeAnimation();
+            this.interruptLookAnimation();
+            this.interruptTurntableAnimation();
+            const finishStartupFly = () => {
+                scaApplyHomePose(this.camera, toPose.position, toPose.target, toPose.fov);
+                if (state.cameraMode === 'orbit') {
+                    scaSyncOrbitToCamera(controllers.orbit.controller, this.camera, toPose.target);
+                    getController(state.cameraMode).onEnter(this.camera);
+                } else {
+                    this.snap();
+                }
+                target.copy(this.camera);
+                from.copy(this.camera);
+                transitionTimer = 1;
+                global.app.renderNextFrame = true;
+                scaLogStartupFlyComplete(
+                    this.camera,
+                    controllers.orbit.controller,
+                    toPose.target
+                );
+                const diag = window.__SCA3D_CAMERA_DIAG;
+                if (diag) {
+                    diag.flyToActive = false;
+                    diag.flyToT = 1;
+                }
+                scaResolveStartupFlyAnim();
+            };
+            if (!(durationSec > 0)) {
+                scaApplyHomePose(this.camera, fromPose.position, fromPose.target, fromPose.fov);
+                finishStartupFly();
+                return Promise.resolve();
+            }
+            scaApplyHomePose(this.camera, fromPose.position, fromPose.target, fromPose.fov);
+            scaHomeFromPos.set(fromPose.position[0], fromPose.position[1], fromPose.position[2]);
+            scaHomeToPos.set(toPose.position[0], toPose.position[1], toPose.position[2]);
+            scaHomeFromTarget.set(fromPose.target[0], fromPose.target[1], fromPose.target[2]);
+            scaHomeToTarget.set(toPose.target[0], toPose.target[1], toPose.target[2]);
+            scaStartupFlyAnim = {
+                elapsed: 0,
+                duration: Math.max(durationSec, 0.001),
+                fromFov: fromPose.fov,
+                toFov: toPose.fov,
+                toTarget: [toPose.target[0], toPose.target[1], toPose.target[2]]
+            };
+            const diag = window.__SCA3D_CAMERA_DIAG;
+            if (diag) {
+                diag.flyToActive = true;
+                diag.flyToT = 0;
+            }
+            target.copy(this.camera);
+            from.copy(this.camera);
+            transitionTimer = 1;
+            global.app.renderNextFrame = true;
+            return new Promise((resolve) => {
+                scaStartupFlyAnimResolve = resolve;
+            });
+        };
         scaActiveCameraManager = this;
         this.lookAtTargetAnimatedWithoutMovingCamera = (focusPoint, durationSec) => {
             if (state.cameraMode !== 'orbit') {
                 return;
             }
+            this.interruptTurntableAnimation();
             scaLookAnimFixedPos.copy(this.camera.position);
             scaLookAnimFromAngles.copy(this.camera.angles);
             scaLookTarget.set(focusPoint[0], focusPoint[1], focusPoint[2]);
@@ -84547,6 +84761,31 @@ class CameraManager {
             transitionTimer = 1;
             global.app.renderNextFrame = true;
         };
+        this.animateTurntable = (basePose, turntableConfig) => {
+            this.interruptTurntableAnimation();
+            this.interruptHomeAnimation();
+            this.interruptLookAnimation();
+            this.interruptStartupFlyAnimation();
+            scaApplyHomePose(this.camera, basePose.position, basePose.target, basePose.fov);
+            if (state.cameraMode === 'orbit') {
+                scaSyncOrbitToCamera(controllers.orbit.controller, this.camera, basePose.target);
+                getController(state.cameraMode).onEnter(this.camera);
+            } else {
+                state.cameraMode = 'orbit';
+                this.snap();
+                scaSyncOrbitToCamera(controllers.orbit.controller, this.camera, basePose.target);
+                getController(state.cameraMode).onEnter(this.camera);
+            }
+            scaTurntableAnim = {
+                elapsed: 0,
+                basePose,
+                config: turntableConfig
+            };
+            target.copy(this.camera);
+            from.copy(this.camera);
+            transitionTimer = 1;
+            global.app.renderNextFrame = true;
+        };
         // application update
         this.update = (deltaTime, frame) => {
             // use dt of 0 if animation is paused
@@ -84556,7 +84795,45 @@ class CameraManager {
             transitionTimer = Math.min(1, transitionTimer + deltaTime * transitionSpeed);
             const controller = getController(state.cameraMode);
             sourcesByMode[state.cameraMode]?.update(dt, this.camera, frame);
-            if (scaHomeAnim) {
+            if (scaStartupFlyAnim) {
+                scaStartupFlyAnim.elapsed += dt;
+                const flyT = Math.min(1, scaStartupFlyAnim.elapsed / scaStartupFlyAnim.duration);
+                const flyEased = easeOut(flyT);
+                const px = scaHomeFromPos.x + (scaHomeToPos.x - scaHomeFromPos.x) * flyEased;
+                const py = scaHomeFromPos.y + (scaHomeToPos.y - scaHomeFromPos.y) * flyEased;
+                const pz = scaHomeFromPos.z + (scaHomeToPos.z - scaHomeFromPos.z) * flyEased;
+                const tx = scaHomeFromTarget.x + (scaHomeToTarget.x - scaHomeFromTarget.x) * flyEased;
+                const ty = scaHomeFromTarget.y + (scaHomeToTarget.y - scaHomeFromTarget.y) * flyEased;
+                const tz = scaHomeFromTarget.z + (scaHomeToTarget.z - scaHomeFromTarget.z) * flyEased;
+                const fov = scaStartupFlyAnim.fromFov + (scaStartupFlyAnim.toFov - scaStartupFlyAnim.fromFov) * flyEased;
+                scaApplyHomePose(this.camera, [px, py, pz], [tx, ty, tz], fov);
+                target.copy(this.camera);
+                from.copy(this.camera);
+                transitionTimer = 1;
+                const flyDiag = window.__SCA3D_CAMERA_DIAG;
+                if (flyDiag) {
+                    flyDiag.flyToT = flyT;
+                }
+                if (flyT >= 1) {
+                    scaSyncOrbitToCamera(controllers.orbit.controller, this.camera, scaStartupFlyAnim.toTarget);
+                    scaLogStartupFlyComplete(
+                        this.camera,
+                        controllers.orbit.controller,
+                        scaStartupFlyAnim.toTarget
+                    );
+                    scaStartupFlyAnim = null;
+                    getController(state.cameraMode).onEnter(this.camera);
+                    target.copy(this.camera);
+                    from.copy(this.camera);
+                    transitionTimer = 1;
+                    if (flyDiag) {
+                        flyDiag.flyToActive = false;
+                        flyDiag.flyToT = 1;
+                    }
+                    scaResolveStartupFlyAnim();
+                }
+                global.app.renderNextFrame = true;
+            } else if (scaHomeAnim) {
                 scaHomeAnim.elapsed += dt;
                 const homeT = Math.min(1, scaHomeAnim.elapsed / scaHomeAnim.duration);
                 const homeEased = scaEaseInOutCubic(homeT);
@@ -84603,6 +84880,30 @@ class CameraManager {
                     transitionTimer = 1;
                 }
                 global.app.renderNextFrame = true;
+            } else if (scaTurntableAnim) {
+                scaTurntableAnim.elapsed += dt;
+                const computePose = window.SCA3D?.computeTurntablePose;
+                if (!computePose) {
+                    scaTurntableAnim = null;
+                } else {
+                    const pose = computePose(
+                        scaTurntableAnim.basePose,
+                        scaTurntableAnim.elapsed,
+                        scaTurntableAnim.config
+                    );
+                    scaApplyHomePose(this.camera, pose.position, pose.target, pose.fov);
+                    scaSyncOrbitToCamera(controllers.orbit.controller, this.camera, pose.target);
+                    target.copy(this.camera);
+                    from.copy(this.camera);
+                    transitionTimer = 1;
+                    const done = !scaTurntableAnim.config.loop &&
+                        scaTurntableAnim.elapsed >= scaTurntableAnim.config.duration;
+                    if (done) {
+                        scaTurntableAnim = null;
+                        getController(state.cameraMode).onEnter(this.camera);
+                    }
+                    global.app.renderNextFrame = true;
+                }
             } else {
                 controller.update(dt, frame, target);
             }
@@ -84621,6 +84922,7 @@ class CameraManager {
                 clearOrbitTargetOnTransitionEnd = false;
                 events.fire('orbitTarget:clear');
             }
+            scaDiagMaybeLogMove(this.camera, state, transitionTimer);
         };
         // handle input events
         events.on('inputEvent', (eventName) => {
@@ -85612,12 +85914,13 @@ class NavInteraction {
         if (!global)
             return;
         const { events } = global;
-        if (scaLookAnim || scaHomeAnim) {
+        if (scaLookAnim || scaHomeAnim || scaStartupFlyAnim || scaTurntableAnim) {
             events.fire('sca:interruptCameraAnimation');
         }
         scaPointerDownX = event.clientX;
         scaPointerDownY = event.clientY;
         scaPointerWasDrag = false;
+        scaDiagPointerDown = true;
         // record offsets for click/tap target picking
         this._lastPointerOffsetX = event.offsetX;
         this._lastPointerOffsetY = event.offsetY;
@@ -85668,6 +85971,7 @@ class NavInteraction {
         const global = this._global;
         if (!global)
             return;
+        scaDiagPointerDown = false;
         const { state, events } = global;
         if (this._mouseClickTracking && event.pointerType !== 'touch' && event.button === 0) {
             this._mouseClickTracking = false;
@@ -88718,6 +89022,9 @@ class Viewer {
             this.animateHomeTransition = (fromPose, toPose, durationSec) => {
                 return this.cameraManager.animateHomeTransition(fromPose, toPose, durationSec);
             };
+            this.animateStartupTransition = (fromPose, toPose, durationSec) => {
+                return this.cameraManager.animateStartupTransition(fromPose, toPose, durationSec);
+            };
             this.cancelLookAnimation = () => {
                 this.cameraManager.cancelLookAnimation();
             };
@@ -88726,6 +89033,15 @@ class Viewer {
             };
             this.interruptHomeAnimation = () => {
                 return this.cameraManager.interruptHomeAnimation();
+            };
+            this.interruptStartupFlyAnimation = () => {
+                return this.cameraManager.interruptStartupFlyAnimation();
+            };
+            this.interruptTurntableAnimation = () => {
+                return this.cameraManager.interruptTurntableAnimation();
+            };
+            this.animateTurntable = (basePose, turntableConfig) => {
+                this.cameraManager.animateTurntable(basePose, turntableConfig);
             };
             this.interruptScaCameraAnimations = () => {
                 return this.cameraManager.interruptScaCameraAnimations();
@@ -89905,12 +90221,14 @@ const loadSkybox = (app, url) => {
             url
         }, {
             type: 'rgbp',
+            projection: 'equirect',
             mipmaps: false,
             addressu: 'repeat',
             addressv: 'clamp'
         });
         asset.on('load', () => {
-            resolve(asset);
+            const cubemap = EnvLighting.generateSkyboxCubemap(asset.resource);
+            resolve(cubemap);
         });
         asset.on('error', (err) => {
             console.log(err);
@@ -90073,8 +90391,9 @@ const main = async (canvas, settingsJson, config) => {
     });
     // Load skybox (continue without if it fails — e.g. CORS, 404)
     const skyboxLoad = config.skyboxUrl &&
-        loadSkybox(app, config.skyboxUrl).then((asset) => {
-            app.scene.envAtlas = asset.resource;
+        loadSkybox(app, config.skyboxUrl).then((cubemap) => {
+            app.scene.envAtlas = null;
+            app.scene.skybox = cubemap;
         }).catch((err) => {
             console.warn('Failed to load skybox:', err);
         });

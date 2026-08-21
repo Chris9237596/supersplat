@@ -14,6 +14,7 @@ import {
     TONEMAP_HEJL,
     TONEMAP_LINEAR,
     TONEMAP_NEUTRAL,
+    LAYERID_SKYBOX,
     BoundingBox,
     Color,
     Entity,
@@ -546,8 +547,12 @@ class Camera extends Element {
             this.clearPass.setClearDepth(1);
             this.clearPass.setClearStencil(0);
 
-            // configure main pass - world layer with clears
+            // configure main pass - skybox (when envAtlas is set) then world layer
             this.mainPass.init(this.mainTarget);
+            const skyboxLayer = scene.app.scene.layers.getLayerById(LAYERID_SKYBOX);
+            if (skyboxLayer) {
+                this.mainPass.addLayer(this.camera, skyboxLayer, false, false);
+            }
             this.mainPass.addLayer(this.camera, scene.worldLayer, false, false);
             this.mainPass.addLayer(this.camera, scene.worldLayer, true, false);
 

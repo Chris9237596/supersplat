@@ -3,16 +3,21 @@ import { Splat } from '../splat';
 import { i18n } from '../ui/localization';
 
 import { createDefaultHotspot } from './hotspot-defaults';
+import { registerScaHistory } from './edit/register-sca-history';
+import { registerScaDocEvents } from './persistence/register-sca-doc-events';
 import { registerScaFocusEvents } from './focus/sca-focus-events';
 import { registerScaViewerEvents } from './viewer/sca-viewer-events';
 import { exportScaRuntime } from './export/export-sca-runtime';
 import { exportScaRuntimePackage, WebGPUUnavailableError } from './export/export-sca-runtime-package';
 import { stringifyProjectJson } from './serialize/project-json';
 import { HotspotStore } from './store/hotspot-store';
-import { createEmptyProject, ScaHotspot, ScaProject } from './types/project';
+import { mimeTypeForFilename, ScaAssetStore } from './store/sca-asset-store';
+import { createEmptyProject, ScaHotspot, ScaProject, ScaViewerBackground } from './types/project';
 
 const registerScaEvents = (events: Events): HotspotStore => {
     const store = new HotspotStore(createEmptyProject());
+    const assetStore = new ScaAssetStore();
+    const history = registerScaHistory(events, store, assetStore);
 
     const notifyProjectChanged = () => {
         events.fire('sca.project.changed', store.getProject());
@@ -53,27 +58,35 @@ const registerScaEvents = (events: Events): HotspotStore => {
     });
 
     events.on('sca.hotspot.create', () => {
-        const hotspot = createDefaultHotspot(store.getProject());
-        store.addHotspot(hotspot);
-        store.selectHotspot(hotspot.id);
-        notifyProjectChanged();
-        notifySelectionChanged();
+        history.record(() => {
+            const hotspot = createDefaultHotspot(store.getProject());
+            store.addHotspot(hotspot);
+            store.selectHotspot(hotspot.id);
+            notifyProjectChanged();
+            notifySelectionChanged();
+        });
     });
 
     events.on('sca.hotspot.add', (hotspot: ScaHotspot) => {
-        store.addHotspot(hotspot);
-        notifyProjectChanged();
+        history.record(() => {
+            store.addHotspot(hotspot);
+            notifyProjectChanged();
+        });
     });
 
     events.on('sca.hotspot.update', (id: string, patch: Partial<ScaHotspot>) => {
-        store.updateHotspot(id, patch);
-        notifyProjectChanged();
+        history.record(() => {
+            store.updateHotspot(id, patch);
+            notifyProjectChanged();
+        });
     });
 
     events.on('sca.hotspot.delete', (id: string) => {
-        store.deleteHotspot(id);
-        notifyProjectChanged();
-        notifySelectionChanged();
+        history.record(() => {
+            store.deleteHotspot(id);
+            notifyProjectChanged();
+            notifySelectionChanged();
+        });
     });
 
     events.on('sca.project.load', (project: ScaProject) => {
@@ -83,7 +96,10 @@ const registerScaEvents = (events: Events): HotspotStore => {
     });
 
     registerScaFocusEvents(events);
-    registerScaViewerEvents(events, store);
+    registerScaViewerEvents(events, store, history, assetStore);
+    registerScaDocEvents(events, store, assetStore);
+
+    events.function('sca.assetStore', () => assetStore);
 
     events.on('sca.export.runtime', () => {
         exportScaRuntime(store.getProject());

@@ -3,9 +3,13 @@ import {
     ScaNavigationMode,
     ScaProject,
     ScaStartAnimationType,
+    ScaTurntableAnimation,
+    ScaViewerBackground,
     ScaViewerConfig,
     Vec3
 } from '../types/project';
+
+import { normalizeBackground } from './viewer-background';
 
 const DEFAULT_FOV = 60;
 const DEFAULT_ANIMATION_DURATION = 1.5;
@@ -64,8 +68,46 @@ const normalizeDefaultMode = (
     return allowedModes[0];
 };
 
+const DEFAULT_TURNTABLE_DURATION = 10;
+const DEFAULT_TURNTABLE_DEGREES = 360;
+const MAX_TURNTABLE_DURATION = 120;
+const MAX_TURNTABLE_DEGREES = 720;
+
 const normalizeAnimationType = (raw: unknown): ScaStartAnimationType => {
-    return raw === 'flyTo' ? 'flyTo' : 'none';
+    if (raw === 'flyTo') {
+        return 'flyTo';
+    }
+    if (raw === 'turntable') {
+        return 'turntable';
+    }
+    return 'none';
+};
+
+const normalizeTurntableDirection = (raw: unknown): ScaTurntableAnimation['direction'] => {
+    return raw === 'counterclockwise' ? 'counterclockwise' : 'clockwise';
+};
+
+const normalizeTurntable = (raw: unknown): ScaTurntableAnimation => {
+    const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+
+    const duration = typeof record.duration === 'number' &&
+        Number.isFinite(record.duration) &&
+        record.duration > 0 ?
+        Math.min(record.duration, MAX_TURNTABLE_DURATION) :
+        DEFAULT_TURNTABLE_DURATION;
+
+    const degrees = typeof record.degrees === 'number' &&
+        Number.isFinite(record.degrees) &&
+        record.degrees > 0 ?
+        Math.min(record.degrees, MAX_TURNTABLE_DEGREES) :
+        DEFAULT_TURNTABLE_DEGREES;
+
+    return {
+        duration,
+        direction: normalizeTurntableDirection(record.direction),
+        degrees,
+        loop: record.loop !== false
+    };
 };
 
 const normalizeTransitionDuration = (
@@ -109,6 +151,13 @@ const normalizeInteraction = (raw: unknown): ScaViewerConfig['interaction'] => {
     };
 };
 
+const normalizeHotspots = (raw: unknown): ScaViewerConfig['hotspots'] => {
+    const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    return {
+        showCards: record.showCards !== false
+    };
+};
+
 const createDefaultViewerConfig = (initial?: Partial<ScaCameraPose>): ScaViewerConfig => {
     const basePose: ScaCameraPose = {
         position: initial?.position ? cloneVec3(initial.position) : cloneVec3(DEFAULT_POSITION),
@@ -121,14 +170,17 @@ const createDefaultViewerConfig = (initial?: Partial<ScaCameraPose>): ScaViewerC
             initial: basePose,
             animation: {
                 type: 'none',
-                duration: DEFAULT_ANIMATION_DURATION
+                duration: DEFAULT_ANIMATION_DURATION,
+                turntable: normalizeTurntable(undefined)
             }
         },
         navigation: {
             defaultMode: 'orbit',
             allowedModes: ['orbit']
         },
-        interaction: normalizeInteraction(undefined)
+        interaction: normalizeInteraction(undefined),
+        background: normalizeBackground(undefined),
+        hotspots: normalizeHotspots(undefined)
     };
 };
 
@@ -174,19 +226,25 @@ const normalizeViewerConfig = (
         animationRecord.duration :
         DEFAULT_ANIMATION_DURATION;
 
+    const animationType = normalizeAnimationType(animationRecord.type);
+    const turntableRaw = animationRecord.turntable;
+
     return {
         camera: {
             initial: normalizePose(cameraRecord.initial, defaults.camera.initial),
             animation: {
-                type: normalizeAnimationType(animationRecord.type),
-                duration
+                type: animationType,
+                duration,
+                turntable: normalizeTurntable(turntableRaw)
             }
         },
         navigation: {
             defaultMode,
             allowedModes
         },
-        interaction: normalizeInteraction(interactionRaw)
+        interaction: normalizeInteraction(interactionRaw),
+        background: normalizeBackground(record.background),
+        hotspots: normalizeHotspots(record.hotspots)
     };
 };
 
@@ -263,8 +321,12 @@ export {
     DEFAULT_FOCUS_TRANSITION_DURATION,
     DEFAULT_FOV,
     DEFAULT_HOME_TRANSITION_DURATION,
+    DEFAULT_TURNTABLE_DEGREES,
+    DEFAULT_TURNTABLE_DURATION,
     ensureNavigationValid,
+    normalizeBackground,
     normalizeProject,
+    normalizeTurntable,
     normalizeViewerConfig,
     resolveViewerConfig
 };

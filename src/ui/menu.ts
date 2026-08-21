@@ -191,7 +191,7 @@ class Menu extends Container {
         }, {
             text: () => i18n.t('menu.file.save'),
             icon: createSvg(sceneSave),
-            isEnabled: () => events.invoke('doc.name'),
+            isEnabled: () => canSave,
             onSelect: async () => await events.invoke('doc.save')
         }, {
             text: () => i18n.t('menu.file.save-as', { ellipsis: true }),
@@ -216,6 +216,17 @@ class Menu extends Container {
             isEnabled: () => !events.invoke('scene.empty'),
             onSelect: async () => await events.invoke('show.publishSettingsDialog')
         }]);
+
+        let canSave = !!events.invoke('doc.canSave');
+        const refreshSaveMenu = () => {
+            canSave = !!events.invoke('doc.canSave');
+            if (!fileMenuPanel.hidden) {
+                void fileMenuPanel.refreshEnabledStates();
+            }
+        };
+
+        events.on('doc.saveStateChanged', refreshSaveMenu);
+        refreshSaveMenu();
 
         // track undo/redo availability for menu item enablement
         let canUndo = false;

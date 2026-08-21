@@ -55,6 +55,7 @@ const registerEditorEvents = (events: Events, editHistory: EditHistory, scene: S
         scene.clear();
         editHistory.clear();
         lastExportCursor = 0;
+        events.fire('doc.saveStateChanged');
     });
 
     // When a splat is removed from the scene, remove all edit operations that reference it
@@ -68,8 +69,26 @@ const registerEditorEvents = (events: Events, editHistory: EditHistory, scene: S
         return editHistory.cursor !== lastExportCursor;
     });
 
+    events.function('editHistory.cursor', () => {
+        return editHistory.cursor;
+    });
+
+    events.function('editHistory.lastSavedCursor', () => {
+        return lastExportCursor;
+    });
+
     events.on('doc.saved', () => {
         lastExportCursor = editHistory.cursor;
+        events.fire('doc.saveStateChanged');
+    });
+
+    events.on('doc.loaded', () => {
+        lastExportCursor = editHistory.cursor;
+        events.fire('doc.saveStateChanged');
+    });
+
+    events.on('edit.apply', () => {
+        events.fire('doc.saveStateChanged');
     });
 
     // force render on some events

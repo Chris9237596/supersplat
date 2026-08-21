@@ -1,18 +1,17 @@
-// SuperSplat Viewer annotation dimensions (Annotation.hotspotSize = 25).
-// Keep in sync with annotation-constants.ts and static/sca/sca-hotspot-markers.css.
-$hotspot-size: 25px;
-$hotspot-hit-size: 30px;
-$hotspot-hit-inset: 2.5px;
-$hotspot-border-width: 2px;
-$hotspot-fill: #000;
-$hotspot-border: #fff;
-$hotspot-selected-fill: rgb(255, 102, 0);
-$hotspot-label-font: bold 13px/1 Arial, Helvetica, sans-serif;
-
-// Editor port of SuperSplat Viewer annotation styles (_injectStyles in viewer Annotation script).
+/* Shared with src/sca/markers/sca-markers.scss — annotation-constants.ts values */
+:root {
+    --sca-hotspot-size: 25px;
+    --sca-hotspot-hit-size: 30px;
+    --sca-hotspot-hit-inset: 2.5px;
+    --sca-hotspot-border-width: 2px;
+    --sca-hotspot-fill: #000;
+    --sca-hotspot-border: #fff;
+    --sca-hotspot-selected-fill: rgb(255, 102, 0);
+    --sca-hotspot-label-font: bold 13px/1 Arial, Helvetica, sans-serif;
+}
 
 .sca-hotspot-markers-overlay {
-    position: absolute;
+    position: fixed;
     inset: 0;
     overflow: hidden;
     pointer-events: none;
@@ -24,14 +23,12 @@ $hotspot-label-font: bold 13px/1 Arial, Helvetica, sans-serif;
     left: 0;
     top: 0;
     pointer-events: none;
-
-    &.is-hidden {
-        display: none;
-    }
 }
 
-// Visible editor badge based on Viewer canvas texture (_createHotspotTexture):
-// black fill, white border (~6px at 64px), bold white label.
+.sca-hotspot-marker-anchor.is-hidden {
+    display: none;
+}
+
 .sca-hotspot-marker-badge.pc-annotation-hotspot {
     display: flex;
     align-items: center;
@@ -39,8 +36,8 @@ $hotspot-label-font: bold 13px/1 Arial, Helvetica, sans-serif;
     position: absolute;
     left: 0;
     top: 0;
-    width: $hotspot-hit-size;
-    height: $hotspot-hit-size;
+    width: var(--sca-hotspot-hit-size);
+    height: var(--sca-hotspot-hit-size);
     opacity: 1;
     cursor: pointer;
     pointer-events: auto;
@@ -52,29 +49,28 @@ $hotspot-label-font: bold 13px/1 Arial, Helvetica, sans-serif;
     margin: 0;
     box-sizing: border-box;
     color: #fff;
-    font: $hotspot-label-font;
+    font: var(--sca-hotspot-label-font);
     line-height: 1;
     text-align: center;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-
-    &::before {
-        content: '';
-        position: absolute;
-        inset: $hotspot-hit-inset;
-        border-radius: 50%;
-        background-color: $hotspot-fill;
-        border: $hotspot-border-width solid $hotspot-border;
-        box-sizing: border-box;
-        z-index: -1;
-    }
-
-    &.is-selected::before {
-        background-color: $hotspot-selected-fill;
-    }
 }
 
-// Ported from SuperSplat Viewer Annotation._injectStyles()
+.sca-hotspot-marker-badge.pc-annotation-hotspot::before {
+    content: '';
+    position: absolute;
+    inset: var(--sca-hotspot-hit-inset);
+    border-radius: 50%;
+    background-color: var(--sca-hotspot-fill);
+    border: var(--sca-hotspot-border-width) solid var(--sca-hotspot-border);
+    box-sizing: border-box;
+    z-index: -1;
+}
+
+.sca-hotspot-marker-badge.pc-annotation-hotspot.is-selected::before {
+    background-color: var(--sca-hotspot-selected-fill);
+}
+
 .pc-annotation.sca-hotspot-marker-card {
     display: block;
     position: absolute;
@@ -94,10 +90,11 @@ $hotspot-label-font: bold 13px/1 Arial, Helvetica, sans-serif;
     opacity: 1;
     visibility: visible;
     z-index: 2;
+    box-sizing: border-box;
+}
 
-    &.is-hidden {
-        display: none;
-    }
+.pc-annotation.sca-hotspot-marker-card.is-hidden {
+    display: none;
 }
 
 .pc-annotation-title {

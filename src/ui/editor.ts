@@ -99,7 +99,6 @@ class EditorUI {
         const bottomToolbar = new BottomToolbar(events, tooltips);
         const rightToolbar = new RightToolbar(events, tooltips);
         const modeToggle = new ModeToggle(events, tooltips);
-        const menu = new Menu(events);
         const cameraInfoOverlay = new CameraInfoOverlay(events, tooltips);
 
         canvasContainer.dom.appendChild(canvas);
@@ -111,9 +110,8 @@ class EditorUI {
         canvasContainer.append(colorPanel);
         canvasContainer.append(bottomToolbar);
         canvasContainer.append(rightToolbar);
-        registerScaUi(events, tooltips, canvasContainer, rightToolbar);
+        registerScaUi(events, tooltips, canvasContainer, rightToolbar, events.invoke('sca.assetStore'));
         canvasContainer.append(modeToggle);
-        canvasContainer.append(menu);
 
         // view axes container
         const viewCube = new ViewCube(events);
@@ -438,6 +436,10 @@ class EditorUI {
                 document.body.focus();
             }
         }, true);
+    }
+
+    initMenu(events: Events) {
+        this.canvasContainer.append(new Menu(events));
     }
 }
 

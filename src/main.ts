@@ -15,6 +15,7 @@ import { registerRenderEvents } from './render';
 import { Scene } from './scene';
 import { getSceneConfig } from './scene-config';
 import { registerSca, registerScaEvents, registerScaScene } from './sca';
+import { registerScaSaveDiagnostics } from './sca/edit/register-sca-save-diagnostics';
 import { registerSelectionEvents } from './selection';
 import { registerSequenceEvents } from './sequence';
 import { ShortcutManager } from './shortcut-manager';
@@ -255,7 +256,14 @@ const main = async () => {
     toolManager.register('scale', new ScaleTool(events, scene));
     toolManager.register('measure', new MeasureTool(events, scene, editorUI.canvasContainer));
     toolManager.register('orient', new OrientTool(events, scene, editorUI.toolsContainer.dom, editorUI.canvasContainer));
-    registerScaScene(events, scene, editorUI.toolsContainer.dom, editorUI.canvasContainer, toolManager);
+    registerScaScene(
+        events,
+        scene,
+        editorUI.toolsContainer.dom,
+        editorUI.canvasContainer,
+        toolManager,
+        events.invoke('sca.assetStore')
+    );
 
     const boundDimensionsOverlay = new BoundDimensionsOverlay(events, scene, editorUI.canvasContainer);
 
@@ -268,11 +276,13 @@ const main = async () => {
 
     // register events that need scene or other dependencies
     registerEditorEvents(events, editHistory, scene);
+    registerScaSaveDiagnostics(events);
     registerSelectionEvents(events, scene);
     registerSequenceEvents(events, scene);
     registerDocEvents(scene, events);
     registerRenderEvents(scene, events);
     initFileHandler(scene, events, editorUI.appContainer.dom);
+    editorUI.initMenu(events);
 
     // apply stored user preferences and start capturing changes to them.
     // registered after the boot-time initialization events above so they are
