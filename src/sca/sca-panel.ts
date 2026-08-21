@@ -6,6 +6,7 @@ import { Tooltips } from '../ui/tooltips';
 import { ScaHotspot } from './types/project';
 import { ScaFocusPanel } from './ui/sca-focus-panel';
 import { ScaHotspotForm } from './ui/sca-hotspot-form';
+import { ScaViewerPanel } from './ui/sca-viewer-panel';
 
 class ScaPanel extends Container {
     constructor(events: Events, tooltips: Tooltips, args = {}) {
@@ -55,6 +56,7 @@ class ScaPanel extends Container {
         });
 
         const focusPanel = new ScaFocusPanel(events);
+        const viewerPanel = new ScaViewerPanel(events);
 
         const listHeader = new Container({
             class: 'sca-hotspot-list-header'
@@ -81,6 +83,7 @@ class ScaPanel extends Container {
 
         body.append(subtitle);
         body.append(focusPanel);
+        body.append(viewerPanel);
         body.append(listHeader);
         body.append(listContainer);
         body.append(hotspotForm);

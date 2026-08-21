@@ -1,7 +1,9 @@
 import {
     SCA_PROJECT_VERSION,
-    ScaProject
+    ScaProject,
+    ScaViewerConfig
 } from '../types/project';
+import { normalizeProject } from '../viewer/viewer-config';
 
 const parseProjectJson = (json: string): ScaProject => {
     const data = JSON.parse(json) as unknown;
@@ -20,10 +22,11 @@ const parseProjectJson = (json: string): ScaProject => {
         throw new Error('[SCA] invalid project.json: hotspots must be an array');
     }
 
-    return {
+    return normalizeProject({
         version: SCA_PROJECT_VERSION,
-        hotspots: record.hotspots as ScaProject['hotspots']
-    };
+        hotspots: record.hotspots as ScaProject['hotspots'],
+        viewer: record.viewer as ScaViewerConfig | undefined
+    });
 };
 
 const stringifyProjectJson = (project: ScaProject, pretty = true): string => {

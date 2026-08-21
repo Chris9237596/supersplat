@@ -4,6 +4,7 @@ import { i18n } from '../ui/localization';
 
 import { createDefaultHotspot } from './hotspot-defaults';
 import { registerScaFocusEvents } from './focus/sca-focus-events';
+import { registerScaViewerEvents } from './viewer/sca-viewer-events';
 import { exportScaRuntime } from './export/export-sca-runtime';
 import { exportScaRuntimePackage, WebGPUUnavailableError } from './export/export-sca-runtime-package';
 import { stringifyProjectJson } from './serialize/project-json';
@@ -82,6 +83,7 @@ const registerScaEvents = (events: Events): HotspotStore => {
     });
 
     registerScaFocusEvents(events);
+    registerScaViewerEvents(events, store);
 
     events.on('sca.export.runtime', () => {
         exportScaRuntime(store.getProject());

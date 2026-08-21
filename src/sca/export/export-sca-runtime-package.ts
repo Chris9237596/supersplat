@@ -17,8 +17,10 @@ import {
 } from '../../splat-serialize';
 import { stringifyProjectJson } from '../serialize/project-json';
 import { ScaProject } from '../types/project';
+import { resolveViewerConfig } from '../viewer/viewer-config';
 
 import { hotspotsToAnnotations } from './hotspot-to-annotation';
+import { patchViewerBundle } from './patch-viewer-bundle';
 
 const PACKAGE_FILENAME = 'sca-runtime-package.zip';
 const PREVIEW_FILENAME = 'preview.html';
@@ -73,21 +75,29 @@ const createProgressRenderer = (header: string, events?: Events) => ({
 
 const buildViewerExperienceSettings = (events: Events, project: ScaProject): ExperienceSettings => {
     const bgClr = events.invoke('bgClr') as { r: number; g: number; b: number };
-    const fov = events.invoke('camera.fov') as number;
-    const pose = events.invoke('camera.getPose') as {
+
+    const editorPose = events.invoke('camera.getPose') as {
         position?: { x: number; y: number; z: number };
         target?: { x: number; y: number; z: number };
     } | null;
+    const editorFov = events.invoke('camera.fov') as number;
 
-    const p = pose?.position;
-    const t = pose?.target;
-    const cameras = (p && t) ? [{
+    const fallbackInitial = (editorPose?.position && editorPose?.target) ? {
+        position: [editorPose.position.x, editorPose.position.y, editorPose.position.z] as [number, number, number],
+        target: [editorPose.target.x, editorPose.target.y, editorPose.target.z] as [number, number, number],
+        fov: editorFov
+    } : undefined;
+
+    const viewerConfig = resolveViewerConfig(project, fallbackInitial);
+    const initial = viewerConfig.camera.initial;
+
+    const cameras = [{
         initial: {
-            position: [p.x, p.y, p.z] as [number, number, number],
-            target: [t.x, t.y, t.z] as [number, number, number],
-            fov
+            position: [...initial.position] as [number, number, number],
+            target: [...initial.target] as [number, number, number],
+            fov: initial.fov
         }
-    }] : [];
+    }];
 
     return {
         version: 2,
@@ -100,7 +110,11 @@ const buildViewerExperienceSettings = (events: Events, project: ScaProject): Exp
         animTracks: [],
         cameras,
         annotations: hotspotsToAnnotations(project.hotspots),
-        startMode: 'default'
+        startMode: 'default',
+        navigation: {
+            disableAnnotationCameraNavigation: true,
+            navigationTargetsEnabled: false
+        }
     };
 };
 
@@ -166,6 +180,29 @@ const writeZipFromMemory = async (memFs: MemoryFileSystem, filename: string): Pr
     }
 };
 
+const patchExportedViewerAssets = (memFs: MemoryFileSystem): void => {
+    const encoder = new TextEncoder();
+
+    const indexJs = memFs.results.get('index.js');
+    if (indexJs) {
+        const patchedJs = patchViewerBundle(new TextDecoder().decode(indexJs));
+        memFs.results.set('index.js', encoder.encode(patchedJs));
+    }
+
+    for (const [filename, bytes] of memFs.results.entries()) {
+        if (!filename.endsWith('.html')) {
+            continue;
+        }
+
+        const html = new TextDecoder().decode(bytes);
+        if (!html.includes('class CameraManager')) {
+            continue;
+        }
+
+        memFs.results.set(filename, encoder.encode(patchViewerBundle(html)));
+    }
+};
+
 const exportScaRuntimePackage = async (
     splats: Splat[],
     project: ScaProject,
@@ -177,13 +214,30 @@ const exportScaRuntimePackage = async (
         throw new Error('[SCA] cannot export runtime package: no splats in scene');
     }
 
-    const experienceSettings = buildViewerExperienceSettings(events, project);
+    const editorPose = events.invoke('camera.getPose') as {
+        position?: { x: number; y: number; z: number };
+        target?: { x: number; y: number; z: number };
+    } | null;
+    const editorFov = events.invoke('camera.fov') as number;
+    const fallbackInitial = (editorPose?.position && editorPose?.target) ? {
+        position: [editorPose.position.x, editorPose.position.y, editorPose.position.z] as [number, number, number],
+        target: [editorPose.target.x, editorPose.target.y, editorPose.target.z] as [number, number, number],
+        fov: editorFov
+    } : undefined;
+
+    const viewerConfig = resolveViewerConfig(project, fallbackInitial);
+    const exportProject: ScaProject = {
+        ...project,
+        viewer: viewerConfig
+    };
+
+    const experienceSettings = buildViewerExperienceSettings(events, exportProject);
     const serializeSettings: SerializeSettings = {
         maxSHBands: events.invoke('view.bands') as number
     };
 
     const exported = {
-        project,
+        project: exportProject,
         annotations: experienceSettings.annotations
     };
     console.log('[SCA] runtime package export preview:', exported);
@@ -198,6 +252,8 @@ const exportScaRuntimePackage = async (
             iterations: 10
         }, memFs);
 
+        patchExportedViewerAssets(memFs);
+
         const indexBytes = memFs.results.get('index.html');
         if (!indexBytes) {
             throw new Error('[SCA] viewer export did not produce index.html');
@@ -210,7 +266,7 @@ const exportScaRuntimePackage = async (
         const bridgeJs = await fetchRuntimeAsset('hotspot-bridge.js');
         const runtimeJs = await fetchRuntimeAsset('sca-runtime.js');
 
-        memFs.results.set('project.json', encoder.encode(stringifyProjectJson(project)));
+        memFs.results.set('project.json', encoder.encode(stringifyProjectJson(exportProject)));
         memFs.results.set('hotspot-bridge.js', encoder.encode(bridgeJs));
         memFs.results.set('sca-runtime.js', encoder.encode(runtimeJs));
 
@@ -222,6 +278,8 @@ const exportScaRuntimePackage = async (
                 iterations: 10
             }, previewMemFs);
 
+            patchExportedViewerAssets(previewMemFs);
+
             const previewBytes = previewMemFs.results.get(PREVIEW_FILENAME);
             if (!previewBytes) {
                 throw new Error('[SCA] bundled viewer export did not produce preview.html');
@@ -229,7 +287,7 @@ const exportScaRuntimePackage = async (
 
             const previewHtml = patchPreviewHtml(
                 new TextDecoder().decode(previewBytes),
-                project,
+                exportProject,
                 bridgeJs,
                 runtimeJs
             );
@@ -247,8 +305,10 @@ export {
     buildViewerExperienceSettings,
     exportScaRuntimePackage,
     PACKAGE_FILENAME,
+    patchExportedViewerAssets,
     patchIndexHtml,
     patchPreviewHtml,
+    patchViewerBundle,
     PREVIEW_FILENAME,
     ScaRuntimePackageOptions,
     WebGPUUnavailableError

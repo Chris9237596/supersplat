@@ -138,7 +138,11 @@ type ExperienceSettings = {
     animTracks: AnimTrack[],
     cameras: Camera[],
     annotations: Annotation[],
-    startMode: 'default' | 'animTrack' | 'annotation'
+    startMode: 'default' | 'animTrack' | 'annotation',
+    navigation?: {
+        disableAnnotationCameraNavigation?: boolean,
+        navigationTargetsEnabled?: boolean
+    }
 };
 
 type ViewerExportSettings = {

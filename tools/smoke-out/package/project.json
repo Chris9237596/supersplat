@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "hotspots": [
+    {
+      "id": "hotspot_01",
+      "name": "Hotspot 01",
+      "text": "Hotspot 01 description",
+      "position": [
+        0.4,
+        0.2,
+        0.1
+      ],
+      "enabled": true,
+      "visual": {
+        "type": "annotation",
+        "visible": true
+      },
+      "hover": {
+        "enabled": false
+      },
+      "click": {
+        "enabled": true,
+        "action": {
+          "type": "event",
+          "eventName": "hotspotClicked"
+        }
+      },
+      "camera": {
+        "initial": {
+          "position": [
+            0,
+            1.5,
+            -2
+          ],
+          "target": [
+            0.4,
+            0.2,
+            0.1
+          ],
+          "fov": 45
+        }
+      }
+    },
+    {
+      "id": "hotspot_02",
+      "name": "Hotspot 02",
+      "text": "Hotspot 02 description",
+      "position": [
+        -0.5,
+        0.15,
+        -0.2
+      ],
+      "enabled": true,
+      "visual": {
+        "type": "annotation",
+        "visible": true
+      },
+      "hover": {
+        "enabled": false
+      },
+      "click": {
+        "enabled": true,
+        "action": {
+          "type": "event",
+          "eventName": "hotspotClicked"
+        }
+      },
+      "camera": {
+        "initial": {
+          "position": [
+            0,
+            1.5,
+            -2
+          ],
+          "target": [
+            -0.5,
+            0.15,
+            -0.2
+          ],
+          "fov": 45
+        }
+      }
+    }
+  ],
+  "viewer": {
+    "camera": {
+      "initial": {
+        "position": [
+          0,
+          1,
+          -1.5
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "fov": 60
+      },
+      "animation": {
+        "type": "none",
+        "duration": 1.5
+      }
+    },
+    "navigation": {
+      "defaultMode": "orbit",
+      "allowedModes": [
+        "orbit"
+      ]
+    },
+    "interaction": {
+      "focusTransition": {
+        "duration": 0.8
+      },
+      "homeTransition": {
+        "duration": 1
+      }
+    }
+  }
+}

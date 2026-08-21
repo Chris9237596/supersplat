@@ -30,6 +30,43 @@ type ScaHotspotCamera = {
     initial: ScaCameraPose;
 };
 
+type ScaNavigationMode = 'orbit' | 'fly';
+type ScaStartAnimationType = 'none' | 'flyTo';
+
+type ScaViewerCameraAnimation = {
+    type: ScaStartAnimationType;
+    duration: number;
+};
+
+type ScaViewerCamera = {
+    initial: ScaCameraPose;
+    animation: ScaViewerCameraAnimation;
+};
+
+type ScaViewerNavigation = {
+    defaultMode: ScaNavigationMode;
+    allowedModes: ScaNavigationMode[];
+};
+
+type ScaViewerFocusTransition = {
+    duration: number;
+};
+
+type ScaViewerHomeTransition = {
+    duration: number;
+};
+
+type ScaViewerInteraction = {
+    focusTransition: ScaViewerFocusTransition;
+    homeTransition: ScaViewerHomeTransition;
+};
+
+type ScaViewerConfig = {
+    camera: ScaViewerCamera;
+    navigation: ScaViewerNavigation;
+    interaction: ScaViewerInteraction;
+};
+
 /** Application-level hotspot record (SCA project.json v1). */
 type ScaHotspot = {
     id: string;
@@ -47,13 +84,15 @@ type ScaHotspot = {
 type ScaProject = {
     version: 1;
     hotspots: ScaHotspot[];
+    viewer?: ScaViewerConfig;
 };
 
 const SCA_PROJECT_VERSION = 1 as const;
 
 const createEmptyProject = (): ScaProject => ({
     version: SCA_PROJECT_VERSION,
-    hotspots: []
+    hotspots: [],
+    viewer: undefined
 });
 
 export {
@@ -66,6 +105,15 @@ export {
     ScaHotspotClick,
     ScaHotspotHover,
     ScaHotspotVisual,
+    ScaNavigationMode,
     ScaProject,
+    ScaStartAnimationType,
+    ScaViewerCamera,
+    ScaViewerCameraAnimation,
+    ScaViewerConfig,
+    ScaViewerFocusTransition,
+    ScaViewerHomeTransition,
+    ScaViewerInteraction,
+    ScaViewerNavigation,
     Vec3
 };

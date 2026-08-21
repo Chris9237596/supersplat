@@ -1,5 +1,11 @@
-import { ScaHotspot, ScaProject } from '../types/project';
+import { ScaHotspot, ScaNavigationMode, ScaProject, ScaViewerConfig } from '../types/project';
 import { createEmptyProject } from '../types/project';
+import {
+    createDefaultViewerConfig,
+    ensureNavigationValid,
+    normalizeProject,
+    normalizeViewerConfig
+} from '../viewer/viewer-config';
 
 class HotspotStore {
     private project: ScaProject;
@@ -11,6 +17,103 @@ class HotspotStore {
 
     getProject(): ScaProject {
         return structuredClone(this.project);
+    }
+
+    getViewerConfig(fallbackInitial?: Parameters<typeof createDefaultViewerConfig>[0]): ScaViewerConfig {
+        return normalizeViewerConfig(this.project.viewer, fallbackInitial);
+    }
+
+    ensureViewerConfig(fallbackInitial?: Parameters<typeof createDefaultViewerConfig>[0]): ScaViewerConfig {
+        const viewer = this.project.viewer ?
+            normalizeViewerConfig(this.project.viewer, fallbackInitial) :
+            createDefaultViewerConfig(fallbackInitial);
+        this.project.viewer = viewer;
+        return structuredClone(viewer);
+    }
+
+    updateViewerConfig(viewer: ScaViewerConfig): void {
+        this.project.viewer = normalizeViewerConfig(viewer);
+    }
+
+    updateViewerCameraInitial(patch: Partial<ScaViewerConfig['camera']['initial']>): void {
+        const current = this.getViewerConfig();
+        this.project.viewer = {
+            ...current,
+            camera: {
+                ...current.camera,
+                initial: {
+                    position: patch.position ?? current.camera.initial.position,
+                    target: patch.target ?? current.camera.initial.target,
+                    fov: patch.fov ?? current.camera.initial.fov
+                }
+            }
+        };
+    }
+
+    updateViewerNavigation(patch: Partial<ScaViewerConfig['navigation']>): void {
+        const current = this.getViewerConfig();
+        this.project.viewer = {
+            ...current,
+            navigation: ensureNavigationValid({
+                defaultMode: patch.defaultMode ?? current.navigation.defaultMode,
+                allowedModes: patch.allowedModes ?? current.navigation.allowedModes
+            })
+        };
+    }
+
+    setViewerAllowedMode(mode: ScaNavigationMode, enabled: boolean): void {
+        const current = this.getViewerConfig();
+        let allowedModes = [...current.navigation.allowedModes];
+
+        if (enabled) {
+            if (!allowedModes.includes(mode)) {
+                allowedModes.push(mode);
+            }
+        } else if (allowedModes.length > 1) {
+            allowedModes = allowedModes.filter((entry) => entry !== mode);
+        } else {
+            return;
+        }
+
+        const defaultMode = allowedModes.includes(current.navigation.defaultMode) ?
+            current.navigation.defaultMode :
+            allowedModes[0];
+
+        this.project.viewer = {
+            ...current,
+            navigation: ensureNavigationValid({ defaultMode, allowedModes })
+        };
+    }
+
+    updateViewerAnimation(patch: Partial<ScaViewerConfig['camera']['animation']>): void {
+        const current = this.getViewerConfig();
+        this.project.viewer = {
+            ...current,
+            camera: {
+                ...current.camera,
+                animation: {
+                    type: patch.type ?? current.camera.animation.type,
+                    duration: patch.duration ?? current.camera.animation.duration
+                }
+            }
+        };
+    }
+
+    updateViewerInteraction(patch: Partial<ScaViewerConfig['interaction']>): void {
+        const current = this.getViewerConfig();
+        this.project.viewer = normalizeViewerConfig({
+            ...current,
+            interaction: {
+                focusTransition: {
+                    duration: patch.focusTransition?.duration ??
+                        current.interaction.focusTransition.duration
+                },
+                homeTransition: {
+                    duration: patch.homeTransition?.duration ??
+                        current.interaction.homeTransition.duration
+                }
+            }
+        });
     }
 
     getHotspots(): ScaHotspot[] {
@@ -84,7 +187,7 @@ class HotspotStore {
     }
 
     loadProject(project: ScaProject): void {
-        this.project = structuredClone(project);
+        this.project = normalizeProject(project);
 
         if (this.selectedHotspotId &&
             !this.project.hotspots.some((hotspot) => hotspot.id === this.selectedHotspotId)) {
