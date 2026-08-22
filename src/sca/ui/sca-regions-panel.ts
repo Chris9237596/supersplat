@@ -66,6 +66,8 @@ class ScaRegionsPanel extends Container {
 
     private addSelectionButton: Button;
 
+    private selectRegionGaussiansButton: Button;
+
     private removeSelectionButton: Button;
 
 
@@ -356,6 +358,14 @@ class ScaRegionsPanel extends Container {
 
         });
 
+        this.selectRegionGaussiansButton = new Button({
+
+            class: ['sca-hotspot-form-button'],
+
+            text: 'Select Region Gaussians'
+
+        });
+
         this.removeSelectionButton = new Button({
 
             class: ['sca-hotspot-form-button'],
@@ -391,6 +401,8 @@ class ScaRegionsPanel extends Container {
         this.formContainer.append(activeStrengthRow);
 
         this.formContainer.append(this.addSelectionButton);
+
+        this.formContainer.append(this.selectRegionGaussiansButton);
 
         this.formContainer.append(this.removeSelectionButton);
 
@@ -564,6 +576,18 @@ class ScaRegionsPanel extends Container {
 
 
 
+        this.selectRegionGaussiansButton.on('click', () => {
+
+            if (this.selectedId) {
+
+                events.fire('sca.region.selectGaussians', this.selectedId);
+
+            }
+
+        });
+
+
+
         this.removeSelectionButton.on('click', () => {
 
             if (this.selectedId) {
@@ -591,6 +615,8 @@ class ScaRegionsPanel extends Container {
         events.on('sca.project.changed', () => {
 
             this.refreshList();
+
+            this.updateSelectGaussiansButton(this.selectedId);
 
         });
 
@@ -702,7 +728,21 @@ class ScaRegionsPanel extends Container {
 
         this.activeStrengthInput.value = region.visual.activeOpacity;
 
+        this.updateSelectGaussiansButton(selectedId);
+
         this.syncing = false;
+
+    }
+
+
+
+    private updateSelectGaussiansButton(selectedId: string | null) {
+
+        const canSelect = selectedId ?
+            this.events.invoke('sca.region.canSelectGaussians', selectedId) === true :
+            false;
+
+        this.selectRegionGaussiansButton.enabled = canSelect;
 
     }
 

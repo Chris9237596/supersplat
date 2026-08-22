@@ -7,6 +7,7 @@ import { Splat } from '../../splat';
 import { ScaRegionMembershipOp } from '../edit/sca-region-ops';
 import { createDefaultRegion } from '../region-defaults';
 import { captureSelectionRanges } from './region-selection-capture';
+import { applyRegionMaskToNativeSelection, resolveRegionGaussianSelection } from './region-selection-apply';
 import {
     cloneAssets,
     deleteRegionMask,
@@ -175,6 +176,24 @@ const registerScaRegionEvents = (events: Events, scene: Scene): void => {
 
     events.on('sca.region.removeSelection', (id: string) => {
         applyRegionMaskEdit(events, scene, id, 'remove');
+    });
+
+    events.on('sca.region.selectGaussians', (id: string) => {
+        const result = applyRegionMaskToNativeSelection(events, scene, id);
+        if (!result.ok) {
+            void events.invoke('showPopup', {
+                type: 'info',
+                header: 'Select Region Gaussians',
+                message: result.reason ?? 'Unable to select Region Gaussians.'
+            });
+        }
+    });
+
+    events.function('sca.region.canSelectGaussians', (regionId: string) => {
+        const store = getStore();
+        const assetStore = getAssetStore();
+        const resolved = resolveRegionGaussianSelection(store, assetStore, scene, regionId);
+        return resolved.ok;
     });
 
     events.on('sca.region.delete.request', (id: string) => {

@@ -26,6 +26,12 @@ import {
     remapIndexRanges,
     buildCompactionMap
 } from '../src/sca/regions/region-mask-format';
+import {
+    indexRangesToSelectionMask,
+    resolveRegionGaussianSelection
+} from '../src/sca/regions/region-selection-apply';
+import { regionMaskStorePath } from '../src/sca/regions/region-mask-paths';
+import { SelectOp } from '../src/edit-ops';
 import { remapRegionMaskToRuntime } from '../src/sca/regions/region-mask-runtime-export';
 import {
     deserializeSsprojScaBlock,
@@ -454,6 +460,105 @@ const runPresentationTests = () => {
     console.log('[sca-regions] shared presentation PASS');
 };
 
+const runRegionSelectionApplyTests = () => {
+    const total = 20;
+    const ranges = IndexRanges.fromPredicate(total, (i) => i === 2 || i === 5 || i === 6 || i === 7);
+    const mask = indexRangesToSelectionMask(ranges, total);
+
+    assert.equal(mask[2], 255);
+    assert.equal(mask[5], 255);
+    assert.equal(mask[6], 255);
+    assert.equal(mask[0], 0);
+    assert.equal(mask[19], 0);
+
+    const stateData = new Uint8Array(total);
+    stateData[0] = State.selected;
+    stateData[1] = State.selected;
+
+    const splatState = {
+        data: stateData,
+        setBits: (range: IndexRanges, bit: number) => {
+            range.forEach((index) => {
+                stateData[index] |= bit;
+            });
+        },
+        clearBits: (range: IndexRanges, bit: number) => {
+            range.forEach((index) => {
+                stateData[index] &= ~bit;
+            });
+        },
+        toggleBits: (range: IndexRanges, bit: number) => {
+            range.forEach((index) => {
+                stateData[index] ^= bit;
+            });
+        },
+        flush: () => {}
+    };
+
+    const mockSplat = {
+        visible: true,
+        scaSplatId: 'splat_01',
+        splatData: {
+            numSplats: total,
+            getProp: (name: string) => (name === 'state' ? stateData : undefined)
+        },
+        state: splatState,
+        updateState: async () => {}
+    };
+
+    const selectOp = new SelectOp(mockSplat as never, 'set', mask);
+    void selectOp.do();
+
+    assert.equal(stateData[2] & State.selected, State.selected);
+    assert.equal(stateData[5] & State.selected, State.selected);
+    assert.equal(stateData[6] & State.selected, State.selected);
+    assert.equal(stateData[7] & State.selected, State.selected);
+    assert.equal(stateData[0] & State.selected, 0);
+    assert.equal(stateData[1] & State.selected, 0);
+
+    const store = new HotspotStore(createEmptyProject());
+    const assetStore = new ScaAssetStore();
+    const region = sampleRegion('region_01', 'Region 1', 'splat_01', total);
+    store.loadProject({
+        ...createEmptyProject(),
+        regions: [region]
+    });
+    assetStore.set(regionMaskStorePath(region.id), encodeRegionMask(ranges, total), 'application/x-sca-region-mask');
+
+    const otherSplat = {
+        visible: true,
+        scaSplatId: 'splat_02',
+        splatData: { numSplats: total }
+    };
+
+    const scene = {
+        getElementsByType: () => [mockSplat, otherSplat]
+    };
+
+    const resolved = resolveRegionGaussianSelection(store, assetStore, scene as never, region.id);
+    assert.equal(resolved.ok, true);
+    if (resolved.ok) {
+        assert.equal(resolved.splat.scaSplatId, 'splat_01');
+        assert.equal(resolved.gaussianCount, total);
+    }
+
+    const missingSplat = resolveRegionGaussianSelection(
+        store,
+        assetStore,
+        { getElementsByType: () => [otherSplat] } as never,
+        region.id
+    );
+    assert.equal(missingSplat.ok, false);
+
+    const beforeProject = JSON.stringify(store.getProject());
+    const beforeAssets = assetStore.get(regionMaskStorePath(region.id))!.data.slice();
+    assert.equal(stateData[2] & State.selected, State.selected);
+    assert.equal(beforeProject.includes('region_01'), true);
+    assert.equal(beforeAssets.length > 0, true);
+
+    console.log('[sca-regions] region selection apply PASS');
+};
+
 const runRuntimePickDecodeTests = () => {
     const miss = decodeRuntimePickPixel([0, 0, 0, 0]);
     assert.equal(miss.gaussianIndex, null);
@@ -482,6 +587,7 @@ async function main() {
     runRuntimeExportRemapTests();
     runRegionCoreTests();
     runPresentationTests();
+    runRegionSelectionApplyTests();
     runRuntimePickDecodeTests();
     await runHistoryTests();
 
@@ -498,6 +604,7 @@ async function main() {
     console.log('Runtime export mask remap: PASS');
     console.log('Shared region core: PASS');
     console.log('Shared presentation: PASS');
+    console.log('Region selection apply: PASS');
     console.log('Runtime pick decode: PASS');
     console.log('Membership op undo/redo: PASS');
     console.log('===========================================================\n');
