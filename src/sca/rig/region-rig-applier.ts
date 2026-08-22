@@ -9,7 +9,8 @@ import { computeRegionAnchorFromIndices } from '../presentation/region-anchor';
 import { ScaRig, ScaRigBinding, ScaRigNode } from '../types/rig';
 import { ScaRegion } from '../types/region';
 
-import { buildEffectiveRigWorldMatrix, collectRigSubtreeNodeIds } from './rig-hierarchy';
+import { buildEffectiveRigWorldMatrixFromPose, collectRigSubtreeNodeIds } from './rig-hierarchy';
+import { evaluateRigPose, ScaRigEvaluatedPose } from './rig-pose';
 import { findSplatByScaSplatId } from '../regions/splat-identity';
 import {
     logScaRigRestore,
@@ -76,12 +77,13 @@ const resolveSlotBinding = (rig: ScaRig, slot: RigSplatSlot): ScaRigBinding | nu
 
 const writeSlotEffectiveMatrix = (
     rig: ScaRig,
+    pose: ScaRigEvaluatedPose,
     slot: RigSplatSlot,
     node: ScaRigNode,
     binding: ScaRigBinding | null,
     target = rigMat
 ): Mat4 => {
-    buildEffectiveRigWorldMatrix(rig, node, binding, target);
+    buildEffectiveRigWorldMatrixFromPose(rig, pose, node, binding, target);
     slot.splat.transformPalette.setTransform(slot.paletteIndex, target);
     return target;
 };
@@ -146,6 +148,7 @@ class RegionRigApplier {
         const nodeById = new Map<string, ScaRigNode>(
             rig.nodes.map((node) => [node.id, node])
         );
+        const pose = evaluateRigPose(rig);
         const affectedNodeIds = nodeIds ?
             new Set(nodeIds.flatMap((nodeId) => collectRigSubtreeNodeIds(rig, nodeId))) :
             null;
@@ -165,7 +168,7 @@ class RegionRigApplier {
 
             const binding = resolveSlotBinding(rig, slot);
             const slotBefore = slot.paletteIndex;
-            writeSlotEffectiveMatrix(rig, slot, node, binding);
+            writeSlotEffectiveMatrix(rig, pose, slot, node, binding);
             if (isRigTraceEnabled()) {
                 const paletteMatrix = new Mat4();
                 slot.splat.transformPalette.getTransform(slot.paletteIndex, paletteMatrix);
@@ -231,6 +234,7 @@ class RegionRigApplier {
         const nodeById = new Map<string, ScaRigNode>(
             rig.nodes.map((node) => [node.id, node])
         );
+        const pose = evaluateRigPose(rig);
 
         const bindings = [...rig.bindings].sort((left, right) => (
             left.regionId.localeCompare(right.regionId)
@@ -304,7 +308,7 @@ class RegionRigApplier {
             });
             slot.splat.transformTexture.unlock();
 
-            writeSlotEffectiveMatrix(rig, slot, node, binding);
+            writeSlotEffectiveMatrix(rig, pose, slot, node, binding);
         }
 
         if (conflictRegions.size > 0) {

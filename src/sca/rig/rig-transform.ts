@@ -84,10 +84,18 @@ const matrixMaxAbsError = (left: Mat4, right: Mat4): number => {
     return max;
 };
 
-const buildRigidRigMatrix = (node: ScaRigNode, target = new Mat4()): Mat4 => {
+const buildRigidRigMatrixFromPose = (
+    node: ScaRigNode,
+    pose: Pick<ScaRigNode, 'position' | 'rotation'>,
+    target = new Mat4()
+): Mat4 => {
     const pivot = new Vec3(node.pivot[0], node.pivot[1], node.pivot[2]);
-    const position = new Vec3(node.position[0], node.position[1], node.position[2]);
-    const rotation = new Quat().setFromEulerAngles(node.rotation[0], node.rotation[1], node.rotation[2]);
+    const position = new Vec3(pose.position[0], pose.position[1], pose.position[2]);
+    const rotation = new Quat().setFromEulerAngles(
+        pose.rotation[0],
+        pose.rotation[1],
+        pose.rotation[2]
+    );
 
     const shiftToOrigin = new Mat4().setTranslate(-pivot.x, -pivot.y, -pivot.z);
     const rotate = new Mat4().setTRS(Vec3.ZERO, rotation, Vec3.ONE);
@@ -101,6 +109,10 @@ const buildRigidRigMatrix = (node: ScaRigNode, target = new Mat4()): Mat4 => {
     target.mul(rotate);
     target.mul(shiftToOrigin);
     return target;
+};
+
+const buildRigidRigMatrix = (node: ScaRigNode, target = new Mat4()): Mat4 => {
+    return buildRigidRigMatrixFromPose(node, node, target);
 };
 
 const buildEffectiveRigMatrix = (
@@ -149,6 +161,7 @@ export {
     bindOffsetToMatrix,
     buildEffectiveRigMatrix,
     buildRigidRigMatrix,
+    buildRigidRigMatrixFromPose,
     bindingUsesKeepWorldOffset,
     cloneVec3,
     computeSnapBindOffset,

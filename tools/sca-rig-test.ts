@@ -11,24 +11,31 @@ import {
     bindOffsetToMatrix,
     buildEffectiveRigMatrix,
     buildRigidRigMatrix,
+    buildRigidRigMatrixFromPose,
     computeSnapBindOffset,
     identityPose,
     isZeroPose,
     isZeroRigTransform,
+    matrixMaxAbsError,
+    matricesNearEqual,
     matrixToArray,
     poseToMatrix
 } from '../src/sca/rig/rig-transform';
 import {
     buildEffectiveRigWorldMatrix,
+    buildEffectiveRigWorldMatrixFromPose,
     buildNodeWorldMatrix,
+    buildNodeWorldMatrixFromPose,
     collectRigSubtreeNodeIds,
     computeKeepWorldBindOffsetMatrix,
     computeReparentLocalKeepWorld,
     createKeepWorldBindOffset,
+    localTransformFromWorldHandle,
     localTransformFromWorldMatrix,
     normalizeRigHierarchy,
     wouldCreateRigCycle
 } from '../src/sca/rig/rig-hierarchy';
+import { evaluateRigPose } from '../src/sca/rig/rig-pose';
 import { writeSlotEffectiveMatrix } from '../src/sca/rig/region-rig-applier';
 import {
     buildRigBindingSelectOptions,
@@ -46,11 +53,6 @@ import {
     nodeWorldMatrixToHelperHandle,
     rigNodePatchMatchesNode
 } from '../src/sca/rig/rig-node-space';
-import {
-    buildNodeWorldMatrix,
-    localTransformFromWorldHandle
-} from '../src/sca/rig/rig-hierarchy';
-import { matrixMaxAbsError, matricesNearEqual } from '../src/sca/rig/rig-transform';
 import { chooseRigSyncPath, computeRigTopology } from '../src/sca/rig/region-rig-topology';
 import { canReparentHelper, RigGizmoInteractionState, shouldDeferHelperSync } from '../src/sca/rig/rig-gizmo-lifecycle';
 import {
@@ -1297,6 +1299,128 @@ const runScaleDeferredTests = () => {
     console.log('[sca-rig] scale deferred (rigid-only) PASS');
 };
 
+const buildNodeWorldMatrixDirect = (
+    rig: { nodes: ReturnType<typeof createDefaultRigNode>[] },
+    node: ReturnType<typeof createDefaultRigNode>,
+    target = new Mat4()
+): Mat4 => {
+    const matParent = new Mat4();
+    const matLocal = new Mat4();
+    const matOut = new Mat4();
+
+    const parentId = node.parentId ?? null;
+    if (parentId) {
+        const parent = rig.nodes.find((entry) => entry.id === parentId) ?? null;
+        if (parent) {
+            buildNodeWorldMatrixDirect(rig, parent, matParent);
+        } else {
+            matParent.copy(Mat4.IDENTITY);
+        }
+    } else {
+        matParent.copy(Mat4.IDENTITY);
+    }
+
+    buildRigidRigMatrixFromPose(node, node, matLocal);
+    matOut.copy(matParent).mul(matLocal);
+    return target.copy(matOut);
+};
+
+const runPoseEvaluationTests = () => {
+    const root = createDefaultRigNode('rig_root', 'Root');
+    root.position = [1, 0.5, -0.25];
+    root.rotation = [5, -15, 10];
+    root.pivot = [0.5, 0, 0];
+
+    const child = createDefaultRigNode('rig_child', 'Child');
+    child.parentId = root.id;
+    child.position = [2, 0, 0];
+    child.rotation = [10, 35, -5];
+    child.pivot = [0, 0.25, 0];
+
+    const rig = { version: 1 as const, nodes: [root, child], bindings: [] as [] };
+
+    const pose = evaluateRigPose(rig);
+    assert.equal(pose.nodes.size, 2);
+    assert.deepEqual(pose.nodes.get(root.id)?.position, root.position);
+    assert.deepEqual(pose.nodes.get(root.id)?.rotation, root.rotation);
+    assert.deepEqual(pose.nodes.get(child.id)?.position, child.position);
+    assert.deepEqual(pose.nodes.get(child.id)?.rotation, child.rotation);
+    assert.notStrictEqual(pose.nodes.get(root.id)?.position, root.position);
+
+    const matDirectRoot = new Mat4();
+    const matPoseRoot = new Mat4();
+    buildNodeWorldMatrixDirect(rig, root, matDirectRoot);
+    buildNodeWorldMatrixFromPose(rig, pose, root, matPoseRoot);
+    assert.ok(matricesNearEqual(matDirectRoot, matPoseRoot), 'root world matrix');
+
+    const matDirectChild = new Mat4();
+    const matPoseChild = new Mat4();
+    buildNodeWorldMatrixDirect(rig, child, matDirectChild);
+    buildNodeWorldMatrixFromPose(rig, pose, child, matPoseChild);
+    assert.ok(matricesNearEqual(matDirectChild, matPoseChild), 'child world matrix');
+
+    const matWrapperRoot = new Mat4();
+    buildNodeWorldMatrix(rig, root, matWrapperRoot);
+    assert.ok(matricesNearEqual(matDirectRoot, matWrapperRoot), 'wrapper root world matrix');
+
+    const legacyBinding = {
+        regionId: 'region_legacy',
+        nodeId: root.id,
+        mode: 'rigid' as const
+    };
+    const keepOffset = createKeepWorldBindOffset(rig, root);
+    const keepBinding = {
+        regionId: 'region_keep',
+        nodeId: root.id,
+        mode: 'rigid' as const,
+        bindMode: 'keep-world' as const,
+        bindOffset: keepOffset.bindOffset,
+        bindOffsetMatrix: keepOffset.bindOffsetMatrix
+    };
+
+    const matLegacyDirect = new Mat4();
+    const matLegacyPose = new Mat4();
+    buildEffectiveRigWorldMatrix(rig, root, legacyBinding, matLegacyDirect);
+    buildEffectiveRigWorldMatrixFromPose(rig, pose, root, legacyBinding, matLegacyPose);
+    assert.ok(matricesNearEqual(matLegacyDirect, matLegacyPose), 'legacy effective matrix');
+
+    const matKeepDirect = new Mat4();
+    const matKeepPose = new Mat4();
+    buildEffectiveRigWorldMatrix(rig, root, keepBinding, matKeepDirect);
+    buildEffectiveRigWorldMatrixFromPose(rig, pose, root, keepBinding, matKeepPose);
+    assert.ok(matricesNearEqual(matKeepDirect, matKeepPose), 'keep-world effective matrix');
+
+    const store = new HotspotStore(sampleProject());
+    store.addRigNode(root);
+    store.addRigNode(child);
+    store.setRigBinding('region_01', child.id, { bindMode: 'keep-world' });
+    store.updateRigNode(child.id, { position: [2.5, 0.1, 0] });
+
+    const updatedRig = store.getProject().rig!;
+    const updatedPose = evaluateRigPose(updatedRig);
+    const updatedChild = updatedRig.nodes.find((entry) => entry.id === child.id)!;
+    assert.deepEqual(updatedPose.nodes.get(child.id)?.position, updatedChild.position);
+
+    const matUpdatedEffective = new Mat4();
+    const updatedBinding = updatedRig.bindings[0];
+    buildEffectiveRigWorldMatrixFromPose(updatedRig, updatedPose, updatedChild, updatedBinding, matUpdatedEffective);
+    assert.ok(
+        matricesNearEqual(
+            matUpdatedEffective,
+            buildEffectiveRigWorldMatrix(updatedRig, updatedChild, updatedBinding, new Mat4()),
+            1e-4
+        ),
+        'authored node update flows to effective matrix'
+    );
+
+    store.resetRigNodeToRest(child.id);
+    const rested = store.getProject().rig!.nodes.find((entry) => entry.id === child.id)!;
+    assert.deepEqual(rested.position, rested.rest.position);
+    assert.deepEqual(rested.rotation, rested.rest.rotation);
+
+    console.log('[sca-rig] pose evaluation PASS');
+};
+
 const runZeroMoveHandleStabilityTests = () => {
     const node = createDefaultRigNode('rig_01');
     node.pivot = [1, 0, 0];
@@ -1417,6 +1541,7 @@ const runBindingEffectiveConsistencyTests = () => {
 
     writeSlotEffectiveMatrix(
         { ...rig, nodes: [root, childBefore] },
+        evaluateRigPose({ ...rig, nodes: [root, childBefore] }),
         slot,
         childBefore,
         keepBinding
@@ -1424,6 +1549,7 @@ const runBindingEffectiveConsistencyTests = () => {
     const paletteAfterBind = mockSplat.transformPalette.matrices.get(3)!.clone();
     writeSlotEffectiveMatrix(
         { ...rig, nodes: [root, childBefore] },
+        evaluateRigPose({ ...rig, nodes: [root, childBefore] }),
         slot,
         childBefore,
         keepBinding
@@ -1738,6 +1864,7 @@ async function main() {
     runRotateGizmoTests();
     runRotateGizmoHistoryTests();
     runScaleDeferredTests();
+    runPoseEvaluationTests();
     runZeroMoveHandleStabilityTests();
     runBindingEffectiveConsistencyTests();
     await runScaProjectOpNoOpTests();
@@ -1776,6 +1903,7 @@ async function main() {
     console.log('Rotate gizmo: PASS');
     console.log('Rotate gizmo history: PASS');
     console.log('Scale deferred (rigid-only): PASS');
+    console.log('Pose evaluation: PASS');
     console.log('Zero-move handle stability: PASS');
     console.log('Binding effective consistency: PASS');
     console.log('ScaProjectOp no-op apply: PASS');
