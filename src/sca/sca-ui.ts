@@ -4,6 +4,7 @@ import { Events } from '../events';
 import { Tooltips } from '../ui/tooltips';
 
 import { ScaPanel } from './sca-panel';
+import { ScaNavigatorPanel } from './ui/navigator/sca-navigator-panel';
 import { registerScaBackgroundPreview } from './ui/register-sca-background-preview';
 import { registerScaRuntimeViewerPreviewUi } from './ui/sca-runtime-viewer-preview-ui';
 import { ScaAssetStore } from './store/sca-asset-store';
@@ -17,7 +18,9 @@ const registerScaUi = (
 ) => {
     console.log('[SCA UI] registerScaUi called');
 
+    const scaNavigator = new ScaNavigatorPanel(events);
     const scaPanel = new ScaPanel(events, tooltips);
+    canvasContainer.append(scaNavigator);
     canvasContainer.append(scaPanel);
     registerScaBackgroundPreview(events, canvasContainer, assetStore);
     registerScaRuntimeViewerPreviewUi(events, canvasContainer);
@@ -41,6 +44,7 @@ const registerScaUi = (
 
     events.on('scaPanel.visible', (visible: boolean) => {
         scaButton.class[visible ? 'add' : 'remove']('active');
+        scaNavigator.hidden = !visible;
     });
 };
 
