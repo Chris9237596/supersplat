@@ -12,7 +12,8 @@
 
 ;(function () {
 
-  const HOVER_THROTTLE_MS = 250
+  const HOVER_THROTTLE_MS = 75
+  const HOVER_MOVE_DEDUPE_PX = 4
 
 
 
@@ -411,6 +412,29 @@
 
       return {
 
+        setCombinedMasks(selectedBitset, hoverBitset, selectedColor, hoverColor) {
+          const selectedMembers = selectedBitset ? countBitsetMembers(selectedBitset) : 0
+          const hoverMembers = hoverBitset ? countBitsetMembers(hoverBitset) : 0
+          const { minIndex, maxIndex, samples } = scanBitsetIndexRange(selectedBitset || hoverBitset)
+          const result = viewer.setScaRegionHighlightCombined?.(
+            selectedBitset,
+            hoverBitset,
+            [selectedColor.r, selectedColor.g, selectedColor.b, selectedColor.a],
+            [hoverColor.r, hoverColor.g, hoverColor.b, hoverColor.a]
+          ) ?? { nonZeroMask: 0, enabled: false, uploaded: false, bufferSize: 0, gaussianCount: 0 }
+          return {
+            members: selectedMembers + hoverMembers,
+            selectedMembers,
+            hoverMembers,
+            minIndex,
+            maxIndex,
+            samples,
+            maskRepresentation: 'combined-state',
+            sourceBytes: (selectedBitset?.byteLength ?? 0) + (hoverBitset?.byteLength ?? 0),
+            ...result,
+          }
+        },
+
         setMaskFromBitset(bitset, color, active) {
 
           const members = countBitsetMembers(bitset)
@@ -492,7 +516,9 @@
 
     let activeRegionId = window.SCA3D?.state?.selectedRegionId ?? null
 
-    let lastHoverPickAt = 0
+    let lastHoverPickAt = -HOVER_THROTTLE_MS
+    let lastHoverPickX = 0
+    let lastHoverPickY = 0
 
     let pointerDown = false
 
@@ -514,6 +540,8 @@
 
     const defaultScaSplatId = window.SCA3D?.state?.defaultScaSplatId ?? 'splat_01'
 
+    let pendingActivationSource = 'click'
+
     const createRuntimeRegionInteraction = window.SCA3D?.createRuntimeRegionInteraction
 
     const regionCore = typeof createRuntimeRegionInteraction === 'function' ?
@@ -528,7 +556,7 @@
             hoverRegionId = null
             updateHoverCursor(null)
             logRegionTransition('cleared')
-            syncRegionPresentation('deselect')
+            window.SCA3D.setActiveTarget?.(null, { source: pendingActivationSource })
             return
           }
 
@@ -538,11 +566,14 @@
           }
 
           activeRegionId = regionId
-          window.SCA3D.hotspotOverlay?.setSelected?.(null)
-          logRegionTransition('clicked', regionId)
-          window.SCA3D.activateRegion?.(entry.region)
-          window.SCA3D.handleRegionClick?.(entry.region)
-          syncRegionPresentation('click')
+          logRegionTransition(pendingActivationSource === 'click' ? 'clicked' : 'navigated', regionId)
+          window.SCA3D.setActiveTarget?.(
+            { type: 'region', id: regionId },
+            {
+              source: pendingActivationSource,
+              emitClick: pendingActivationSource === 'click',
+            }
+          )
         },
       }) :
       null
@@ -725,43 +756,44 @@
 
       if (ctx.highlight) {
 
-        const visualEntry = activeEntry?.tint ? activeEntry : hoverEntry
+        const visualState = activeEntry?.tint ?
+          (hoverEntry?.tint ? 'selected+hover' : 'selected') :
+          (hoverEntry?.tint ? 'hover' : 'normal')
 
-        const visualState = activeEntry?.tint ? 'selected' : (hoverEntry?.tint ? 'hover' : 'normal')
-
-        const visualKey = `${visualEntry?.regionId ?? 'none'}:${visualState}:${visualEntry?.tint?.a ?? ''}`
+        const visualKey = `${activeEntry?.regionId ?? 'none'}:${hoverEntry?.regionId ?? 'none'}:${visualState}`
 
         let highlightStats = null
 
-        if (activeEntry?.tint) {
-
-          const entry = ctx.lookup.entries.find((item) => item.regionId === activeEntry.regionId)
-
-          if (entry) {
-
-            highlightStats = ctx.highlight.setMaskFromBitset(entry.bitset, activeEntry.tint, true)
-
-          }
-
-        } else if (hoverEntry?.tint) {
-
-          const entry = ctx.lookup.entries.find((item) => item.regionId === hoverEntry.regionId)
-
-          if (entry) {
-
-            highlightStats = ctx.highlight.setMaskFromBitset(entry.bitset, hoverEntry.tint, true)
-
-          }
-
-        } else {
+        if (!activeEntry?.tint && !hoverEntry?.tint) {
 
           ctx.highlight.clear()
 
+        } else {
+
+          const selectedLookup = activeEntry?.regionId ?
+            ctx.lookup.entries.find((item) => item.regionId === activeEntry.regionId) :
+            null
+
+          const hoverLookup = hoverEntry?.regionId ?
+            ctx.lookup.entries.find((item) => item.regionId === hoverEntry.regionId) :
+            null
+
+          const selectedTint = activeEntry?.tint ?? { r: 0, g: 0, b: 0, a: 0 }
+
+          const hoverTint = hoverEntry?.tint ?? { r: 0, g: 0, b: 0, a: 0 }
+
+          highlightStats = ctx.highlight.setCombinedMasks(
+            selectedLookup?.bitset ?? null,
+            hoverLookup?.bitset ?? null,
+            selectedTint,
+            hoverTint
+          )
+
         }
 
-        const highlightKey = `${visualEntry?.regionId ?? 'none'}:${visualState}:${highlightStats?.nonZeroMask ?? 0}`
+        const highlightKey = `${activeEntry?.regionId ?? 'none'}:${hoverEntry?.regionId ?? 'none'}:${highlightStats?.nonZeroMask ?? 0}`
 
-        if (highlightKey !== lastHighlightDiag && visualEntry?.regionId && visualEntry?.tint && highlightStats) {
+        if (highlightKey !== lastHighlightDiag && highlightStats && (activeEntry?.tint || hoverEntry?.tint)) {
 
           lastHighlightDiag = highlightKey
 
@@ -769,31 +801,29 @@
 
             '[SCA REGION HIGHLIGHT]',
 
-            `regionId=${visualEntry.regionId}`,
+            `selectedRegionId=${activeEntry?.regionId ?? 'none'}`,
+
+            `hoverRegionId=${hoverEntry?.regionId ?? 'none'}`,
 
             `members=${highlightStats.members}`,
+
+            `selectedMembers=${highlightStats.selectedMembers ?? 0}`,
+
+            `hoverMembers=${highlightStats.hoverMembers ?? 0}`,
 
             `gaussianCount=${highlightStats.gaussianCount ?? ctx.lookup.gaussianCount}`,
 
             `maskRepresentation=${highlightStats.maskRepresentation}`,
 
-            `sourceBytes=${highlightStats.sourceBytes}`,
-
             `nonZeroMask=${highlightStats.nonZeroMask}`,
 
             `bufferSize=${highlightStats.bufferSize ?? 0}`,
 
-            `minIndex=${highlightStats.minIndex}`,
-
-            `maxIndex=${highlightStats.maxIndex}`,
-
             `enabled=${highlightStats.enabled}`,
 
-            `tint=${rgbaToHex(visualEntry.tint)}`,
+            `selectedTint=${activeEntry?.tint ? rgbaToHex(activeEntry.tint) : 'none'}`,
 
-            `opacity=${visualEntry.tint.a}`,
-
-            `sampleIndices=${highlightStats.samples.join(',')}`,
+            `hoverTint=${hoverEntry?.tint ? rgbaToHex(hoverEntry.tint) : 'none'}`,
 
           ].join('\n'))
 
@@ -803,7 +833,7 @@
 
         }
 
-        if (visualKey !== lastVisualDiag && visualEntry?.regionId && visualEntry?.tint) {
+        if (visualKey !== lastVisualDiag && (activeEntry?.tint || hoverEntry?.tint)) {
 
           lastVisualDiag = visualKey
 
@@ -811,13 +841,15 @@
 
             '[SCA REGION VISUAL]',
 
-            `regionId=${visualEntry.regionId}`,
+            `selectedRegionId=${activeEntry?.regionId ?? 'none'}`,
+
+            `hoverRegionId=${hoverEntry?.regionId ?? 'none'}`,
 
             `state=${visualState}`,
 
-            `tint=${rgbaToHex(visualEntry.tint)}`,
+            `selectedTint=${activeEntry?.tint ? rgbaToHex(activeEntry.tint) : 'none'}`,
 
-            `opacity=${visualEntry.tint.a}`,
+            `hoverTint=${hoverEntry?.tint ? rgbaToHex(hoverEntry.tint) : 'none'}`,
 
           ].join('\n'))
 
@@ -944,7 +976,17 @@
 
       const now = Date.now()
 
-      if (now - lastHoverPickAt < HOVER_THROTTLE_MS) {
+      const elapsed = now - lastHoverPickAt
+
+      const dx = clientX - lastHoverPickX
+
+      const dy = clientY - lastHoverPickY
+
+      const movedSq = dx * dx + dy * dy
+
+      const dedupeSq = HOVER_MOVE_DEDUPE_PX * HOVER_MOVE_DEDUPE_PX
+
+      if (elapsed < HOVER_THROTTLE_MS && movedSq < dedupeSq) {
 
         return
 
@@ -952,11 +994,17 @@
 
       lastHoverPickAt = now
 
+      lastHoverPickX = clientX
 
+      lastHoverPickY = clientY
+
+      const pickStart = performance.now()
 
       const token = ++hoverPickToken
 
       const result = await pickRegionAt(clientX, clientY)
+
+      const durationMs = performance.now() - pickStart
 
       if (token !== hoverPickToken) {
 
@@ -973,6 +1021,14 @@
       const regionEntry = result?.regionEntry ?? null
 
       const nextId = regionEntry?.regionId ?? null
+
+      const backend = window.SCA3D?.runtimePicker?.backendId ?? 'centers'
+
+      if (window.SCA3D?.state?.debugHoverPick) {
+
+        console.log('[SCA HOVER PICK]', `backend=${backend}`, `durationMs=${durationMs.toFixed(1)}`, `regionId=${nextId ?? 'none'}`)
+
+      }
 
 
 
@@ -1175,16 +1231,6 @@
 
 
 
-      if (!regionId) {
-
-        console.log('[SCA CLICK FLOW]', 'capture-pointerup', 'suppressionSet=false', 'reason=no-region-hit')
-
-        return
-
-      }
-
-
-
       markNativeClickSuppressed(event.pointerId, offsetX, offsetY, regionId)
 
       console.log([
@@ -1193,9 +1239,11 @@
 
         'capture-pointerup',
 
-        `regionId=${regionId}`,
+        regionId ? `regionId=${regionId}` : 'regionId=none',
 
         'suppressionSet=true',
+
+        regionId ? 'reason=region-hit' : 'reason=gaussian-hit-no-region',
 
         `offset={x:${offsetX},y:${offsetY}}`,
 
@@ -1314,8 +1362,7 @@
 
       if (regionCore) {
         if (regionEntry?.regionId && isRegionClickable(regionEntry.region)) {
-          window.SCA3D.state = window.SCA3D.state || {}
-          window.SCA3D.state.regionClickConsumed = true
+          pendingActivationSource = 'click'
           regionCore.activateRegion(regionEntry.regionId, 'click')
         }
         return
@@ -1325,7 +1372,7 @@
         activeRegionId = null
         hoverRegionId = null
         updateHoverCursor(null)
-        syncRegionPresentation('deselect')
+        window.SCA3D.setActiveTarget?.(null, { source: 'click' })
         return
       }
 
@@ -1333,11 +1380,10 @@
         return
       }
 
-      activeRegionId = regionEntry.regionId
-      hoverRegionId = regionEntry.regionId
-      window.SCA3D.activateRegion?.(regionEntry.region)
-      window.SCA3D.handleRegionClick?.(regionEntry.region)
-      syncRegionPresentation('click')
+      window.SCA3D.setActiveTarget?.(
+        { type: 'region', id: regionEntry.regionId },
+        { source: 'click', emitClick: true }
+      )
 
     })
 
@@ -1353,9 +1399,11 @@
 
     window.SCA3D.selectRegion = (regionId, source = 'navigation') => {
 
+      pendingActivationSource = source
+
       if (regionCore) {
 
-        regionCore.activateRegion(regionId, source)
+        regionCore.activateRegion(regionId, source === 'click' ? 'click' : 'navigation')
 
         return
 
@@ -1363,11 +1411,7 @@
 
       if (!regionId) {
 
-        activeRegionId = null
-
-        hoverRegionId = null
-
-        syncRegionPresentation('deselect')
+        window.SCA3D.setActiveTarget?.(null, { source })
 
         return
 
@@ -1381,15 +1425,48 @@
 
       }
 
+      window.SCA3D.setActiveTarget?.(
+        { type: 'region', id: regionId },
+        { source, emitClick: source === 'click' }
+      )
+
+    }
+
+
+
+    window.SCA3D.presentRegion = (regionId, source = 'programmatic') => {
+
+      if (!regionId) {
+
+        activeRegionId = null
+
+        hoverRegionId = null
+
+        syncRegionPresentation('deselect')
+
+        return
+
+      }
+
       activeRegionId = regionId
 
-      window.SCA3D.hotspotOverlay?.setSelected?.(null)
-
-      window.SCA3D.activateRegion?.(entry.region)
-
-      window.SCA3D.handleRegionClick?.(entry.region)
-
       syncRegionPresentation(source)
+
+    }
+
+
+
+    window.SCA3D.getRegionAnchor3D = (regionId) => {
+
+      const entry = ctx.lookup.entries.find((item) => item.regionId === regionId)
+
+      if (!entry) {
+
+        return null
+
+      }
+
+      return computeRegionAnchor3D(entry.bitset, viewer)
 
     }
 

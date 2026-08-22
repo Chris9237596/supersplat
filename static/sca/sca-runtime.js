@@ -428,7 +428,10 @@
       return
     }
 
-    const targets = []
+    /** @type {Array<{ type: 'hotspot' | 'region', id: string, title: string, data: object }>} */
+    const hotspotTargets = []
+    /** @type {Array<{ type: 'hotspot' | 'region', id: string, title: string, data: object }>} */
+    const regionTargets = []
 
     if (navConfig.hotspots !== false) {
       const hotspots = Array.isArray(project?.hotspots) ? project.hotspots : []
@@ -439,7 +442,7 @@
         if (hotspot?.interaction?.showInNavigation === false) {
           continue
         }
-        targets.push({
+        hotspotTargets.push({
           type: 'hotspot',
           id: hotspot.id,
           title: hotspot.name || hotspot.title || hotspot.id || 'Hotspot',
@@ -457,7 +460,7 @@
         if (region?.interaction?.showInNavigation === false) {
           continue
         }
-        targets.push({
+        regionTargets.push({
           type: 'region',
           id: region.id,
           title: region.name || region.title || region.id || 'Region',
@@ -466,68 +469,135 @@
       }
     }
 
-    if (targets.length < 2) {
+    if (hotspotTargets.length === 0 && regionTargets.length === 0) {
       return
     }
 
     const nav = document.getElementById('annotationNav')
-    const titleEl = document.getElementById('annotationNavTitle')
-    const prevBtn = document.getElementById('annotationPrev')
-    const nextBtn = document.getElementById('annotationNext')
-    const infoEl = document.getElementById('annotationInfo')
-    if (!nav || !titleEl || !prevBtn || !nextBtn || !infoEl) {
+    const legacyPrev = document.getElementById('annotationPrev')
+    const legacyNext = document.getElementById('annotationNext')
+    const legacyInfo = document.getElementById('annotationInfo')
+    if (!nav) {
       return
     }
 
-    let typeEl = document.getElementById('annotationNavType')
-    if (!typeEl) {
-      typeEl = document.createElement('span')
-      typeEl.id = 'annotationNavType'
-      typeEl.className = 'sca-nav-target-type'
-      typeEl.style.display = 'block'
-      typeEl.style.fontSize = '10px'
-      typeEl.style.letterSpacing = '0.08em'
-      typeEl.style.opacity = '0.65'
-      infoEl.insertBefore(typeEl, titleEl)
+    legacyPrev?.classList.add('hidden')
+    legacyNext?.classList.add('hidden')
+    legacyInfo?.classList.add('hidden')
+
+    let splitNav = document.getElementById('scaSplitNav')
+    if (!splitNav) {
+      splitNav = document.createElement('div')
+      splitNav.id = 'scaSplitNav'
+      splitNav.className = 'sca-split-nav'
+      nav.appendChild(splitNav)
+    } else {
+      splitNav.replaceChildren()
     }
 
-    let currentIndex = 0
-
-    const updateDisplay = () => {
-      const target = targets[currentIndex]
-      typeEl.textContent = target.type === 'region' ? 'REGION' : 'HOTSPOT'
-      titleEl.textContent = target.title
+    const cloneNavButton = (legacyButton, className, ariaLabel) => {
+      const btn = legacyButton ?
+        legacyButton.cloneNode(true) :
+        document.createElement('button')
+      btn.type = 'button'
+      btn.className = className
+      btn.removeAttribute('id')
+      btn.classList.remove('hidden')
+      btn.setAttribute('aria-label', ariaLabel)
+      return btn
     }
 
-    const activateTarget = (target) => {
-      if (target.type === 'hotspot') {
-        window.SCA3D.activateHotspot?.(target.data)
-        window.SCA3D.handleHotspotClick?.(target.data)
-        return
+    /**
+     * @param {'hotspot'|'region'} type
+     * @param {string} label
+     * @param {typeof hotspotTargets} targets
+     */
+    const createNavRow = (type, label, targets) => {
+      if (targets.length === 0) {
+        return null
       }
 
-      window.SCA3D.selectRegion?.(target.id, 'navigation')
-    }
+      const row = document.createElement('div')
+      row.className = 'sca-nav-row'
+      row.dataset.navType = type
 
-    const goTo = (index) => {
-      currentIndex = ((index % targets.length) + targets.length) % targets.length
+      const labelEl = document.createElement('span')
+      labelEl.className = 'sca-nav-label'
+      labelEl.textContent = label
+
+      const prevBtn = cloneNavButton(legacyPrev, 'sca-nav-prev', `Previous ${label.toLowerCase()}`)
+      const titleEl = document.createElement('span')
+      titleEl.className = 'sca-nav-title'
+      const nextBtn = cloneNavButton(legacyNext, 'sca-nav-next', `Next ${label.toLowerCase()}`)
+
+      row.append(labelEl, prevBtn, titleEl, nextBtn)
+      splitNav.appendChild(row)
+
+      let currentIndex = 0
+
+      const updateDisplay = () => {
+        const target = targets[currentIndex]
+        titleEl.textContent = target.title
+        const canCycle = targets.length > 1
+        prevBtn.hidden = !canCycle
+        nextBtn.hidden = !canCycle
+        prevBtn.disabled = !canCycle
+        nextBtn.disabled = !canCycle
+      }
+
+      const goTo = (index) => {
+        currentIndex = ((index % targets.length) + targets.length) % targets.length
+        updateDisplay()
+        const target = targets[currentIndex]
+        window.SCA3D.setActiveTarget?.(
+          { type: target.type, id: target.id },
+          { source: 'navigation', emitClick: false }
+        )
+      }
+
+      prevBtn.addEventListener('click', (event) => {
+        event.stopPropagation()
+        goTo(currentIndex - 1)
+      })
+      nextBtn.addEventListener('click', (event) => {
+        event.stopPropagation()
+        goTo(currentIndex + 1)
+      })
+
       updateDisplay()
-      activateTarget(targets[currentIndex])
+
+      return {
+        type,
+        targets,
+        goToId(id) {
+          const index = targets.findIndex((target) => target.id === id)
+          if (index < 0) {
+            return
+          }
+          currentIndex = index
+          updateDisplay()
+        },
+      }
     }
 
-    prevBtn.replaceWith(prevBtn.cloneNode(true))
-    nextBtn.replaceWith(nextBtn.cloneNode(true))
-    const freshPrev = document.getElementById('annotationPrev')
-    const freshNext = document.getElementById('annotationNext')
+    const hotspotNav = createNavRow('hotspot', 'HOTSPOTS', hotspotTargets)
+    const regionNav = createNavRow('region', 'REGIONS', regionTargets)
 
-    freshPrev.addEventListener('click', (event) => {
-      event.stopPropagation()
-      goTo(currentIndex - 1)
-    })
-    freshNext.addEventListener('click', (event) => {
-      event.stopPropagation()
-      goTo(currentIndex + 1)
-    })
+    window.SCA3D.navigation = {
+      hotspot: hotspotNav,
+      region: regionNav,
+      syncToActiveTarget() {
+        const active = window.SCA3D.state?.activeTarget
+        if (!active) {
+          return
+        }
+        if (active.type === 'hotspot') {
+          this.hotspot?.goToId(active.id)
+        } else if (active.type === 'region') {
+          this.region?.goToId(active.id)
+        }
+      },
+    }
 
     const { events, state } = viewer.global
     const syncMode = () => {
@@ -552,11 +622,13 @@
     events.on('inputMode:changed', syncMode)
     events.on('controlsHidden:changed', syncFade)
 
-    updateDisplay()
     syncMode()
     syncFade()
+    nav.classList.remove('hidden')
 
-    console.log(`[SCA3D] navigation targets ready (${targets.length}: ${targets.filter((t) => t.type === 'hotspot').length} hotspot(s), ${targets.filter((t) => t.type === 'region').length} region(s))`)
+    console.log(
+      `[SCA3D] navigation targets ready (${hotspotTargets.length} hotspot(s), ${regionTargets.length} region(s))`
+    )
   }
 
   /**
@@ -737,12 +809,93 @@
 
   /**
    * @param {object} viewer
-   * @param {number[]} focusTarget
-   * @param {number} duration
+   * @param {ReturnType<typeof normalizeViewerConfig>} viewerConfig
+   * @param {number[]|{x:number,y:number,z:number}} anchor3D
    */
-  function animateHotspotFocus(viewer, focusTarget, duration) {
+  function focusInteractionTarget(viewer, viewerConfig, anchor3D) {
+    if (!anchor3D) {
+      return
+    }
+
+    const focusTarget = Array.isArray(anchor3D) ?
+      anchor3D :
+      [anchor3D.x, anchor3D.y, anchor3D.z]
+
+    if (!focusTarget.every((value) => typeof value === 'number' && Number.isFinite(value))) {
+      return
+    }
+
     viewer.cancelLookAnimation?.()
-    viewer.lookAtTargetAnimatedWithoutMovingCamera?.(focusTarget, duration)
+    viewer.lookAtTargetAnimatedWithoutMovingCamera?.(
+      focusTarget,
+      viewerConfig.interaction.focusTransition.duration
+    )
+  }
+
+  /**
+   * @param {object} viewer
+   * @param {ReturnType<typeof normalizeViewerConfig>} viewerConfig
+   * @param {{ type: 'hotspot' | 'region', id: string }|null} target
+   * @param {{ source?: string, emitClick?: boolean }} [options]
+   */
+  function setActiveTarget(viewer, viewerConfig, target, options = {}) {
+    const source = options.source ?? 'programmatic'
+    const emitClick = options.emitClick === true
+
+    window.SCA3D.state = window.SCA3D.state || {}
+    window.SCA3D.state.activeTarget = target ?
+      { type: target.type, id: target.id } :
+      null
+
+    interruptCameraTransitions(viewer)
+
+    if (!target) {
+      window.SCA3D.state.selectedHotspotId = null
+      window.SCA3D.state.selectedRegionId = null
+      window.SCA3D.hotspotOverlay?.setSelected?.(null)
+      window.SCA3D.presentRegion?.(null, source)
+      window.SCA3D.navigation?.syncToActiveTarget?.()
+      return
+    }
+
+    if (target.type === 'hotspot') {
+      const hotspot = window.SCA3D.state.hotspotById?.get?.(target.id)
+      if (!hotspot) {
+        return
+      }
+
+      window.SCA3D.state.selectedHotspotId = target.id
+      window.SCA3D.state.selectedRegionId = null
+      window.SCA3D.hotspotOverlay?.setSelected?.(target.id)
+      window.SCA3D.presentRegion?.(null, source)
+
+      if (hotspot.position) {
+        focusInteractionTarget(viewer, viewerConfig, hotspot.position)
+      }
+
+      if (emitClick) {
+        window.SCA3D.handleHotspotClick?.(hotspot)
+      }
+    } else if (target.type === 'region') {
+      window.SCA3D.state.selectedRegionId = target.id
+      window.SCA3D.state.selectedHotspotId = null
+      window.SCA3D.hotspotOverlay?.setSelected?.(null)
+      window.SCA3D.presentRegion?.(target.id, source)
+
+      const anchor = window.SCA3D.getRegionAnchor3D?.(target.id)
+      if (anchor) {
+        focusInteractionTarget(viewer, viewerConfig, anchor)
+      }
+
+      if (emitClick) {
+        const region = window.SCA3D.state.regionById?.get?.(target.id)
+        if (region) {
+          window.SCA3D.handleRegionClick?.(region)
+        }
+      }
+    }
+
+    window.SCA3D.navigation?.syncToActiveTarget?.()
   }
 
   /**
@@ -867,41 +1020,36 @@
    * @param {ReturnType<typeof normalizeViewerConfig>} viewerConfig
    * @param {object} hotspot
    */
-  function activateScaHotspot(viewer, viewerConfig, hotspot) {
+  function activateScaHotspot(viewer, viewerConfig, hotspot, options = {}) {
     if (!hotspot?.id) {
       return
     }
 
-    interruptCameraTransitions(viewer)
-
-    window.SCA3D.state.selectedHotspotId = hotspot.id
-    window.SCA3D.state.selectedRegionId = null
-    window.SCA3D.hotspotOverlay?.setSelected(hotspot.id)
-    window.SCA3D.regionOverlay?.hide()
-
-    if (hotspot.position) {
-      animateHotspotFocus(
-        viewer,
-        hotspot.position,
-        viewerConfig.interaction.focusTransition.duration
-      )
-    }
+    setActiveTarget(
+      viewer,
+      viewerConfig,
+      { type: 'hotspot', id: hotspot.id },
+      { source: options.source ?? 'click', emitClick: options.emitClick ?? true }
+    )
   }
 
   /**
    * @param {object} viewer
+   * @param {ReturnType<typeof normalizeViewerConfig>} viewerConfig
    * @param {object} region
+   * @param {{ source?: string, emitClick?: boolean }} [options]
    */
-  function activateScaRegion(viewer, region) {
+  function activateScaRegion(viewer, viewerConfig, region, options = {}) {
     if (!region?.id) {
       return
     }
 
-    interruptCameraTransitions(viewer)
-
-    window.SCA3D.state.selectedRegionId = region.id
-    window.SCA3D.state.selectedHotspotId = null
-    window.SCA3D.hotspotOverlay?.setSelected(null)
+    setActiveTarget(
+      viewer,
+      viewerConfig,
+      { type: 'region', id: region.id },
+      { source: options.source ?? 'click', emitClick: options.emitClick ?? false }
+    )
   }
 
   /**
@@ -939,7 +1087,7 @@
         return
       }
 
-      activateScaHotspot(viewer, viewerConfig, hotspot)
+      activateScaHotspot(viewer, viewerConfig, hotspot, { source: 'annotation', emitClick: false })
 
       const positionBefore = readCameraPosition(viewer)
       console.log('[SCA3D] select animation')
@@ -1382,8 +1530,10 @@
     window.SCA3D.state.viewerConfig = viewerConfig
     window.SCA3D.state.hotspotById = hotspotById
     window.SCA3D.state.viewer = viewer
-    window.SCA3D.activateHotspot = (hotspot) => activateScaHotspot(viewer, viewerConfig, hotspot)
-    window.SCA3D.activateRegion = (region) => activateScaRegion(viewer, region)
+    window.SCA3D.activateHotspot = (hotspot, options) => activateScaHotspot(viewer, viewerConfig, hotspot, options)
+    window.SCA3D.activateRegion = (region, options) => activateScaRegion(viewer, viewerConfig, region, options)
+    window.SCA3D.setActiveTarget = (target, options) => setActiveTarget(viewer, viewerConfig, target, options)
+    window.SCA3D.focusInteractionTarget = (anchor3D) => focusInteractionTarget(viewer, viewerConfig, anchor3D)
 
     applyRuntimeUx(viewer, viewerConfig, hotspotById)
     applyViewerBackground(viewerConfig.background, viewer)

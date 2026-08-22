@@ -682,6 +682,12 @@ const verifyGlslHighlightPatch = (source: string): void => {
             throw new Error('[SCA] viewer GLSL highlight patch failed: fragment shader references splatTextureSize');
         }
     }
+    if (!source.includes('scaRegionHoverClr')) {
+        throw new Error('[SCA] viewer GLSL highlight patch failed: missing scaRegionHoverClr uniform');
+    }
+    if (!source.includes('regionState > 0.5 ? scaRegionHighlightClr : scaRegionHoverClr')) {
+        throw new Error('[SCA] viewer GLSL highlight patch failed: missing per-gaussian state tint branch');
+    }
     if (!source.includes('flat varying float scaGaussianIndex')) {
         throw new Error('[SCA] viewer GLSL highlight patch failed: missing flat varying scaGaussianIndex');
     }
@@ -715,9 +721,10 @@ const applyScaRegionHighlightGlslPatches = (source: string): RegionHighlightShad
                 `vec4 fragColor = vec4(gaussianColor.xyz, alpha);
         #ifdef SCA_REGION_HIGHLIGHT
         if (scaRegionHighlightActive > 0.5) {
-            float regionMask = texelFetch(scaRegionHighlight, ivec2(int(scaGaussianIndex) % int(scaRegionHighlightTexWidth), int(scaGaussianIndex) / int(scaRegionHighlightTexWidth)), 0).r;
-            if (regionMask > 0.0) {
-                fragColor.xyz = mix(fragColor.xyz, scaRegionHighlightClr.xyz, scaRegionHighlightClr.a * regionMask);
+            float regionState = texelFetch(scaRegionHighlight, ivec2(int(scaGaussianIndex) % int(scaRegionHighlightTexWidth), int(scaGaussianIndex) / int(scaRegionHighlightTexWidth)), 0).r;
+            if (regionState > 0.02) {
+                vec4 tint = regionState > 0.5 ? scaRegionHighlightClr : scaRegionHoverClr;
+                fragColor.xyz = mix(fragColor.xyz, tint.xyz, tint.a);
             }
         }
         #endif`
@@ -746,6 +753,7 @@ const applyScaRegionHighlightGlslPatches = (source: string): RegionHighlightShad
                 `#ifdef SCA_REGION_HIGHLIGHT
 uniform sampler2D scaRegionHighlight;
 uniform vec4 scaRegionHighlightClr;
+uniform vec4 scaRegionHoverClr;
 uniform float scaRegionHighlightActive;
 uniform float scaRegionHighlightTexWidth;
 uniform float scaRegionHighlightTexHeight;
@@ -1224,6 +1232,7 @@ const patchViewerBundle = (source: string): string => {
                     material.setDefine('SCA_REGION_HIGHLIGHT', true);
                     material.setParameter('scaRegionHighlight', scaRegionHighlightTexture);
                     material.setParameter('scaRegionHighlightClr', [1, 0.4, 0, 0.5]);
+                    material.setParameter('scaRegionHoverClr', [1, 0.75, 0.2, 0.35]);
                     material.setParameter('scaRegionHighlightActive', 0);
                     material.setParameter('scaRegionHighlightTexWidth', layout.width);
                     material.setParameter('scaRegionHighlightTexHeight', layout.height);
@@ -1300,6 +1309,72 @@ const patchViewerBundle = (source: string): string => {
                 return {
                     nonZeroMask,
                     enabled: !!active,
+                    uploaded: true,
+                    bufferSize: locked.length,
+                    gaussianCount: scaRegionHighlightGaussianCount
+                };
+            };
+            this.setScaRegionHighlightCombined = (selectedBitset, hoverBitset, selectedColor, hoverColor) => {
+                if (!scaRegionHighlightTexture || !scaRegionHighlightMaterial || !scaRegionHighlightBuffer) {
+                    return { nonZeroMask: 0, enabled: false, uploaded: false, bufferSize: 0 };
+                }
+                const SCA_REGION_STATE_HOVER = 85;
+                const SCA_REGION_STATE_SELECTED = 255;
+                let nonZeroMask = 0;
+                let selectedCount = 0;
+                let hoverCount = 0;
+                scaRegionHighlightBuffer.fill(0);
+                const locked = scaRegionHighlightTexture.lock();
+                locked.fill(0);
+                const limit = Math.min(
+                    scaRegionHighlightGaussianCount,
+                    scaRegionHighlightBuffer.length
+                );
+                for (let i = 0; i < limit; i++) {
+                    let state = 0;
+                    if (selectedBitset?.[i]) {
+                        state = SCA_REGION_STATE_SELECTED;
+                        selectedCount++;
+                    } else if (hoverBitset?.[i]) {
+                        state = SCA_REGION_STATE_HOVER;
+                        hoverCount++;
+                    }
+                    if (state) {
+                        scaRegionHighlightBuffer[i] = state;
+                        locked[i * 4] = state;
+                        nonZeroMask++;
+                    }
+                }
+                scaRegionHighlightTexture.unlock();
+                const enabled = nonZeroMask > 0;
+                scaRegionHighlightMaterial.setParameter('scaRegionHighlightClr', selectedColor);
+                scaRegionHighlightMaterial.setParameter('scaRegionHoverClr', hoverColor);
+                scaRegionHighlightMaterial.setParameter('scaRegionHighlightActive', enabled ? 1 : 0);
+                scaRegionHighlightMaterial.update();
+                app.renderNextFrame = true;
+                const diagKey = \`\${selectedCount}:\${hoverCount}:\${nonZeroMask}:\${selectedColor?.join?.(',') ?? ''}:\${hoverColor?.join?.(',') ?? ''}\`;
+                if (diagKey !== scaRegionHighlightLastDiag) {
+                    scaRegionHighlightLastDiag = diagKey;
+                    console.log('[SCA REGION HIGHLIGHT]', {
+                        nonZeroMask,
+                        selectedCount,
+                        hoverCount,
+                        enabled,
+                        selectedTint: selectedColor,
+                        hoverTint: hoverColor,
+                        gaussianCount: scaRegionHighlightGaussianCount,
+                        bufferSize: locked.length,
+                        texWidth: scaRegionHighlightTexWidth,
+                        texHeight: scaRegionHighlightTexHeight,
+                        textureWidth: scaRegionHighlightTexture.width,
+                        textureHeight: scaRegionHighlightTexture.height
+                    });
+                }
+                return {
+                    nonZeroMask,
+                    selectedCount,
+                    hoverCount,
+                    enabled,
                     uploaded: true,
                     bufferSize: locked.length,
                     gaussianCount: scaRegionHighlightGaussianCount

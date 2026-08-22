@@ -210,8 +210,10 @@
               return
             }
 
-            window.SCA3D.activateHotspot?.(entry)
-            window.SCA3D.handleHotspotClick?.(entry)
+            window.SCA3D.setActiveTarget?.(
+              { type: 'hotspot', id: entry.id },
+              { source: 'click', emitClick: true }
+            )
           })
           views.set(hotspot.id, view)
         }
