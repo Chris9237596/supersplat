@@ -12,6 +12,8 @@ import {
     writeSplatFile
 } from '../../splat-serialize';
 
+import { isExportPerfEnabled } from './export-perf';
+
 type SogGeometryCacheEntry = {
     indexSog: Uint8Array;
     exportMap: ExportGaussianMap;
@@ -39,6 +41,15 @@ type WriteViewerExportOptions = {
 
 let geometryCache: { key: string; entry: SogGeometryCacheEntry } | null = null;
 let viewerShellCache: ViewerShellCacheEntry | null = null;
+let sessionSogBuildCount = 0;
+
+type EnsureCompressedSogResult = {
+    entry: SogGeometryCacheEntry;
+    cacheHit: boolean;
+    sogBuildMs: number;
+    cacheLookupMs: number;
+    sogBuildCount: number;
+};
 
 const fnv1aUpdate = (hash: number, data: ArrayBufferView | string): number => {
     let h = hash;
@@ -161,22 +172,34 @@ const ensureCompressedSogGeometry = async (
     sogCompressionMode: SogCompressionMode,
     iterations: number,
     events?: Events
-): Promise<SogGeometryCacheEntry> => {
+): Promise<EnsureCompressedSogResult> => {
+    const lookupStartedAt = performance.now();
     const geometryKey = computeSogGeometryCacheKey(
         splats,
         serializeSettings,
         sogCompressionMode,
         iterations
     );
+    const cacheLookupMs = Math.round(performance.now() - lookupStartedAt);
 
     if (geometryCache?.key === geometryKey) {
         console.log('[SCA EXPORT] SOG geometry cache hit');
-        return geometryCache.entry;
+        if (isExportPerfEnabled()) {
+            console.log('[SCA EXPORT] sogBuildCount=0 (cache hit, no compression this export)');
+        }
+        return {
+            entry: geometryCache.entry,
+            cacheHit: true,
+            sogBuildMs: 0,
+            cacheLookupMs,
+            sogBuildCount: 0
+        };
     }
 
     const backendLabel = await resolveSogCompressionBackendLabel(sogCompressionMode);
     console.log(`[SCA EXPORT] SOG cache miss — rebuilding with ${backendLabel}`);
 
+    const sogBuildStartedAt = performance.now();
     const scratchFs = new MemoryFileSystem();
     await writeSplatFile(splats, serializeSettings, 'html', 'index.html', {
         viewerSettingsJson: {
@@ -221,7 +244,18 @@ const ensureCompressedSogGeometry = async (
         exportMap
     };
     geometryCache = { key: geometryKey, entry };
-    return entry;
+    sessionSogBuildCount += 1;
+    const sogBuildMs = Math.round(performance.now() - sogBuildStartedAt);
+    if (isExportPerfEnabled()) {
+        console.log(`[SCA EXPORT] sogBuildCount=1 sessionSogBuildCount=${sessionSogBuildCount}`);
+    }
+    return {
+        entry,
+        cacheHit: false,
+        sogBuildMs,
+        cacheLookupMs,
+        sogBuildCount: 1
+    };
 };
 
 const writeFreshSettingsJson = (
@@ -298,9 +332,18 @@ const assembleBundledViewerHtml = (
     return bundled.replace('.compressed.ply', '.sog');
 };
 
+type WriteViewerExportResult = {
+    exportMap: ExportGaussianMap;
+    cacheHit: boolean;
+    sogBuildMs: number;
+    cacheLookupMs: number;
+    sogBuildCount: number;
+    htmlBundleMs: number;
+};
+
 const writeViewerExportWithCachedSog = async (
     options: WriteViewerExportOptions
-): Promise<ExportGaussianMap> => {
+): Promise<WriteViewerExportResult> => {
     const {
         splats,
         serializeSettings,
@@ -313,7 +356,7 @@ const writeViewerExportWithCachedSog = async (
         memFs
     } = options;
 
-    const geometry = await ensureCompressedSogGeometry(
+    const compressed = await ensureCompressedSogGeometry(
         splats,
         serializeSettings,
         sogCompressionMode,
@@ -321,30 +364,66 @@ const writeViewerExportWithCachedSog = async (
         events
     );
     const shell = requireViewerShellCache();
+    let htmlBundleMs = 0;
 
     if (outputFormat === 'html') {
-        populateUnbundledViewerFiles(memFs, geometry, shell, experienceSettings, filename);
-        return geometry.exportMap;
+        populateUnbundledViewerFiles(memFs, compressed.entry, shell, experienceSettings, filename);
+        return {
+            exportMap: compressed.entry.exportMap,
+            cacheHit: compressed.cacheHit,
+            sogBuildMs: compressed.sogBuildMs,
+            cacheLookupMs: compressed.cacheLookupMs,
+            sogBuildCount: compressed.sogBuildCount,
+            htmlBundleMs: 0
+        };
     }
 
+    const bundleStartedAt = performance.now();
     console.log('[SCA EXPORT] building html-bundle from cached SOG');
     const encoder = new TextEncoder();
     memFs.results.set(
         filename,
-        encoder.encode(assembleBundledViewerHtml(shell, geometry.indexSog, experienceSettings))
+        encoder.encode(assembleBundledViewerHtml(shell, compressed.entry.indexSog, experienceSettings))
     );
-    return geometry.exportMap;
+    htmlBundleMs = Math.round(performance.now() - bundleStartedAt);
+    return {
+        exportMap: compressed.entry.exportMap,
+        cacheHit: compressed.cacheHit,
+        sogBuildMs: compressed.sogBuildMs,
+        cacheLookupMs: compressed.cacheLookupMs,
+        sogBuildCount: compressed.sogBuildCount,
+        htmlBundleMs
+    };
 };
 
 const clearSogExportCache = (): void => {
     geometryCache = null;
     viewerShellCache = null;
+    sessionSogBuildCount = 0;
+};
+
+const getSogGeometryFingerprintInputs = (): string[] => {
+    return [
+        'sogCompressionMode',
+        'iterations',
+        'serializeSettings.maxSHBands',
+        'serializeSettings.selected',
+        'serializeSettings.minOpacity',
+        'serializeSettings.removeInvalid',
+        'serializeSettings.keepWorldTransform',
+        'serializeSettings.keepColorTint',
+        'per-splat scaSplatId + entity transform',
+        'per-splat vertex property storage buffers'
+    ];
 };
 
 export {
+    EnsureCompressedSogResult,
     SogGeometryCacheEntry,
     ViewerOutputFormat,
+    WriteViewerExportResult,
     clearSogExportCache,
     computeSogGeometryCacheKey,
+    getSogGeometryFingerprintInputs,
     writeViewerExportWithCachedSog
 };

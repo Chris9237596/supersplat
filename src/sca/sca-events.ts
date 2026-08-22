@@ -156,13 +156,25 @@ const registerScaEvents = (events: Events): HotspotStore => {
         exportScaRuntime(store.getProject());
     });
 
+    let runtimePackageExportInProgress = false;
+
+    events.function('sca.export.runtimePackage.inProgress', () => runtimePackageExportInProgress);
+
     events.on('sca.export.runtimePackage', async (payload: boolean | ScaRuntimePackageOptions = true) => {
+        if (runtimePackageExportInProgress) {
+            console.warn('[SCA EXPORT] export already in progress — ignoring duplicate request');
+            return;
+        }
+
+        runtimePackageExportInProgress = true;
+
         const options: ScaRuntimePackageOptions = typeof payload === 'boolean'
             ? { includePreview: payload }
             : payload;
         const splats = events.invoke('scene.splats') as Splat[] | undefined;
 
         if (!Array.isArray(splats) || splats.length === 0) {
+            runtimePackageExportInProgress = false;
             await events.invoke('showPopup', {
                 type: 'error',
                 header: 'Export Failed',
@@ -189,6 +201,8 @@ const registerScaEvents = (events: Events): HotspotStore => {
                 header: 'Export Failed',
                 message: error instanceof Error ? error.message : 'Unknown export error'
             });
+        } finally {
+            runtimePackageExportInProgress = false;
         }
     });
 

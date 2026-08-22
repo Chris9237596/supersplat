@@ -15,7 +15,8 @@ import {
     SerializeSettings,
     SogCompressionMode,
     DEFAULT_SOG_COMPRESSION_MODE,
-    WebGPUUnavailableError
+    WebGPUUnavailableError,
+    resolveSogCompressionBackendLabel
 } from '../../splat-serialize';
 import { stringifyProjectJson } from '../serialize/project-json';
 import { ScaProject } from '../types/project';
@@ -26,7 +27,8 @@ import { ScaAssetStore } from '../store/sca-asset-store';
 import { hotspotsToAnnotations } from './hotspot-to-annotation';
 import { patchViewerBundle } from './patch-viewer-bundle';
 import { applySpikeSplatIndexPickPatch } from './spike-splat-index-pick-patch';
-import { writeViewerExportWithCachedSog } from './sog-export-cache';
+import { ExportPerfTracker, isExportPerfEnabled } from './export-perf';
+import { getSogGeometryFingerprintInputs, writeViewerExportWithCachedSog } from './sog-export-cache';
 import { ensureScaSplatId } from '../regions/splat-identity';
 import { regionMaskStorePath } from '../regions/region-mask-paths';
 import { remapRegionMasksForRuntimeExport } from '../regions/region-mask-runtime-export';
@@ -40,6 +42,22 @@ type ScaRuntimePackageOptions = {
     /** @deprecated Debug only — Gaussian Pick Spike. Production uses RuntimeWebGpuPickerAdapter / RuntimeCentersPickerAdapter. */
     useGaussianPickSpike?: boolean;
     sogCompressionMode?: SogCompressionMode;
+};
+
+type ScaRuntimeExportSharedContext = {
+    runtimeAssets: Awaited<ReturnType<typeof fetchScaRuntimeAssets>>;
+    embeddedAssets: Record<string, string>;
+    exportProject: ScaProject;
+};
+
+type ScaExportPackageStatus = {
+    inProgress: boolean;
+    message?: string;
+    cpuFallback?: boolean;
+};
+
+const fireExportStatus = (events: Events | undefined, status: ScaExportPackageStatus): void => {
+    events?.fire('sca.export.packageStatus', status);
 };
 
 const patchViewerBundleForExport = (source: string, useGaussianPickSpike: boolean): string => {
@@ -150,10 +168,42 @@ const buildViewerExperienceSettings = (events: Events, project: ScaProject): Exp
 };
 
 const patchViewerBootstrap = (html: string): string => {
-    return html.replace(
+    let patched = html.replace(
+        "const renderer = url.searchParams.has('webgl') ? 'webgl' : 'webgpu';",
+        "const renderer = url.searchParams.has('webgpu') ? 'webgpu' : 'webgl';"
+    );
+
+    patched = patched.replace(
         'const viewer = await main(canvas, settingsJson, config);',
         'const viewer = await SCA3D.bootstrapViewer({ canvas, settingsJson, config, main });'
     );
+
+    patched = patched.replace(
+        `document.addEventListener('DOMContentLoaded', async () => {
+                const canvas = document.getElementById('application-canvas');
+                const settingsJson = await settings;
+                const viewer = await SCA3D.bootstrapViewer({ canvas, settingsJson, config, main });
+            });`,
+        `document.addEventListener('DOMContentLoaded', async () => {
+                try {
+                    if (window.SCA3D?.capabilities?.webgl2 === false) {
+                        window.SCA3D.showRuntimeError?.('This browser does not support the required WebGL2 rendering features.');
+                        return;
+                    }
+                    const canvas = document.getElementById('application-canvas');
+                    const settingsJson = await settings;
+                    const viewer = await SCA3D.bootstrapViewer({ canvas, settingsJson, config, main });
+                    window.SCA3D.logRuntimeCompatibilitySummary?.(viewer);
+                } catch (error) {
+                    console.error('[SCA3D] runtime startup failed:', error);
+                    if (window.SCA3D?.capabilities?.webgl2 !== false) {
+                        window.SCA3D.showRuntimeError?.('Unable to start the 3D viewer. Check the browser console for details.');
+                    }
+                }
+            });`
+    );
+
+    return patched;
 };
 
 const patchIndexHtml = (html: string): string => {
@@ -167,6 +217,7 @@ const patchIndexHtml = (html: string): string => {
 
     patched = patched.replace(
         '        <!-- Application Script -->',
+        '        <script src="./sca-runtime-capabilities.js"></script>\n' +
         '        <script src="./sca-debug.js"></script>\n' +
         '        <script src="./camera-animation.js"></script>\n' +
         '        <script src="./hotspot-bridge.js"></script>\n' +
@@ -188,6 +239,7 @@ const patchIndexHtml = (html: string): string => {
 const patchPreviewHtml = (
     html: string,
     project: ScaProject,
+    scaCapabilitiesJs: string,
     scaDebugJs: string,
     cameraAnimationJs: string,
     bridgeJs: string,
@@ -209,6 +261,7 @@ const patchPreviewHtml = (
         `<script>\nwindow.__SCA3D_EMBEDDED_PROJECT__ = ${embeddedProject};\n</script>\n` +
         `<script>\nwindow.__SCA3D_EMBEDDED_ASSETS__ = ${embeddedAssetsJson};\n</script>\n` +
         `<style>\n${hotspotCss}\n</style>\n` +
+        `<script>\n${scaCapabilitiesJs}\n</script>\n` +
         `<script>\n${scaDebugJs}\n</script>\n` +
         `<script>\n${cameraAnimationJs}\n</script>\n` +
         `<script>\n${bridgeJs}\n</script>\n` +
@@ -384,6 +437,7 @@ const patchExportedViewerAssets = (memFs: MemoryFileSystem, useGaussianPickSpike
 
 const fetchScaRuntimeAssets = async () => {
     const [
+        scaCapabilitiesJs,
         scaDebugJs,
         cameraAnimationJs,
         bridgeJs,
@@ -398,6 +452,7 @@ const fetchScaRuntimeAssets = async () => {
         hotspotCss,
         runtimeJs
     ] = await Promise.all([
+        fetchRuntimeAsset('sca-runtime-capabilities.js'),
         fetchRuntimeAsset('sca-debug.js'),
         fetchRuntimeAsset('camera-animation.js'),
         fetchRuntimeAsset('hotspot-bridge.js'),
@@ -414,6 +469,7 @@ const fetchScaRuntimeAssets = async () => {
     ]);
 
     return {
+        scaCapabilitiesJs,
         scaDebugJs,
         cameraAnimationJs,
         bridgeJs,
@@ -434,6 +490,9 @@ type RuntimeViewerPreviewResult = {
     html: string;
     exportProject: ScaProject;
     pickerMode: 'gaussian-index-spike' | 'production';
+    sogBuildCount: number;
+    htmlBundleMs: number;
+    cacheLookupMs: number;
 };
 
 /**
@@ -444,7 +503,8 @@ const buildRuntimeViewerPreviewHtml = async (
     splats: Splat[],
     project: ScaProject,
     events: Events,
-    options: ScaRuntimePackageOptions = {}
+    options: ScaRuntimePackageOptions = {},
+    shared?: ScaRuntimeExportSharedContext
 ): Promise<RuntimeViewerPreviewResult> => {
     const useGaussianPickSpike = options.useGaussianPickSpike ?? false;
     const sogCompressionMode = options.sogCompressionMode ?? DEFAULT_SOG_COMPRESSION_MODE;
@@ -481,7 +541,7 @@ const buildRuntimeViewerPreviewHtml = async (
     try {
         const previewMemFs = new MemoryFileSystem();
 
-        const exportMap = await writeViewerExportWithCachedSog({
+        const exportResult = await writeViewerExportWithCachedSog({
             splats,
             serializeSettings,
             sogCompressionMode,
@@ -500,30 +560,39 @@ const buildRuntimeViewerPreviewHtml = async (
             throw new Error('[SCA] bundled viewer export did not produce preview.html');
         }
 
-        const runtimeAssets = await fetchScaRuntimeAssets();
+        const runtimeAssets = shared?.runtimeAssets ?? await fetchScaRuntimeAssets();
 
-        const draftExportProject = buildRuntimeExportProject(project, splats, viewerConfig);
-        const embeddedAssets: Record<string, string> = {};
-        const maskScratchFs = new MemoryFileSystem();
-        const runtimeGaussianCount = writeRegionMaskAssets(
-            maskScratchFs,
-            draftExportProject,
-            splats,
-            serializeSettings,
-            assetStore,
-            embeddedAssets,
-            exportMap
-        );
-        const exportProject = buildRuntimeExportProject(
-            project,
-            splats,
-            viewerConfig,
-            runtimeGaussianCount > 0 ? runtimeGaussianCount : undefined
-        );
+        let exportProject: ScaProject;
+        let embeddedAssets: Record<string, string>;
+
+        if (shared) {
+            exportProject = shared.exportProject;
+            embeddedAssets = shared.embeddedAssets;
+        } else {
+            const draftExportProject = buildRuntimeExportProject(project, splats, viewerConfig);
+            embeddedAssets = {};
+            const maskScratchFs = new MemoryFileSystem();
+            const runtimeGaussianCount = writeRegionMaskAssets(
+                maskScratchFs,
+                draftExportProject,
+                splats,
+                serializeSettings,
+                assetStore,
+                embeddedAssets,
+                exportResult.exportMap
+            );
+            exportProject = buildRuntimeExportProject(
+                project,
+                splats,
+                viewerConfig,
+                runtimeGaussianCount > 0 ? runtimeGaussianCount : undefined
+            );
+        }
 
         const previewHtml = patchPreviewHtml(
             new TextDecoder().decode(previewBytes),
             exportProject,
+            runtimeAssets.scaCapabilitiesJs,
             runtimeAssets.scaDebugJs,
             runtimeAssets.cameraAnimationJs,
             runtimeAssets.bridgeJs,
@@ -543,7 +612,10 @@ const buildRuntimeViewerPreviewHtml = async (
         return {
             html: previewHtml,
             exportProject,
-            pickerMode: useGaussianPickSpike ? 'gaussian-index-spike' : 'production'
+            pickerMode: useGaussianPickSpike ? 'gaussian-index-spike' : 'production',
+            sogBuildCount: exportResult.sogBuildCount,
+            htmlBundleMs: exportResult.htmlBundleMs,
+            cacheLookupMs: exportResult.cacheLookupMs
         };
     } catch (err) {
         splatTransformLogger.unwindAll(true);
@@ -594,10 +666,30 @@ const exportScaRuntimePackage = async (
 
     splatTransformLogger.setRenderer(createProgressRenderer('Exporting SCA Runtime Package', events));
 
+    const perf = new ExportPerfTracker();
+    const compressionBackend = await resolveSogCompressionBackendLabel(sogCompressionMode);
+    const cpuFallback = compressionBackend === 'cpu';
+    perf.setPartial({ compressionBackend });
+
+    fireExportStatus(events, {
+        inProgress: true,
+        message: cpuFallback ? 'CPU export — this may take longer' : 'Preparing SOG...',
+        cpuFallback
+    });
+
+    if (isExportPerfEnabled()) {
+        console.log('[SCA EXPORT] geometry fingerprint inputs:', getSogGeometryFingerprintInputs());
+    }
+
+    let totalSogBuildCount = 0;
+    let totalSogBuildMs = 0;
+    let totalCacheLookupMs = 0;
+    let totalHtmlBundleMs = 0;
+
     try {
         const memFs = new MemoryFileSystem();
 
-        const exportMap = await writeViewerExportWithCachedSog({
+        const sogResult = await writeViewerExportWithCachedSog({
             splats,
             serializeSettings,
             sogCompressionMode,
@@ -607,6 +699,15 @@ const exportScaRuntimePackage = async (
             experienceSettings,
             events,
             memFs
+        });
+        totalSogBuildCount += sogResult.sogBuildCount;
+        totalSogBuildMs += sogResult.sogBuildMs;
+        totalCacheLookupMs += sogResult.cacheLookupMs;
+
+        fireExportStatus(events, {
+            inProgress: true,
+            message: 'Building runtime package...',
+            cpuFallback
         });
 
         patchExportedViewerAssets(memFs, useGaussianPickSpike);
@@ -622,6 +723,7 @@ const exportScaRuntimePackage = async (
         memFs.results.set('index.html', encoder.encode(patchedHtml));
         const runtimeAssets = await fetchScaRuntimeAssets();
         const {
+            scaCapabilitiesJs,
             scaDebugJs,
             cameraAnimationJs,
             bridgeJs,
@@ -637,6 +739,7 @@ const exportScaRuntimePackage = async (
             runtimeJs
         } = runtimeAssets;
 
+        memFs.results.set('sca-runtime-capabilities.js', encoder.encode(scaCapabilitiesJs));
         memFs.results.set('sca-debug.js', encoder.encode(scaDebugJs));
         memFs.results.set('camera-animation.js', encoder.encode(cameraAnimationJs));
         memFs.results.set('hotspot-bridge.js', encoder.encode(bridgeJs));
@@ -653,6 +756,7 @@ const exportScaRuntimePackage = async (
 
         const draftExportProject = buildRuntimeExportProject(project, splats, viewerConfig);
         const embeddedAssets: Record<string, string> = {};
+        perf.markStageStart();
         const runtimeGaussianCount = writeRegionMaskAssets(
             memFs,
             draftExportProject,
@@ -660,8 +764,9 @@ const exportScaRuntimePackage = async (
             serializeSettings,
             assetStore,
             embeddedAssets,
-            exportMap
+            sogResult.exportMap
         );
+        const regionMasksMs = perf.elapsedMs();
         const exportProject = buildRuntimeExportProject(
             project,
             splats,
@@ -682,13 +787,48 @@ const exportScaRuntimePackage = async (
         }
 
         if (includePreview) {
-            const { html: previewHtml } = await buildRuntimeViewerPreviewHtml(splats, project, events, options);
-            memFs.results.set(PREVIEW_FILENAME, encoder.encode(previewHtml));
+            const previewResult = await buildRuntimeViewerPreviewHtml(
+                splats,
+                project,
+                events,
+                options,
+                {
+                    runtimeAssets,
+                    embeddedAssets,
+                    exportProject
+                }
+            );
+            totalSogBuildCount += previewResult.sogBuildCount;
+            totalCacheLookupMs += previewResult.cacheLookupMs;
+            totalHtmlBundleMs += previewResult.htmlBundleMs;
+            memFs.results.set(PREVIEW_FILENAME, encoder.encode(previewResult.html));
         }
 
+        fireExportStatus(events, {
+            inProgress: true,
+            message: 'Saving...',
+            cpuFallback
+        });
+
+        perf.markStageStart();
         await writeZipFromMemory(memFs, PACKAGE_FILENAME);
+        const zipMs = perf.elapsedMs();
+
+        perf.setPartial({
+            cacheLookupMs: totalCacheLookupMs,
+            sogBuildMs: totalSogBuildMs,
+            sogCacheHit: totalSogBuildCount === 0,
+            sogBuildCount: totalSogBuildCount,
+            regionMasksMs,
+            htmlBundleMs: totalHtmlBundleMs,
+            zipMs
+        });
+        perf.log(perf.finish());
+
+        fireExportStatus(events, { inProgress: false });
     } catch (err) {
         splatTransformLogger.unwindAll(true);
+        fireExportStatus(events, { inProgress: false });
         throw err;
     }
 };
@@ -704,6 +844,8 @@ export {
     patchViewerBundle,
     PREVIEW_FILENAME,
     RuntimeViewerPreviewResult,
+    ScaExportPackageStatus,
+    ScaRuntimeExportSharedContext,
     ScaRuntimePackageOptions,
     SogCompressionMode,
     DEFAULT_SOG_COMPRESSION_MODE,

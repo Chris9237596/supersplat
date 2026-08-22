@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCA Runtime iframe compatibility test (dev only)</title>
+    <style>
+        html, body {
+            margin: 0;
+            height: 100%;
+            font-family: system-ui, sans-serif;
+            background: #1a1a1a;
+            color: #eee;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            height: 100%;
+        }
+
+        header, footer {
+            padding: 12px 16px;
+            background: #222;
+            border-bottom: 1px solid #333;
+        }
+
+        footer {
+            border-bottom: none;
+            border-top: 1px solid #333;
+            font-family: ui-monospace, monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: 0;
+            background: #000;
+        }
+
+        .frame-wrap {
+            min-height: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <header>
+            <strong>SCA Runtime iframe test</strong>
+            — point the iframe at an exported package <code>index.html</code>.
+            Host logs appear below.
+        </header>
+        <div class="frame-wrap">
+            <iframe id="viewer" src="./smoke-out/package/index.html" title="SCA Runtime Viewer"></iframe>
+        </div>
+        <footer id="log">Waiting for postMessage events…</footer>
+    </div>
+    <script>
+        const logEl = document.getElementById('log');
+        const lines = [];
+
+        const appendLog = (line) => {
+            lines.push(line);
+            if (lines.length > 20) {
+                lines.shift();
+            }
+            logEl.textContent = lines.join('\n');
+        };
+
+        window.addEventListener('message', (event) => {
+            const data = event.data;
+            if (!data || data.source !== 'SCA3DViewer') {
+                return;
+            }
+
+            if (data.type === 'hotspotClicked') {
+                appendLog(`[SCA TEST HOST] hotspotClicked ${data.payload?.hotspotId ?? ''}`);
+            } else if (data.type === 'regionClicked') {
+                appendLog(`[SCA TEST HOST] regionClicked ${data.payload?.regionId ?? ''}`);
+            } else {
+                appendLog(`[SCA TEST HOST] ${data.type} ${JSON.stringify(data.payload ?? {})}`);
+            }
+        });
+    </script>
+</body>
+</html>

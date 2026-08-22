@@ -336,6 +336,12 @@
         color: $clr-default;
     }
 
+    .sca-export-status-label {
+        margin-top: 6px;
+        font-size: 11px;
+        color: $text-secondary;
+    }
+
     .sca-export-preview-checkbox {
         flex-shrink: 0;
         background-color: $bcg-dark;

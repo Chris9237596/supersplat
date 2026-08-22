@@ -55,6 +55,7 @@ const registerScaViewerInteractionPreview = (
                 events.invoke('sca.region.getSelected') as string | null,
             onHoverChange: (regionId: string | null) => {
                 canvasContainer.dom.style.cursor = regionId ? 'pointer' : '';
+                events.fire('sca.region.hoverPreview', regionId);
             },
             onSelectionChange: (regionId: string | null) => {
                 events.fire('sca.region.select', regionId);
@@ -108,6 +109,9 @@ const registerScaViewerInteractionPreview = (
         const nx = (clientX - rect.left) / rect.width;
         const ny = (clientY - rect.top) / rect.height;
         if (nx < 0 || nx > 1 || ny < 0 || ny > 1) {
+            if (kind === 'hover') {
+                getInteractionCore().setHoveredRegion(null);
+            }
             return;
         }
 
@@ -179,6 +183,8 @@ const registerScaViewerInteractionPreview = (
         if (isInteractionBlocked() || event.pointerType !== 'mouse') {
             if (!enabled) {
                 canvasContainer.dom.style.removeProperty('cursor');
+            } else if (isInteractionBlocked()) {
+                getInteractionCore().setHoveredRegion(null);
             }
             return;
         }
@@ -192,9 +198,17 @@ const registerScaViewerInteractionPreview = (
         void runPick(event.clientX, event.clientY, 'hover');
     };
 
+    const pointerleave = () => {
+        if (!enabled) {
+            return;
+        }
+        getInteractionCore().setHoveredRegion(null);
+    };
+
     canvasContainer.dom.addEventListener('pointerdown', pointerdown, true);
     canvasContainer.dom.addEventListener('pointerup', pointerup, true);
     canvasContainer.dom.addEventListener('pointermove', pointermove, true);
+    canvasContainer.dom.addEventListener('pointerleave', pointerleave, true);
 };
 
 export {

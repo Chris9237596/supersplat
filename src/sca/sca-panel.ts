@@ -182,6 +182,14 @@ class ScaPanel extends Container {
         exportSection.append(exportTitle);
         exportSection.append(includePreviewRow);
         exportSection.append(sogCompressionRow);
+
+        const exportStatusLabel = new Label({
+            class: 'sca-export-status-label',
+            text: '',
+            hidden: true
+        });
+
+        exportSection.append(exportStatusLabel);
         exportSection.append(exportRuntimePackageButton);
 
         const debugSection = new Container({ class: 'sca-debug-section' });
@@ -200,11 +208,35 @@ class ScaPanel extends Container {
         body.append(debugSection);
 
         exportRuntimePackageButton.on('click', () => {
+            if (events.invoke('sca.export.runtimePackage.inProgress') as boolean) {
+                return;
+            }
             events.fire('sca.export.runtimePackage', {
                 includePreview: includePreviewInput.value,
                 useGaussianPickSpike: useGaussianPickSpikeInput.value,
                 sogCompressionMode: sogCompressionSelect.value as 'automatic' | 'prefer-webgpu' | 'force-cpu'
             });
+        });
+
+        const setExportControlsEnabled = (enabled: boolean) => {
+            exportRuntimePackageButton.enabled = enabled;
+            includePreviewInput.enabled = enabled;
+            sogCompressionSelect.enabled = enabled;
+        };
+
+        events.on('sca.export.packageStatus', (status: {
+            inProgress: boolean;
+            message?: string;
+            cpuFallback?: boolean;
+        }) => {
+            setExportControlsEnabled(!status.inProgress);
+            if (status.inProgress && status.message) {
+                exportStatusLabel.text = status.message;
+                exportStatusLabel.hidden = false;
+            } else {
+                exportStatusLabel.hidden = true;
+                exportStatusLabel.text = '';
+            }
         });
 
         this.append(header);

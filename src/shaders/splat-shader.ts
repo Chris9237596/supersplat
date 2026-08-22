@@ -5,6 +5,7 @@ uniform sampler2D splatState;
 
 uniform sampler2D scaRegionHighlight;
 uniform vec4 scaRegionHighlightClr;
+uniform vec4 scaRegionHoverClr;
 uniform float scaRegionHighlightActive;
 
 uniform vec4 selectedClr;
@@ -146,9 +147,10 @@ void main(void) {
             // selected
             color.xyz = mix(color.xyz, selectedClr.xyz, selectedClr.a);
         } else if (scaRegionHighlightActive > 0.5) {
-            float regionMask = texelFetch(scaRegionHighlight, splat.uv, 0).r;
-            if (regionMask > 0.0) {
-                color.xyz = mix(color.xyz, scaRegionHighlightClr.xyz, scaRegionHighlightClr.a * regionMask);
+            float regionState = texelFetch(scaRegionHighlight, splat.uv, 0).r;
+            if (regionState > 0.02) {
+                vec4 tint = regionState > 0.5 ? scaRegionHighlightClr : scaRegionHoverClr;
+                color.xyz = mix(color.xyz, tint.xyz, tint.a);
             }
         }
     #endif

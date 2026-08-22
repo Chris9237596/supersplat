@@ -30,7 +30,15 @@
     )
 
     if (window.parent && window.parent !== window) {
-      window.parent.postMessage(message, '*')
+      if (typeof window.SCA3D?.safePostMessageToParent === 'function') {
+        window.SCA3D.safePostMessageToParent(message)
+      } else {
+        try {
+          window.parent.postMessage(message, '*')
+        } catch (error) {
+          window.scaDebug?.('navigation', '[SCA3D] postMessage skipped:', error)
+        }
+      }
     }
   }
 

@@ -896,7 +896,7 @@
 
       const pick = await viewer.pickGaussian(clientX, clientY)
       const gaussianIndex = pick?.gaussianIndex ?? null
-      const backend = window.SCA3D?.runtimePicker?.backendId ?? 'webgpu'
+      const backend = window.SCA3D?.runtimePicker?.backendId ?? 'centers'
       const coords = clientToNormalized(clientX, clientY)
 
       let regionEntry = null

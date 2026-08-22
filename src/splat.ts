@@ -69,6 +69,7 @@ class Splat extends Element {
     scaRegionHighlightTexture: Texture;
     scaRegionHighlightActive = false;
     private scaRegionHighlightClr = new Color(1, 0.4, 0, 0.55);
+    private scaRegionHoverClr = new Color(1, 0.4, 0, 0.35);
     _tintClr = new Color(1, 1, 1);
     _temperature = 0;
     _saturation = 1;
@@ -129,6 +130,12 @@ class Splat extends Element {
                 this.scaRegionHighlightClr.g,
                 this.scaRegionHighlightClr.b,
                 this.scaRegionHighlightClr.a
+            ]);
+            material.setParameter('scaRegionHoverClr', [
+                this.scaRegionHoverClr.r,
+                this.scaRegionHoverClr.g,
+                this.scaRegionHoverClr.b,
+                this.scaRegionHoverClr.a
             ]);
             material.update();
         };
@@ -495,6 +502,12 @@ class Splat extends Element {
             this.scaRegionHighlightClr.b,
             this.scaRegionHighlightClr.a
         ]);
+        material.setParameter('scaRegionHoverClr', [
+            this.scaRegionHoverClr.r,
+            this.scaRegionHoverClr.g,
+            this.scaRegionHoverClr.b,
+            this.scaRegionHoverClr.a
+        ]);
 
         if (this.visible && selected) {
             // render bounding box
@@ -689,22 +702,65 @@ class Splat extends Element {
     }
 
     setScaRegionHighlight(ranges: IndexRanges | null, color?: Color) {
-        if (!ranges || ranges.empty) {
+        this.setScaRegionHighlightCombined(ranges, null, color, undefined);
+    }
+
+    setScaRegionHighlightCombined(
+        selectedRanges: IndexRanges | null,
+        hoverRanges: IndexRanges | null,
+        selectedColor?: Color,
+        hoverColor?: Color
+    ) {
+        const hasSelected = !!selectedRanges && !selectedRanges.empty;
+        const hasHover = !!hoverRanges && !hoverRanges.empty;
+
+        if (!hasSelected && !hasHover) {
             this.clearScaRegionHighlight();
             return;
         }
 
-        if (color) {
-            this.scaRegionHighlightClr.set(color.r, color.g, color.b, color.a);
+        if (selectedColor) {
+            this.scaRegionHighlightClr.set(
+                selectedColor.r,
+                selectedColor.g,
+                selectedColor.b,
+                selectedColor.a
+            );
         }
+
+        if (hoverColor) {
+            this.scaRegionHoverClr.set(
+                hoverColor.r,
+                hoverColor.g,
+                hoverColor.b,
+                hoverColor.a
+            );
+        }
+
+        const SCA_REGION_STATE_HOVER = 85;
+        const SCA_REGION_STATE_SELECTED = 255;
 
         const buffer = this.scaRegionHighlightTexture.lock() as Uint8Array;
         buffer.fill(0);
-        ranges.forEach((index) => {
-            if (index >= 0 && index < buffer.length) {
-                buffer[index] = 255;
-            }
-        });
+
+        if (hasSelected) {
+            selectedRanges.forEach((index) => {
+                if (index >= 0 && index < buffer.length) {
+                    buffer[index] = SCA_REGION_STATE_SELECTED;
+                }
+            });
+        }
+
+        if (hasHover) {
+            hoverRanges.forEach((index) => {
+                if (index >= 0 && index < buffer.length) {
+                    if (buffer[index] !== SCA_REGION_STATE_SELECTED) {
+                        buffer[index] = SCA_REGION_STATE_HOVER;
+                    }
+                }
+            });
+        }
+
         this.scaRegionHighlightTexture.unlock();
         this.scaRegionHighlightActive = true;
         this.scene?.forceRender && (this.scene.forceRender = true);

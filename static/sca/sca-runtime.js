@@ -1523,6 +1523,18 @@
    * @param {{ canvas: HTMLCanvasElement, settingsJson: object, config: object, main: Function }} args
    */
   async function bootstrapViewer({ canvas, settingsJson, config, main }) {
+    if (typeof window.SCA3D?.refreshAsyncCapabilities === 'function') {
+      await window.SCA3D.refreshAsyncCapabilities()
+    }
+
+    if (window.SCA3D?.capabilities?.webgl2 === false) {
+      const message = 'This browser does not support the required WebGL2 rendering features.'
+      if (typeof window.SCA3D?.showRuntimeError === 'function') {
+        window.SCA3D.showRuntimeError(message)
+      }
+      throw new Error('[SCA3D] WebGL2 unavailable')
+    }
+
     const project = await loadProject()
     const viewerConfig = normalizeViewerConfig(project, settingsJson)
     const hotspotById = buildHotspotById(project.hotspots)
@@ -1582,14 +1594,15 @@
       []
 
     if (enabledRegions.length > 0) {
+      let pickerReady = false
       try {
         await waitForScaPicker(viewer)
+        pickerReady = true
       } catch (error) {
-        console.error('[SCA3D] region picker unavailable:', error)
-        throw error
+        console.warn('[SCA3D] region picker unavailable — region interaction disabled:', error)
       }
 
-      if (typeof initScaRegionRuntime === 'function') {
+      if (pickerReady && typeof initScaRegionRuntime === 'function') {
         await initScaRegionRuntime(viewer, { project })
       }
     }
@@ -1599,6 +1612,10 @@
     applyViewerConfig(viewer, viewerConfig).catch((error) => {
       console.warn('[SCA3D] viewer config application failed:', error)
     })
+
+    if (typeof window.SCA3D?.logRuntimeCompatibilitySummary === 'function') {
+      window.SCA3D.logRuntimeCompatibilitySummary(viewer)
+    }
 
     return viewer
   }

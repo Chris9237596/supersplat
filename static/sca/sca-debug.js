@@ -12,6 +12,7 @@
     navigation: false,
     camera: false,
     export: false,
+    runtimeCompatibility: false,
   }
 
   const existing = window.SCA3D.debug && typeof window.SCA3D.debug === 'object' ?
@@ -20,7 +21,7 @@
 
   window.SCA3D.debug = { ...defaults, ...existing }
 
-  /** @param {'picking'|'regions'|'cards'|'navigation'|'camera'|'export'} category */
+  /** @param {'picking'|'regions'|'cards'|'navigation'|'camera'|'export'|'runtimeCompatibility'} category */
   function scaDebug(category, ...args) {
     const flags = window.SCA3D?.debug
     if (!flags || !flags[category]) {
