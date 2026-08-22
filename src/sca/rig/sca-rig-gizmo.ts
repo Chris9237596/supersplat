@@ -8,6 +8,7 @@ import { ToolOverlay, OverlayWriter } from '../../tool-overlay';
 
 import { computeRegionAnchorFromIndices } from '../presentation/region-anchor';
 import { findSplatByScaSplatId } from '../regions/splat-identity';
+import { collectRigHierarchyMarkerSegments } from './rig-node-markers';
 import {
     getRigNodeHandleWorldTransform,
     resolveSplatForNode,
@@ -16,8 +17,9 @@ import {
 import { ScaRig, ScaRigNode } from '../types/rig';
 import { ScaRegion } from '../types/region';
 
-const CROSSHAIR_ARM = 0.12;
-const AXIS_ARM = 0.18;
+const SELECTED_CROSSHAIR_ARM = 0.12;
+const SELECTED_AXIS_ARM = 0.18;
+const SUBTLE_CROSS_ARM = 0.06;
 
 const axisX = new Vec3(1, 0, 0);
 const axisY = new Vec3(0, 1, 0);
@@ -73,11 +75,6 @@ const computeRegionCentroidWorld = (
     return new Vec3(anchor.x, anchor.y, anchor.z);
 };
 
-const transformLocalPointToWorld = (splat: Splat, local: Vec3, out = new Vec3()): Vec3 => {
-    splat.worldTransform.transformPoint(local, out);
-    return out;
-};
-
 class ScaRigGizmo {
     private overlay: ToolOverlay;
     private selectedNodeId: string | null = null;
@@ -89,18 +86,17 @@ class ScaRigGizmo {
     ) {
         this.overlay = new ToolOverlay();
         this.overlay.provider = (writer: OverlayWriter) => {
-            if (!this.visible || !this.selectedNodeId) {
+            if (!this.visible) {
                 return;
             }
 
             const project = this.events.invoke('sca.project.get') as { rig?: ScaRig } | null;
             const rig = project?.rig;
-            const node = rig?.nodes.find((entry) => entry.id === this.selectedNodeId);
-            if (!node || !rig) {
+            if (!rig || rig.nodes.length === 0) {
                 return;
             }
 
-            this.drawNode(writer, node, rig);
+            this.drawAllNodes(writer, rig);
         };
 
         scene.add(this.overlay);
@@ -125,16 +121,58 @@ class ScaRigGizmo {
             this.selectedNodeId = null;
             this.syncVisibility();
         });
+
+        events.on('sca.viewer.preview.changed', () => {
+            this.syncVisibility();
+        });
+
+        this.syncVisibility();
     }
 
     private syncVisibility() {
-        this.visible = !!this.selectedNodeId;
+        const project = this.events.invoke('sca.project.get') as { rig?: ScaRig } | null;
+        const hasNodes = (project?.rig?.nodes.length ?? 0) > 0;
+        const previewActive = !!this.events.invoke('sca.viewer.preview.active');
+        this.visible = hasNodes && !previewActive;
         this.scene.forceRender = true;
     }
 
-    private drawNode(writer: OverlayWriter, node: ScaRigNode, rig: ScaRig) {
-        const bindings = rig.bindings.filter((binding) => binding.nodeId === node.id);
-        const splat = resolveSplatForNode(this.events, this.scene, node, rig);
+    private resolveSplat(node: ScaRigNode, rig: ScaRig): Splat | null {
+        return resolveSplatForNode(this.events, this.scene, node, rig);
+    }
+
+    private drawAllNodes(writer: OverlayWriter, rig: ScaRig) {
+        this.drawHierarchyLines(writer, rig);
+
+        for (const node of rig.nodes) {
+            if (node.id === this.selectedNodeId) {
+                continue;
+            }
+            this.drawSubtleMarker(writer, node, rig);
+        }
+
+        if (this.selectedNodeId) {
+            const selected = rig.nodes.find((entry) => entry.id === this.selectedNodeId);
+            if (selected) {
+                this.drawSelectedNode(writer, selected, rig);
+            }
+        }
+    }
+
+    private drawHierarchyLines(writer: OverlayWriter, rig: ScaRig) {
+        const segments = collectRigHierarchyMarkerSegments(rig, (node) => (
+            this.resolveSplat(node, rig)
+        ));
+
+        for (const segment of segments) {
+            p0.set(segment.from[0], segment.from[1], segment.from[2]);
+            p1.set(segment.to[0], segment.to[1], segment.to[2]);
+            writer.segment(p0, p1);
+        }
+    }
+
+    private drawSubtleMarker(writer: OverlayWriter, node: ScaRigNode, rig: ScaRig) {
+        const splat = this.resolveSplat(node, rig);
         if (!splat) {
             return;
         }
@@ -145,31 +183,28 @@ class ScaRigGizmo {
         });
 
         writer.dot(worldPoint);
+        this.drawCrosshair(writer, worldPoint, handle.splatLocalEuler, splat, SUBTLE_CROSS_ARM);
+    }
 
-        const arms = [
-            [1, 0, 0],
-            [0, 1, 0],
-            [0, 0, 1]
-        ] as const;
-
-        for (const [ax, ay, az] of arms) {
-            localDir.set(ax, ay, az).mulScalar(CROSSHAIR_ARM * 0.5);
-            transformSplatLocalDirectionToWorld(
-                splat,
-                handle.splatLocalEuler,
-                localDir,
-                worldDir
-            ).mulScalar(CROSSHAIR_ARM * 0.5);
-
-            p0.copy(worldPoint).sub(worldDir);
-            p1.copy(worldPoint).add(worldDir);
-            writer.segment(p0, p1);
+    private drawSelectedNode(writer: OverlayWriter, node: ScaRigNode, rig: ScaRig) {
+        const bindings = rig.bindings.filter((binding) => binding.nodeId === node.id);
+        const splat = this.resolveSplat(node, rig);
+        if (!splat) {
+            return;
         }
 
+        const handle = getRigNodeHandleWorldTransform(rig, node, splat, {
+            worldPosition: worldPoint,
+            splatLocalEuler: handleEulerScratch
+        });
+
+        writer.dot(worldPoint);
+        this.drawCrosshair(writer, worldPoint, handle.splatLocalEuler, splat, SELECTED_CROSSHAIR_ARM);
+
         const axisDefs = [
-            { local: axisX, scale: AXIS_ARM },
-            { local: axisY, scale: AXIS_ARM * 0.85 },
-            { local: axisZ, scale: AXIS_ARM * 0.85 }
+            { local: axisX, scale: SELECTED_AXIS_ARM },
+            { local: axisY, scale: SELECTED_AXIS_ARM * 0.85 },
+            { local: axisZ, scale: SELECTED_AXIS_ARM * 0.85 }
         ];
 
         for (const { local, scale } of axisDefs) {
@@ -201,6 +236,34 @@ class ScaRigGizmo {
             }
 
             writer.segment(worldPoint, centroid);
+        }
+    }
+
+    private drawCrosshair(
+        writer: OverlayWriter,
+        center: Vec3,
+        splatLocalEuler: [number, number, number],
+        splat: Splat,
+        arm: number
+    ) {
+        const arms = [
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1]
+        ] as const;
+
+        for (const [ax, ay, az] of arms) {
+            localDir.set(ax, ay, az).mulScalar(arm * 0.5);
+            transformSplatLocalDirectionToWorld(
+                splat,
+                splatLocalEuler,
+                localDir,
+                worldDir
+            ).mulScalar(arm * 0.5);
+
+            p0.copy(center).sub(worldDir);
+            p1.copy(center).add(worldDir);
+            writer.segment(p0, p1);
         }
     }
 

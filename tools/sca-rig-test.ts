@@ -35,6 +35,8 @@ import {
     normalizeRigHierarchy,
     wouldCreateRigCycle
 } from '../src/sca/rig/rig-hierarchy';
+import { collectRigHierarchyMarkerSegments } from '../src/sca/rig/rig-node-markers';
+import { pickRigNodeIdAtScreen } from '../src/sca/rig/rig-node-pick';
 import { evaluateRigPose } from '../src/sca/rig/rig-pose';
 import { writeSlotEffectiveMatrix } from '../src/sca/rig/region-rig-applier';
 import {
@@ -1421,6 +1423,88 @@ const runPoseEvaluationTests = () => {
     console.log('[sca-rig] pose evaluation PASS');
 };
 
+const runRigNodeMarkerTests = () => {
+    const { root, arm, gripper } = buildSampleHierarchy();
+    arm.rotation = [0, 45, 0];
+    gripper.position = [1.5, 0, 0];
+
+    const rig = {
+        version: 1 as const,
+        nodes: [root, arm, gripper],
+        bindings: [] as []
+    };
+    const splat = { worldTransform: new Mat4() } as import('../src/splat').Splat;
+    const resolveSplat = () => splat;
+
+    for (const node of [root, arm, gripper]) {
+        const handle = getRigNodeHandleWorldTransform(rig, node, splat);
+        assert.ok(Number.isFinite(handle.worldPosition.x), `${node.id} marker handle visible`);
+    }
+
+    const segments = collectRigHierarchyMarkerSegments(rig, resolveSplat);
+    assert.equal(segments.length, 2, 'parent-child lines for arm and gripper');
+
+    const armSegment = segments.find((entry) => entry.childId === arm.id);
+    const gripperSegment = segments.find((entry) => entry.childId === gripper.id);
+    assert.ok(armSegment);
+    assert.ok(gripperSegment);
+    assert.equal(armSegment.parentId, root.id);
+    assert.equal(gripperSegment.parentId, arm.id);
+
+    const armHandle = getRigNodeHandleWorldTransform(rig, arm, splat).worldPosition;
+    assert.ok(
+        Math.hypot(
+            armSegment.from[0] - armHandle.x,
+            armSegment.from[1] - armHandle.y,
+            armSegment.from[2] - armHandle.z
+        ) < 1e-5,
+        'child line starts at handle'
+    );
+
+    const rotatedRig = {
+        ...rig,
+        nodes: [
+            { ...root, rotation: [0, 90, 0] as [number, number, number] },
+            arm,
+            gripper
+        ]
+    };
+    const childHandleBefore = getRigNodeHandleWorldTransform(rig, gripper, splat).worldPosition;
+    const childHandleAfter = getRigNodeHandleWorldTransform(rotatedRig, gripper, splat).worldPosition;
+    assert.ok(
+        vecDistance(childHandleBefore, childHandleAfter) > 1e-4,
+        'parent rotation moves child marker handle'
+    );
+
+    const projectWorldToScreen = (world: Vec3, out: Vec3) => {
+        out.set(world.x * 0.1 + 0.5, world.y * 0.1 + 0.5, world.z);
+    };
+    const armHandleRotated = getRigNodeHandleWorldTransform(rotatedRig, arm, splat).worldPosition;
+    const armScreen = new Vec3();
+    projectWorldToScreen(armHandleRotated, armScreen);
+
+    const pickedArm = pickRigNodeIdAtScreen(rotatedRig, resolveSplat, {
+        pickX: armScreen.x * 800,
+        pickY: armScreen.y * 600,
+        viewportWidth: 800,
+        viewportHeight: 600,
+        projectWorldToScreen
+    });
+    assert.equal(pickedArm, arm.id, 'click near marker selects node');
+
+    const store = new HotspotStore(sampleProject());
+    store.addRigNode(root);
+    store.addRigNode(arm);
+    store.addRigNode(gripper);
+    store.selectRigNode(arm.id);
+    assert.equal(store.getSelectedRigNodeId(), arm.id);
+
+    store.resetRigNodeToRest(arm.id);
+    assert.deepEqual(store.getProject().rig?.nodes.find((entry) => entry.id === arm.id)?.position, arm.rest.position);
+
+    console.log('[sca-rig] rig node markers PASS');
+};
+
 const runZeroMoveHandleStabilityTests = () => {
     const node = createDefaultRigNode('rig_01');
     node.pivot = [1, 0, 0];
@@ -1865,6 +1949,7 @@ async function main() {
     runRotateGizmoHistoryTests();
     runScaleDeferredTests();
     runPoseEvaluationTests();
+    runRigNodeMarkerTests();
     runZeroMoveHandleStabilityTests();
     runBindingEffectiveConsistencyTests();
     await runScaProjectOpNoOpTests();
@@ -1904,6 +1989,7 @@ async function main() {
     console.log('Rotate gizmo history: PASS');
     console.log('Scale deferred (rigid-only): PASS');
     console.log('Pose evaluation: PASS');
+    console.log('Rig node markers: PASS');
     console.log('Zero-move handle stability: PASS');
     console.log('Binding effective consistency: PASS');
     console.log('ScaProjectOp no-op apply: PASS');

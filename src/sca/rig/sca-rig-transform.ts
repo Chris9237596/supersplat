@@ -40,20 +40,14 @@ import {
 } from './rig-trace';
 import { matricesNearEqual } from './rig-transform';
 
+import { pickRigNodeIdAtScreen } from './rig-node-pick';
 import {
-
     entityHandleMatchesNode,
-
     getNodeWorldPivotPosition,
-
     logScaRigFirstMoveValues,
-
     readNodePatchFromHelper,
-
     resolveSplatForNode,
-
     syncHelperFromNode
-
 } from './rig-node-space';
 
 
@@ -551,12 +545,6 @@ class ScaRigTransformController {
 
         }
 
-        if (this.events.invoke('tool.active')) {
-
-            return false;
-
-        }
-
         if (this.events.invoke('sca.focus.mode')) {
 
             return false;
@@ -607,65 +595,25 @@ class ScaRigTransformController {
 
         const { camera } = this.scene;
 
+        const cameraPos = camera.mainCamera.getPosition();
 
+        const cameraFwd = camera.mainCamera.forward;
 
-        let bestId: string | null = null;
-
-        let bestDistance = PICK_RADIUS_PX;
-
-
-
-        for (const node of rig.nodes) {
-
-            const splat = resolveSplatForNode(this.events, this.scene, node, rig);
-
-            if (!splat) {
-
-                continue;
-
+        return pickRigNodeIdAtScreen(
+            rig,
+            (node) => resolveSplatForNode(this.events, this.scene, node, rig),
+            {
+                pickX,
+                pickY,
+                viewportWidth: rect.width,
+                viewportHeight: rect.height,
+                radiusPx: PICK_RADIUS_PX,
+                isNodeInFront: (world) => world.clone().sub(cameraPos).dot(cameraFwd) > 0,
+                projectWorldToScreen: (world, out) => {
+                    camera.worldToScreen(world, out);
+                }
             }
-
-
-
-            const world = getNodeWorldPivotPosition(rig, node, splat);
-
-            const cameraPos = camera.mainCamera.getPosition();
-
-            const cameraFwd = camera.mainCamera.forward;
-
-            const offset = world.clone().sub(cameraPos);
-
-            if (offset.dot(cameraFwd) <= 0) {
-
-                continue;
-
-            }
-
-
-
-            const screen = world.clone();
-
-            camera.worldToScreen(world, screen);
-
-            const screenX = screen.x * rect.width;
-
-            const screenY = screen.y * rect.height;
-
-            const distance = Math.hypot(screenX - pickX, screenY - pickY);
-
-            if (distance <= bestDistance) {
-
-                bestDistance = distance;
-
-                bestId = node.id;
-
-            }
-
-        }
-
-
-
-        return bestId;
+        );
 
     }
 
