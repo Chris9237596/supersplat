@@ -337,23 +337,8 @@ class ScaPanel extends Container {
 
         tooltips.register(closeButton, () => 'Close', 'left');
 
-        const setVisible = (visible: boolean) => {
-            if (visible === this.hidden) {
-                this.hidden = !visible;
-                events.fire('scaPanel.visible', visible);
-            }
-        };
-
         events.function('scaPanel.visible', () => {
             return !this.hidden;
-        });
-
-        events.on('scaPanel.setVisible', (visible: boolean) => {
-            setVisible(visible);
-        });
-
-        events.on('scaPanel.toggleVisible', () => {
-            setVisible(this.hidden);
         });
 
         addButton.on('click', () => {

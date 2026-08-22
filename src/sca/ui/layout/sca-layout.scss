@@ -1,0 +1,47 @@
+@use '../../../ui/scss/colors.scss' as *;
+
+.sca-panel-resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 8px;
+    z-index: 3;
+    touch-action: none;
+    cursor: ew-resize;
+
+    &.sca-panel-resize-handle-right {
+        right: -4px;
+    }
+
+    &.sca-panel-resize-handle-left {
+        left: -4px;
+    }
+
+    &:hover,
+    &.is-dragging {
+        background: rgba(255, 102, 0, 0.22);
+    }
+}
+
+body.sca-ui-panel-resizing {
+    cursor: ew-resize !important;
+    user-select: none;
+
+    #canvas-container canvas#canvas {
+        pointer-events: none;
+    }
+}
+
+#sca-navigator,
+#sca-panel {
+    position: absolute;
+}
+
+#right-toolbar {
+    .sca-toolbar-button-nav,
+    .sca-toolbar-button-insp {
+        font-size: 10px;
+        font-weight: bold;
+        letter-spacing: 0.02em;
+    }
+}
