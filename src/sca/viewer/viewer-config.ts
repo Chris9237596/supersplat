@@ -13,6 +13,7 @@ import {
 import { ScaRegion } from '../types/region';
 
 import { normalizeRegions } from '../region-defaults';
+import { normalizeRig } from '../rig/rig-defaults';
 import { normalizeBackground } from './viewer-background';
 
 const DEFAULT_FOV = 60;
@@ -309,14 +310,22 @@ const normalizeViewerConfig = (
 };
 
 const normalizeProject = (project: ScaProject, fallbackInitial?: Partial<ScaCameraPose>): ScaProject => {
-    return {
+    const rig = normalizeRig(project.rig);
+    const normalized: ScaProject = {
         version: project.version,
         hotspots: project.hotspots,
         regions: normalizeRegions(project.regions),
+        splats: project.splats ? [...project.splats] : undefined,
         viewer: project.viewer ?
             normalizeViewerConfig(project.viewer, fallbackInitial) :
             undefined
     };
+
+    if (rig) {
+        normalized.rig = rig;
+    }
+
+    return normalized;
 };
 
 const resolveViewerConfig = (

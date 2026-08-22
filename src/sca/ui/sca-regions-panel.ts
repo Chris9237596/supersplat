@@ -122,6 +122,8 @@ class ScaRegionsPanel extends Container {
 
     private removeSelectionButton: Button;
 
+    private rigBindingNodeSelect: SelectInput;
+
     private authoringPreviewRefs = {
         hover: 0,
         selected: 0,
@@ -670,11 +672,38 @@ class ScaRegionsPanel extends Container {
         membershipSection.body.append(this.removeSelectionButton);
         membershipSection.body.append(this.deleteButton);
 
+        const rigBindingTitle = new Label({
+            class: ['sca-panel-subsection-label', 'sca-panel-subsection-label-nested'],
+            text: 'RIG BINDING'
+        });
+        const rigBindingNodeRow = new Container({ class: 'sca-hotspot-form-row' });
+        rigBindingNodeRow.append(new Label({ class: 'sca-hotspot-form-label', text: 'Node' }));
+        this.rigBindingNodeSelect = new SelectInput({
+            class: 'sca-hotspot-form-input',
+            options: [{ v: '', t: 'None' }],
+            value: ''
+        });
+        rigBindingNodeRow.append(this.rigBindingNodeSelect);
+        const rigBindingModeRow = new Container({ class: 'sca-hotspot-form-row' });
+        rigBindingModeRow.append(new Label({ class: 'sca-hotspot-form-label', text: 'Mode' }));
+        rigBindingModeRow.append(new Label({ class: 'sca-hotspot-form-label', text: 'Rigid' }));
+
+        const rigBindingSection = new CollapsibleSection({
+            sectionId: 'regionRigBinding',
+            title: 'RIG BINDING',
+            layout: this.sectionLayout,
+            class: 'sca-region-form-section'
+        });
+        rigBindingSection.body.append(rigBindingTitle);
+        rigBindingSection.body.append(rigBindingNodeRow);
+        rigBindingSection.body.append(rigBindingModeRow);
+
         this.formContainer.append(formTitle);
         this.formContainer.append(generalSection);
         this.formContainer.append(interactionSection);
         this.formContainer.append(visualSection);
         this.formContainer.append(pulseSection);
+        this.formContainer.append(rigBindingSection);
         this.formContainer.append(membershipSection);
 
 
@@ -885,6 +914,15 @@ class ScaRegionsPanel extends Container {
 
         this.addRegionOverlayButton.on('click', () => {
             this.addVisitedRegionOverlayLayer();
+        });
+
+        this.rigBindingNodeSelect.on('change', () => {
+            if (!this.selectedId || this.syncing) {
+                return;
+            }
+
+            const nodeId = this.rigBindingNodeSelect.value || null;
+            this.events.fire('sca.rig.binding.set', this.selectedId, nodeId);
         });
 
 
@@ -1264,6 +1302,20 @@ class ScaRegionsPanel extends Container {
         }
     }
 
+    private rebuildRigBindingUi(region: ScaRegion) {
+        const project = this.events.invoke('sca.project.get') as ScaProject | null;
+        const nodes = project?.rig?.nodes ?? [];
+        const binding = project?.rig?.bindings.find((entry) => entry.regionId === region.id);
+
+        const options = [{ v: '', t: 'None' }];
+        for (const node of nodes) {
+            options.push({ v: node.id, t: node.name });
+        }
+
+        this.rigBindingNodeSelect.options = options;
+        this.rigBindingNodeSelect.value = binding?.nodeId ?? '';
+    }
+
     private commitPulsePatch(pulsePatch: {
         enabled?: boolean;
         color?: string;
@@ -1445,6 +1497,7 @@ class ScaRegionsPanel extends Container {
         this.pulseSpeedInput.value = pulse?.speed ?? DEFAULT_PULSE_SPEED;
         this.pulseModeSelect.value = pulse?.mode === 'once' ? 'once' : 'loop';
         this.pulseStopOnInteractionInput.value = pulse?.stopOnInteraction === true;
+        this.rebuildRigBindingUi(region);
         this.updatePreviewPulseButton();
 
         this.updateSelectGaussiansButton(selectedId);

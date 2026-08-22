@@ -403,6 +403,24 @@ class Splat extends Element {
         this.scene.events.fire('splat.positionsChanged', this);
     }
 
+    async updateSortCentersForIndices(indices: Iterable<number>) {
+        const data = await this.scene.dataProcessor.calcPositions(this);
+        const { sorter } = this.entity.gsplat.instance;
+        const { centers } = sorter;
+
+        for (const i of indices) {
+            if (i < 0 || i >= this.splatData.numSplats) {
+                continue;
+            }
+            centers[i * 3 + 0] = data[i * 4];
+            centers[i * 3 + 1] = data[i * 4 + 1];
+            centers[i * 3 + 2] = data[i * 4 + 2];
+        }
+
+        await this.updateSorting();
+        this.scene.forceRender = true;
+    }
+
     async updateSorting() {
         const state = this.splatData.getProp('state') as Uint8Array;
 

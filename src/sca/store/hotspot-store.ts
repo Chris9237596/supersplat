@@ -1,7 +1,9 @@
-import { ScaHotspot, ScaNavigationMode, ScaProject, ScaViewerBackground, ScaViewerConfig } from '../types/project';
+import { ScaHotspot, ScaNavigationMode, ScaProject, ScaRigNode, ScaViewerBackground, ScaViewerConfig } from '../types/project';
 import { createEmptyProject } from '../types/project';
 import { ScaRegion, ScaRegionPatch } from '../types/region';
+import { ScaRigVec3 } from '../types/rig';
 import { mergeVisualStateContent } from '../region-state-content';
+import { ensureProjectRig, normalizeRig } from '../rig/rig-defaults';
 import {
     createDefaultViewerConfig,
     ensureNavigationValid,
@@ -359,9 +361,96 @@ class HotspotStore {
         }
 
         this.project.regions.splice(index, 1);
+        this.removeRigBindingsForRegion(id);
 
         if (this.selectedRegionId === id) {
             this.selectedRegionId = null;
+        }
+    }
+
+    getRig() {
+        return this.project.rig ? structuredClone(this.project.rig) : undefined;
+    }
+
+    addRigNode(node: ScaRigNode): void {
+        const rig = ensureProjectRig(this.project);
+        if (rig.nodes.some((entry) => entry.id === node.id)) {
+            throw new Error(`[SCA] duplicate rig node id: ${node.id}`);
+        }
+        rig.nodes.push(structuredClone(node));
+        this.project.rig = rig;
+    }
+
+    updateRigNode(id: string, patch: Partial<ScaRigNode>): void {
+        const rig = ensureProjectRig(this.project);
+        const index = rig.nodes.findIndex((node) => node.id === id);
+        if (index === -1) {
+            throw new Error(`[SCA] unknown rig node id: ${id}`);
+        }
+
+        const current = rig.nodes[index];
+        rig.nodes[index] = {
+            ...structuredClone(current),
+            ...structuredClone(patch),
+            id: current.id,
+            position: patch.position ? [...patch.position] as ScaRigVec3 : current.position,
+            rotation: patch.rotation ? [...patch.rotation] as ScaRigVec3 : current.rotation,
+            pivot: patch.pivot ? [...patch.pivot] as ScaRigVec3 : current.pivot
+        };
+        this.project.rig = rig;
+    }
+
+    deleteRigNode(id: string): void {
+        const rig = ensureProjectRig(this.project);
+        const index = rig.nodes.findIndex((node) => node.id === id);
+        if (index === -1) {
+            throw new Error(`[SCA] unknown rig node id: ${id}`);
+        }
+
+        rig.nodes.splice(index, 1);
+        rig.bindings = rig.bindings.filter((binding) => binding.nodeId !== id);
+        this.project.rig = rig.nodes.length > 0 || rig.bindings.length > 0 ? rig : undefined;
+    }
+
+    getRigBindingForRegion(regionId: string) {
+        const binding = this.project.rig?.bindings.find((entry) => entry.regionId === regionId);
+        return binding ? structuredClone(binding) : null;
+    }
+
+    setRigBinding(regionId: string, nodeId: string | null, pivot?: ScaRigVec3): void {
+        const rig = ensureProjectRig(this.project);
+        rig.bindings = rig.bindings.filter((binding) => binding.regionId !== regionId);
+
+        if (nodeId) {
+            const node = rig.nodes.find((entry) => entry.id === nodeId);
+            if (!node) {
+                throw new Error(`[SCA] unknown rig node id: ${nodeId}`);
+            }
+
+            if (pivot && node.pivot.every((value) => Math.abs(value) < 1e-8)) {
+                node.pivot = [...pivot] as ScaRigVec3;
+            }
+
+            rig.bindings.push({
+                regionId,
+                nodeId,
+                mode: 'rigid'
+            });
+        }
+
+        this.project.rig = rig.nodes.length > 0 || rig.bindings.length > 0 ? rig : undefined;
+    }
+
+    private removeRigBindingsForRegion(regionId: string): void {
+        if (!this.project.rig) {
+            return;
+        }
+
+        this.project.rig.bindings = this.project.rig.bindings.filter(
+            (binding) => binding.regionId !== regionId
+        );
+        if (this.project.rig.nodes.length === 0 && this.project.rig.bindings.length === 0) {
+            delete this.project.rig;
         }
     }
 

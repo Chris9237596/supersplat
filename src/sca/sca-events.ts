@@ -14,6 +14,9 @@ import { HotspotStore } from './store/hotspot-store';
 import { mimeTypeForFilename, ScaAssetStore } from './store/sca-asset-store';
 import { createEmptyProject, ScaHotspot, ScaProject, ScaRegion, ScaViewerBackground } from './types/project';
 import { ScaRegionPatch } from './types/region';
+import { ScaRigNode, ScaRigVec3 } from './types/rig';
+import { computeRegionPivotLocal } from './rig/region-rig-applier';
+import { findSplatByScaSplatId } from './regions/splat-identity';
 
 const registerScaEvents = (events: Events): HotspotStore => {
     const store = new HotspotStore(createEmptyProject());
@@ -129,6 +132,51 @@ const registerScaEvents = (events: Events): HotspotStore => {
             store.updateRegion(id, patch);
             notifyProjectChanged();
         });
+    });
+
+    events.on('sca.rig.node.add', (node: ScaRigNode) => {
+        history.record(() => {
+            store.addRigNode(node);
+            notifyProjectChanged();
+        });
+    });
+
+    events.on('sca.rig.node.update', (id: string, patch: Partial<ScaRigNode>) => {
+        history.record(() => {
+            store.updateRigNode(id, patch);
+            notifyProjectChanged();
+        });
+    });
+
+    events.on('sca.rig.node.delete', (id: string) => {
+        history.record(() => {
+            store.deleteRigNode(id);
+            notifyProjectChanged();
+        });
+    });
+
+    events.on('sca.rig.binding.set', (regionId: string, nodeId: string | null) => {
+        history.record(() => {
+            let pivot: ScaRigVec3 | undefined;
+            if (nodeId) {
+                const region = store.getRegions().find((entry) => entry.id === regionId) ?? null;
+                const splats = events.invoke('scene.splats') as Splat[] | undefined;
+                const scene = splats?.[0]?.scene;
+                if (region && scene) {
+                    const splat = findSplatByScaSplatId(scene, region.source.scaSplatId);
+                    if (splat) {
+                        pivot = computeRegionPivotLocal(events, region, splat) ?? undefined;
+                    }
+                }
+            }
+
+            store.setRigBinding(regionId, nodeId, pivot);
+            notifyProjectChanged();
+        });
+    });
+
+    events.function('sca.rig.getBinding', (regionId: string) => {
+        return store.getRigBindingForRegion(regionId);
     });
 
     events.on('sca.region.delete', (id: string) => {

@@ -57,7 +57,9 @@ const migrateSsprojScaBlock = (raw: unknown): ScaProject => {
         version: SCA_PROJECT_VERSION,
         hotspots: projectRaw.hotspots as ScaProject['hotspots'],
         regions: Array.isArray(projectRaw.regions) ? projectRaw.regions : [],
-        viewer: projectRaw.viewer as ScaProject['viewer']
+        splats: Array.isArray(projectRaw.splats) ? projectRaw.splats as ScaProject['splats'] : undefined,
+        viewer: projectRaw.viewer as ScaProject['viewer'],
+        rig: projectRaw.rig as ScaProject['rig']
     });
 };
 

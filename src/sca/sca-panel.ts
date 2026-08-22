@@ -9,6 +9,7 @@ import { CollapsibleSection } from './ui/components/collapsible-section';
 import { ScaFocusPanel } from './ui/sca-focus-panel';
 import { ScaHotspotForm } from './ui/sca-hotspot-form';
 import { ScaRegionsPanel } from './ui/sca-regions-panel';
+import { ScaRigPanel } from './ui/sca-rig-panel';
 import { ScaSectionLayoutManager } from './ui/sca-section-layout-state';
 import { ScaViewerPanel } from './ui/sca-viewer-panel';
 
@@ -91,6 +92,7 @@ class ScaPanel extends Container {
         const focusPanel = new ScaFocusPanel(events);
         const viewerPanel = new ScaViewerPanel(events);
         const regionsPanel = new ScaRegionsPanel(events, sectionLayout);
+        const rigPanel = new ScaRigPanel(events, sectionLayout);
 
         const projectSection = new CollapsibleSection({
             sectionId: 'project',
@@ -141,6 +143,13 @@ class ScaPanel extends Container {
             layout: sectionLayout
         });
         regionsSection.body.append(regionsPanel);
+
+        const rigSection = new CollapsibleSection({
+            sectionId: 'rig',
+            title: 'RIG',
+            layout: sectionLayout
+        });
+        rigSection.body.append(rigPanel);
 
         const exportRuntimePackageButton = new Button({
             class: ['sca-hotspot-form-button', 'sca-export-runtime-package-button'],
@@ -227,6 +236,7 @@ class ScaPanel extends Container {
         body.append(viewerSection);
         body.append(hotspotsSection);
         body.append(regionsSection);
+        body.append(rigSection);
         body.append(exportSection);
         body.append(advancedSection);
 

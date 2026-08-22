@@ -123,6 +123,7 @@ type ScaHotspot = {
 };
 
 import type { ScaRegion } from './region';
+import type { ScaRig, ScaRigNode } from './rig';
 
 type ScaRuntimeSplatRef = {
     scaSplatId: string;
@@ -136,6 +137,7 @@ type ScaProject = {
     regions: ScaRegion[];
     splats?: ScaRuntimeSplatRef[];
     viewer?: ScaViewerConfig;
+    rig?: ScaRig;
 };
 
 const SCA_PROJECT_VERSION = 1 as const;
@@ -180,3 +182,4 @@ export {
 };
 
 export type { ScaRegion } from './region';
+export type { ScaRig, ScaRigBinding, ScaRigNode } from './rig';

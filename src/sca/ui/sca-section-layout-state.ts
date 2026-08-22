@@ -10,6 +10,8 @@ type ScaSectionLayoutV1 = {
     regionVisual: boolean;
     regionPulse: boolean;
     regionMembership: boolean;
+    regionRigBinding: boolean;
+    rig: boolean;
     export: boolean;
     advanced: boolean;
 };
@@ -26,6 +28,8 @@ const DEFAULT_SCA_SECTION_LAYOUT: ScaSectionLayoutV1 = {
     regionVisual: true,
     regionPulse: false,
     regionMembership: false,
+    regionRigBinding: false,
+    rig: true,
     export: true,
     advanced: false
 };
