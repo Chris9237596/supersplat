@@ -24,6 +24,9 @@ import { Events } from '../../events';
 
 import { ScaRegion, ScaRegionPatch } from '../types/region';
 
+import { DEFAULT_ACTIVE_TINT, DEFAULT_HOVER_TINT } from '../region-defaults';
+import { createRegionTintControls } from './region-tint-controls';
+
 
 
 class ScaRegionsPanel extends Container {
@@ -54,11 +57,11 @@ class ScaRegionsPanel extends Container {
 
     private showInNavigationInput: BooleanInput;
 
-    private hoverTintInput: TextInput;
+    private hoverTintControls: ReturnType<typeof createRegionTintControls>;
 
     private hoverStrengthInput: SliderInput;
 
-    private activeTintInput: TextInput;
+    private activeTintControls: ReturnType<typeof createRegionTintControls>;
 
     private activeStrengthInput: SliderInput;
 
@@ -272,17 +275,7 @@ class ScaRegionsPanel extends Container {
 
 
 
-        const hoverTintRow = new Container({ class: 'sca-hotspot-form-row' });
-
-        const hoverTintLabel = new Label({ class: 'sca-hotspot-form-label', text: 'Hover Tint' });
-
-        this.hoverTintInput = new TextInput({ class: 'sca-hotspot-form-input' });
-
-        hoverTintRow.append(hoverTintLabel);
-
-        hoverTintRow.append(this.hoverTintInput);
-
-
+        this.hoverTintControls = createRegionTintControls('Hover color', DEFAULT_HOVER_TINT);
 
         const hoverStrengthRow = new Container({ class: 'sca-hotspot-form-row' });
 
@@ -308,17 +301,7 @@ class ScaRegionsPanel extends Container {
 
 
 
-        const activeTintRow = new Container({ class: 'sca-hotspot-form-row' });
-
-        const activeTintLabel = new Label({ class: 'sca-hotspot-form-label', text: 'Active Tint' });
-
-        this.activeTintInput = new TextInput({ class: 'sca-hotspot-form-input' });
-
-        activeTintRow.append(activeTintLabel);
-
-        activeTintRow.append(this.activeTintInput);
-
-
+        this.activeTintControls = createRegionTintControls('Selected color', DEFAULT_ACTIVE_TINT);
 
         const activeStrengthRow = new Container({ class: 'sca-hotspot-form-row' });
 
@@ -402,11 +385,11 @@ class ScaRegionsPanel extends Container {
 
         this.formContainer.append(showInNavigationRow);
 
-        this.formContainer.append(hoverTintRow);
+        this.formContainer.append(this.hoverTintControls.row);
 
         this.formContainer.append(hoverStrengthRow);
 
-        this.formContainer.append(activeTintRow);
+        this.formContainer.append(this.activeTintControls.row);
 
         this.formContainer.append(activeStrengthRow);
 
@@ -512,21 +495,11 @@ class ScaRegionsPanel extends Container {
 
 
 
-        this.hoverTintInput.on('change', () => {
-
+        this.hoverTintControls.bind(events, (hoverTint) => {
             this.commitPatch({
-
-                visual: {
-
-                    hoverTint: this.hoverTintInput.value
-
-                }
-
+                visual: { hoverTint }
             });
-
         });
-
-
 
         this.hoverStrengthInput.on('change', () => {
 
@@ -544,21 +517,11 @@ class ScaRegionsPanel extends Container {
 
 
 
-        this.activeTintInput.on('change', () => {
-
+        this.activeTintControls.bind(events, (activeTint) => {
             this.commitPatch({
-
-                visual: {
-
-                    activeTint: this.activeTintInput.value
-
-                }
-
+                visual: { activeTint }
             });
-
         });
-
-
 
         this.activeStrengthInput.on('change', () => {
 
@@ -746,11 +709,11 @@ class ScaRegionsPanel extends Container {
 
         this.showInNavigationInput.value = region.interaction.showInNavigation !== false;
 
-        this.hoverTintInput.value = region.visual.hoverTint;
+        this.hoverTintControls.setValue(region.visual.hoverTint);
 
         this.hoverStrengthInput.value = region.visual.hoverOpacity;
 
-        this.activeTintInput.value = region.visual.activeTint;
+        this.activeTintControls.setValue(region.visual.activeTint);
 
         this.activeStrengthInput.value = region.visual.activeOpacity;
 

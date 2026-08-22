@@ -421,6 +421,35 @@
     word-break: break-all;
 }
 
+.sca-region-tint-label {
+    width: 88px;
+}
+
+.sca-region-color-controls {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-grow: 1;
+    gap: 6px;
+    min-width: 0;
+}
+
+.sca-region-color-swatch {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid $bcg-lighter;
+    background-color: transparent;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.sca-region-color-hex {
+    flex-grow: 1;
+    min-width: 0;
+    margin: 0;
+}
+
 .sca-viewer-background-color-picker {
     width: 100%;
 }
