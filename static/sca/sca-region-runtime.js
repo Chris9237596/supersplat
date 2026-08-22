@@ -549,7 +549,8 @@
       createRuntimeRegionInteraction(ctx.lookup, defaultScaSplatId, {
         getRegion: (regionId) =>
           ctx.lookup.entries.find((entry) => entry.regionId === regionId)?.region ?? null,
-        getSelectedRegionId: () => activeRegionId,
+        getSelectedRegionId: () =>
+          window.SCA3D?.state?.selectedRegionId ?? activeRegionId,
         onHoverChange: () => {},
         onSelectionChange: (regionId) => {
           if (!regionId) {
@@ -1322,9 +1323,11 @@
       }
 
       if (regionCore) {
+        pendingActivationSource = 'click'
         if (regionEntry?.regionId && isRegionClickable(regionEntry.region)) {
-          pendingActivationSource = 'click'
           regionCore.activateRegion(regionEntry.regionId, 'click')
+        } else {
+          regionCore.activateRegion(null, 'click')
         }
         return
       }

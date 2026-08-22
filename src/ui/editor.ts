@@ -3,7 +3,6 @@ import { Mat4 } from 'playcanvas';
 
 import { DataPanel } from './data-panel';
 import { Events } from '../events';
-import { registerScaUi } from '../sca';
 import { AboutPopup } from './about-popup';
 import { BottomToolbar } from './bottom-toolbar';
 import { CameraInfoOverlay } from './camera-info-overlay';
@@ -37,6 +36,7 @@ class EditorUI {
     topContainer: Container;
     canvasContainer: Container;
     toolsContainer: Container;
+    rightToolbar: Container;
     canvas: HTMLCanvasElement;
     popup: Popup;
     tooltips: Tooltips;
@@ -110,7 +110,6 @@ class EditorUI {
         canvasContainer.append(colorPanel);
         canvasContainer.append(bottomToolbar);
         canvasContainer.append(rightToolbar);
-        registerScaUi(events, tooltips, canvasContainer, rightToolbar, events.invoke('sca.assetStore'));
         canvasContainer.append(modeToggle);
 
         // view axes container
@@ -181,6 +180,7 @@ class EditorUI {
         this.topContainer = topContainer;
         this.canvasContainer = canvasContainer;
         this.toolsContainer = toolsContainer;
+        this.rightToolbar = rightToolbar;
         this.canvas = canvas;
         this.popup = popup;
         this.tooltips = tooltips;

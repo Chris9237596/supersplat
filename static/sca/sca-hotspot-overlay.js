@@ -206,7 +206,7 @@
         if (!view) {
           view = createMarkerView(overlay, (hotspotId) => {
             const entry = exportable.find((item) => item.id === hotspotId)
-            if (!entry) {
+            if (!entry || entry.interaction?.clickable === false) {
               return
             }
 
@@ -223,6 +223,12 @@
         view.selected = hotspot.id === selectedId
         view.showCards = showCards
         view.badge.dataset.hotspotId = hotspot.id
+        view.badge.classList.toggle('is-not-clickable', hotspot.interaction?.clickable === false)
+        if (hotspot.interaction?.clickable === false) {
+          view.badge.removeAttribute('role')
+        } else {
+          view.badge.setAttribute('role', 'button')
+        }
         view.badge.textContent = String(index + 1)
         view.badge.setAttribute('aria-label', `Select hotspot ${index + 1}: ${hotspot.name || 'Untitled'}`)
         view.titleEl.textContent = hotspot.name || 'Untitled'

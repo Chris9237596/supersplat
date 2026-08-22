@@ -172,6 +172,24 @@ class Menu extends Container {
                 await events.invoke('doc.open');
             }
         }, {
+            text: 'Reopen last project',
+            icon: createSvg(sceneOpen),
+            isEnabled: async () => {
+                if (!events.invoke('scene.empty')) {
+                    return false;
+                }
+                try {
+                    const last = await recentFiles.getLast();
+                    return !!last;
+                } catch (error) {
+                    console.warn('[menu] failed to read last project handle:', error);
+                    return false;
+                }
+            },
+            onSelect: async () => {
+                await events.invoke('doc.reopenLast');
+            }
+        }, {
             text: () => i18n.t('menu.file.open-recent'),
             icon: createSvg(sceneOpen),
             subMenu: openRecentMenuPanel,

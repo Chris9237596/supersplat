@@ -9,6 +9,10 @@ import { createDefaultRegion } from '../region-defaults';
 import { captureSelectionRanges } from './region-selection-capture';
 import { applyRegionMaskToNativeSelection, resolveRegionGaussianSelection } from './region-selection-apply';
 import {
+    readSourceSplatSelectionRanges,
+    resolveRegionReplaceContext
+} from './region-selection-replace';
+import {
     cloneAssets,
     deleteRegionMask,
     getRegionMask,
@@ -110,6 +114,70 @@ const applyRegionMaskEdit = (
     ));
 };
 
+const replaceRegionWithSelection = async (
+    events: Events,
+    scene: Scene,
+    regionId: string
+) => {
+    const store = events.invoke('sca.store') as HotspotStore;
+    const assetStore = events.invoke('sca.assetStore') as ScaAssetStore;
+    const applying = events.invoke('sca.history.applying') as { value: boolean };
+
+    const context = resolveRegionReplaceContext(store, scene, regionId);
+    if (context.ok === false) {
+        void events.invoke('showPopup', {
+            type: 'info',
+            header: 'Replace Region with Selection',
+            message: context.reason
+        });
+        return;
+    }
+
+    const { region, splat, gaussianCount } = context;
+    const selection = readSourceSplatSelectionRanges(splat);
+
+    if (selection.empty) {
+        const result = await events.invoke('showPopup', {
+            type: 'yesno',
+            header: 'Replace Region with Selection',
+            message: 'Current selection is empty. Replace Region with an empty Region?'
+        });
+
+        if (result.action !== 'yes') {
+            return;
+        }
+    }
+
+    const beforeProject = store.getProject();
+    const beforeRegionSelection = store.getSelectedRegionId();
+    const beforeAssets = cloneAssets(assetStore);
+
+    const afterProject = structuredClone(beforeProject);
+    const afterRegion = afterProject.regions.find((entry) => entry.id === regionId);
+    if (afterRegion) {
+        afterRegion.capture.gaussianCount = gaussianCount;
+    }
+
+    setRegionMask(assetStore, regionId, selection, gaussianCount);
+    const afterAssets = cloneAssets(assetStore);
+
+    events.fire('edit.add', new ScaRegionMembershipOp(
+        'replaceRegionSelection',
+        events,
+        store,
+        assetStore,
+        applying,
+        beforeProject,
+        afterProject,
+        beforeRegionSelection,
+        beforeRegionSelection,
+        beforeAssets,
+        afterAssets,
+        null,
+        null
+    ));
+};
+
 const registerScaRegionEvents = (events: Events, scene: Scene): void => {
     const getStore = () => events.invoke('sca.store') as HotspotStore;
     const getAssetStore = () => events.invoke('sca.assetStore') as ScaAssetStore;
@@ -193,6 +261,16 @@ const registerScaRegionEvents = (events: Events, scene: Scene): void => {
         const store = getStore();
         const assetStore = getAssetStore();
         const resolved = resolveRegionGaussianSelection(store, assetStore, scene, regionId);
+        return resolved.ok;
+    });
+
+    events.on('sca.region.replaceWithSelection', async (id: string) => {
+        await replaceRegionWithSelection(events, scene, id);
+    });
+
+    events.function('sca.region.canReplaceWithSelection', (regionId: string) => {
+        const store = getStore();
+        const resolved = resolveRegionReplaceContext(store, scene, regionId);
         return resolved.ok;
     });
 

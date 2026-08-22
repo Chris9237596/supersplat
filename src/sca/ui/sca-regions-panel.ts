@@ -68,6 +68,8 @@ class ScaRegionsPanel extends Container {
 
     private selectRegionGaussiansButton: Button;
 
+    private replaceWithSelectionButton: Button;
+
     private removeSelectionButton: Button;
 
 
@@ -366,6 +368,14 @@ class ScaRegionsPanel extends Container {
 
         });
 
+        this.replaceWithSelectionButton = new Button({
+
+            class: ['sca-hotspot-form-button'],
+
+            text: 'Replace Region with Selection'
+
+        });
+
         this.removeSelectionButton = new Button({
 
             class: ['sca-hotspot-form-button'],
@@ -403,6 +413,8 @@ class ScaRegionsPanel extends Container {
         this.formContainer.append(this.addSelectionButton);
 
         this.formContainer.append(this.selectRegionGaussiansButton);
+
+        this.formContainer.append(this.replaceWithSelectionButton);
 
         this.formContainer.append(this.removeSelectionButton);
 
@@ -588,6 +600,18 @@ class ScaRegionsPanel extends Container {
 
 
 
+        this.replaceWithSelectionButton.on('click', () => {
+
+            if (this.selectedId) {
+
+                events.fire('sca.region.replaceWithSelection', this.selectedId);
+
+            }
+
+        });
+
+
+
         this.removeSelectionButton.on('click', () => {
 
             if (this.selectedId) {
@@ -617,6 +641,8 @@ class ScaRegionsPanel extends Container {
             this.refreshList();
 
             this.updateSelectGaussiansButton(this.selectedId);
+
+            this.updateReplaceWithSelectionButton(this.selectedId);
 
         });
 
@@ -730,6 +756,8 @@ class ScaRegionsPanel extends Container {
 
         this.updateSelectGaussiansButton(selectedId);
 
+        this.updateReplaceWithSelectionButton(selectedId);
+
         this.syncing = false;
 
     }
@@ -743,6 +771,18 @@ class ScaRegionsPanel extends Container {
             false;
 
         this.selectRegionGaussiansButton.enabled = canSelect;
+
+    }
+
+
+
+    private updateReplaceWithSelectionButton(selectedId: string | null) {
+
+        const canReplace = selectedId ?
+            this.events.invoke('sca.region.canReplaceWithSelection', selectedId) === true :
+            false;
+
+        this.replaceWithSelectionButton.enabled = canReplace;
 
     }
 

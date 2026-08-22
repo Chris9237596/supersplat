@@ -21,6 +21,7 @@ type ScaHotspotClick = {
 };
 
 type ScaHotspotInteraction = {
+    clickable?: boolean;
     showInNavigation?: boolean;
 };
 

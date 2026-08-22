@@ -1,7 +1,9 @@
 import { ZipFileSystem, ZipReadFileSystem } from '@playcanvas/splat-transform';
 
 import { Events } from './events';
+import { fileSystemAccess, logFileSystemAccessOnce } from './file-system-access';
 import { BrowserFileSystem, BlobReadSource } from './io';
+import { projectRecovery } from './project-recovery';
 import { recentFiles } from './recent-files';
 import { Scene } from './scene';
 import { Splat } from './splat';
@@ -55,11 +57,37 @@ class FileSelector {
 }
 
 const registerDocEvents = (scene: Scene, events: Events) => {
-    // construct the file selector
-    const fileSelector = window.showOpenFilePicker ? null : new FileSelector();
+    logFileSystemAccessOnce();
+
+    // doc name — registered first so UI can query it safely
+    let docName: string = null;
+    let loadedFromRecovery = false;
+
+    const setDocName = (name: string) => {
+        if (name !== docName) {
+            docName = name;
+            events.fire('doc.name', docName);
+            events.fire('doc.saveStateChanged');
+        }
+    };
+
+    events.function('doc.name', () => {
+        return docName;
+    });
+
+    events.on('doc.setName', (name) => {
+        setDocName(name);
+    });
 
     // this file handle is updated as the current document is loaded and saved
     let documentFileHandle: FileSystemFileHandle = null;
+
+    events.function('doc.isRecoverySession', () => {
+        return loadedFromRecovery && !documentFileHandle;
+    });
+
+    // construct the file selector
+    const fileSelector = fileSystemAccess.openPicker ? null : new FileSelector();
 
     // show the user a reset confirmation popup
     const getResetConfirmation = async () => {
@@ -82,10 +110,22 @@ const registerDocEvents = (scene: Scene, events: Events) => {
         events.fire('camera.reset');
         events.fire('doc.setName', null);
         documentFileHandle = null;
+        loadedFromRecovery = false;
+    };
+
+    const persistRecoveryBytes = async (name: string, data: ArrayBuffer) => {
+        if (fileSystemAccess.openPicker) {
+            return;
+        }
+        try {
+            await projectRecovery.save(name, data);
+        } catch (error) {
+            console.warn('[SCA RECOVERY] failed to persist project copy:', error);
+        }
     };
 
     // load the document from the given file
-    const loadDocument = async (file: File) => {
+    const loadDocument = async (file: File): Promise<boolean> => {
         events.fire('startSpinner');
 
         // Create streaming ZIP reader from the file
@@ -116,6 +156,9 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                 // load splat directly from the zip filesystem (streams on-demand)
                 // skipReorder=true because ssproj PLY files are already in morton order
                 const splat = await scene.assetLoader.load(filename, zipFs, false, true);
+                if (!splat) {
+                    throw new Error(`Failed to load ${filename}`);
+                }
 
                 await scene.add(splat);
 
@@ -151,13 +194,21 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                 pivot.place(transform);
             }
 
+            scene.forceRender = true;
             events.fire('doc.loaded');
+
+            if (!fileSystemAccess.openPicker) {
+                await persistRecoveryBytes(file.name, await file.arrayBuffer());
+            }
+
+            return true;
         } catch (error) {
             await events.invoke('showPopup', {
                 type: 'error',
                 header: i18n.t('doc.load-failed'),
                 message: `'${error.message ?? error}'`
             });
+            return false;
         } finally {
             // fire events before cleanup so a throwing close can't leave
             // preference capture suspended or the spinner running
@@ -196,9 +247,20 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                 keepColorTint: true
             };
 
+            const filename = options.filename ?? docName ?? 'scene.ssproj';
+            const onDownload = !options.stream && !fileSystemAccess.openPicker ?
+                (data: Uint8Array, downloadName: string) => {
+                    const copy = data.buffer.slice(
+                        data.byteOffset,
+                        data.byteOffset + data.byteLength
+                    ) as ArrayBuffer;
+                    void persistRecoveryBytes(downloadName, copy);
+                } :
+                undefined;
+
             // Create browser filesystem and zip filesystem
-            const browserFs = new BrowserFileSystem(options.filename, options.stream);
-            const browserWriter = await browserFs.createWriter(options.filename);
+            const browserFs = new BrowserFileSystem(filename, options.stream, onDownload);
+            const browserWriter = await browserFs.createWriter(filename);
             const zipFs = new ZipFileSystem(browserWriter);
 
             // Write document.json
@@ -259,14 +321,19 @@ const registerDocEvents = (scene: Scene, events: Events) => {
             return false;
         }
 
-        await loadDocument(file);
+        if (!await loadDocument(file)) {
+            return false;
+        }
 
         events.fire('doc.setName', file.name);
+        loadedFromRecovery = false;
 
         if (handle) {
             documentFileHandle = handle;
-            recentFiles.add(handle);
+            recentFiles.add(handle, 'open');
         }
+
+        return true;
     });
 
     events.function('doc.open', async () => {
@@ -277,7 +344,10 @@ const registerDocEvents = (scene: Scene, events: Events) => {
         if (fileSelector) {
             fileSelector.show(async (file?: File) => {
                 if (file) {
-                    await loadDocument(file);
+                    if (await loadDocument(file)) {
+                        events.fire('doc.setName', file.name);
+                        loadedFromRecovery = false;
+                    }
                 }
             });
         } else {
@@ -288,16 +358,15 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                     types: SuperFileType
                 });
 
-                if (fileHandles?.length === 1) {
+                    if (fileHandles?.length === 1) {
                     const fileHandle = fileHandles[0];
 
-                    // null file handle incase loadDocument fails
-                    await loadDocument(await fileHandle.getFile());
-
-                    // store file handle for subsequent saves
-                    documentFileHandle = fileHandle;
-                    events.fire('doc.setName', fileHandle.name);
-                    recentFiles.add(fileHandle);
+                    if (await loadDocument(await fileHandle.getFile())) {
+                        documentFileHandle = fileHandle;
+                        events.fire('doc.setName', fileHandle.name);
+                        recentFiles.add(fileHandle, 'open');
+                        loadedFromRecovery = false;
+                    }
                 }
             } catch (error) {
                 if (error.name !== 'AbortError') {
@@ -319,21 +388,152 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                 }
             }
 
-            await loadDocument(await fileHandle.getFile());
-
-            // store file handle for subsequent saves
-            documentFileHandle = fileHandle;
-            events.fire('doc.setName', fileHandle.name);
-            recentFiles.add(fileHandle);
+            if (await loadDocument(await fileHandle.getFile())) {
+                documentFileHandle = fileHandle;
+                events.fire('doc.setName', fileHandle.name);
+                recentFiles.add(fileHandle, 'openRecent');
+                loadedFromRecovery = false;
+                return true;
+            }
+            return false;
         } catch (error) {
             if (error.name !== 'AbortError') {
                 console.error(error);
+                try {
+                    await recentFiles.remove(fileHandle.name);
+                } catch (removeError) {
+                    console.warn('[doc] failed to clear invalid recent file handle', removeError);
+                }
                 await events.invoke('showPopup', {
                     type: 'error',
                     header: i18n.t('popup.error-loading'),
                     message: `${error.message ?? error}`
                 });
             }
+            return false;
+        }
+    });
+
+    const logAutoReopen = (message: string) => {
+        console.log(`[SCA AUTO REOPEN] ${message}`);
+    };
+
+    const tryRecoveryReopen = async (): Promise<boolean> => {
+        logAutoReopen('tryingRecovery=true');
+
+        const recovery = await projectRecovery.get();
+        if (!recovery) {
+            logAutoReopen('recoveryCopy=none');
+            return false;
+        }
+
+        logAutoReopen(`recoveryCopy=${recovery.name} loadStarted=true`);
+
+        const file = new File([recovery.data], recovery.name, { type: 'application/octet-stream' });
+        const ok = await loadDocument(file);
+        if (!ok) {
+            console.warn('[SCA RECOVERY] corrupt recovery copy removed');
+            await projectRecovery.clear();
+            logAutoReopen('recoveryCopy=corrupt removed=true');
+            return false;
+        }
+
+        loadedFromRecovery = true;
+        events.fire('doc.setName', recovery.name);
+
+        const sceneSplats = (events.invoke('scene.allSplats') as unknown[]).length;
+        logAutoReopen(
+            `loadFinished=true sceneSplats=${sceneSplats} docName=${recovery.name} recovery=true`
+        );
+
+        return true;
+    };
+
+    events.function('doc.tryAutoReopenLast', async () => {
+        logAutoReopen('invoked=true');
+
+        if (!events.invoke('scene.empty')) {
+            logAutoReopen('skipped reason=sceneNotEmpty');
+            return false;
+        }
+
+        if (!fileSystemAccess.openPicker) {
+            logAutoReopen('fileSystemAccess=unavailable');
+            try {
+                return await tryRecoveryReopen();
+            } catch (error) {
+                console.warn('[doc] recovery reopen skipped:', error);
+                logAutoReopen(`skipped reason=error message=${error instanceof Error ? error.message : String(error)}`);
+                return false;
+            }
+        }
+
+        try {
+            const last = await recentFiles.getLast();
+            if (!last) {
+                logAutoReopen('recentHandle=none');
+                return false;
+            }
+
+            const permission = await last.handle.queryPermission({ mode: 'read' });
+            logAutoReopen(`recentHandle=${last.name} permission=${permission}`);
+
+            if (permission !== 'granted') {
+                events.fire('doc.lastProjectAvailable', {
+                    name: last.name,
+                    permission
+                });
+                logAutoReopen(
+                    permission === 'prompt' ?
+                        'skipped reason=permissionPrompt' :
+                        'skipped reason=permissionNotGranted'
+                );
+                return false;
+            }
+
+            logAutoReopen(`handle=${last.name} permission=${permission} loadStarted=true`);
+
+            const reopened = await events.invoke('doc.openRecent', last.handle) as boolean;
+            const sceneSplats = (events.invoke('scene.allSplats') as unknown[]).length;
+            const currentDocName = events.invoke('doc.name') as string | null;
+            const fileHandleRestored = events.invoke('doc.hasFileHandle') as boolean;
+
+            logAutoReopen(
+                `loadFinished=true sceneSplats=${sceneSplats} docName=${currentDocName ?? ''} fileHandleRestored=${fileHandleRestored}`
+            );
+
+            return reopened;
+        } catch (error) {
+            console.warn('[doc] auto reopen skipped:', error);
+            logAutoReopen(`skipped reason=error message=${error instanceof Error ? error.message : String(error)}`);
+            return false;
+        }
+    });
+
+    events.function('doc.getLastProject', async () => {
+        try {
+            return await recentFiles.getLast();
+        } catch (error) {
+            console.warn('[doc] failed to read last project handle:', error);
+            return null;
+        }
+    });
+
+    events.function('doc.reopenLast', async () => {
+        try {
+            if (fileSystemAccess.openPicker) {
+                const last = await recentFiles.getLast();
+                if (!last) {
+                    return false;
+                }
+
+                return events.invoke('doc.openRecent', last.handle) as Promise<boolean>;
+            }
+
+            return await tryRecoveryReopen();
+        } catch (error) {
+            console.warn('[doc] reopen last project failed:', error);
+            return false;
         }
     });
 
@@ -353,9 +553,11 @@ const registerDocEvents = (scene: Scene, events: Events) => {
                 }
 
                 await saveDocument({
-                    stream: await documentFileHandle.createWritable()
+                    stream: await documentFileHandle.createWritable(),
+                    filename: documentFileHandle.name
                 });
                 events.fire('doc.saved');
+                loadedFromRecovery = false;
             } catch (error) {
                 if (error.name === 'AbortError') {
                     return;
@@ -374,29 +576,31 @@ const registerDocEvents = (scene: Scene, events: Events) => {
     });
 
     events.function('doc.saveAs', async () => {
-        if (window.showSaveFilePicker) {
+        if (fileSystemAccess.savePicker) {
             try {
                 const handle = await window.showSaveFilePicker({
                     id: 'SuperSplatDocumentSave',
                     types: SuperFileType,
-                    suggestedName: 'scene.ssproj'
+                    suggestedName: docName ?? 'scene.ssproj'
                 });
-                await saveDocument({ stream: await handle.createWritable() });
+                await saveDocument({ stream: await handle.createWritable(), filename: handle.name });
                 documentFileHandle = handle;
                 events.fire('doc.setName', handle.name);
                 events.fire('doc.saved');
-                recentFiles.add(handle);
+                loadedFromRecovery = false;
+                recentFiles.add(handle, 'saveAs');
             } catch (error) {
                 if (error.name !== 'AbortError') {
                     console.error(error);
                 }
             }
         } else {
-            await saveDocument({
-                filename: 'scene.ssproj'
-            });
-            events.fire('doc.setName', 'scene.ssproj');
+            const filename = docName ?? 'scene.ssproj';
+            await saveDocument({ filename });
+            events.fire('doc.setName', filename);
             events.fire('doc.saved');
+            loadedFromRecovery = false;
+            console.log('[SCA RECENT FILE] stored handle=none reason=downloadFallback (auto-reopen unavailable)');
         }
     });
 
@@ -414,26 +618,6 @@ const registerDocEvents = (scene: Scene, events: Events) => {
         const hasHandle = events.invoke('doc.hasFileHandle');
 
         return hasName || dirty || !hasHandle;
-    });
-
-    // doc name
-
-    let docName: string = null;
-
-    const setDocName = (name: string) => {
-        if (name !== docName) {
-            docName = name;
-            events.fire('doc.name', docName);
-            events.fire('doc.saveStateChanged');
-        }
-    };
-
-    events.function('doc.name', () => {
-        return docName;
-    });
-
-    events.on('doc.setName', (name) => {
-        setDocName(name);
     });
 };
 

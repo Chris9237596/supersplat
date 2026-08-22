@@ -1,5 +1,7 @@
+import { wrapIdbRequest } from './idb';
+
 const DB_NAME = 'supersplat';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'recent-files';
 
 interface RecentFile {
@@ -9,15 +11,7 @@ interface RecentFile {
 }
 
 // wrap IDBRequest in a promise
-const wrap = (IDBRequest: IDBRequest): Promise<any> => {
-    return new Promise((resolve, reject) => {
-        IDBRequest.onsuccess = () => resolve(IDBRequest.result);
-        IDBRequest.onerror = () => {
-            console.error('IndexedDB error', IDBRequest.error);
-            reject(IDBRequest.error);
-        };
-    });
-};
+const wrap = wrapIdbRequest;
 
 class RecentFiles {
     db: Promise<IDBDatabase>;
@@ -33,11 +27,14 @@ class RecentFiles {
                 // directories anyway due to File System Access API limitations.
                 db.createObjectStore(STORE_NAME, { keyPath: 'name' });
             }
+            if (!db.objectStoreNames.contains('project-recovery')) {
+                db.createObjectStore('project-recovery', { keyPath: 'id' });
+            }
         };
         this.db = wrap(request);
     }
 
-    async add(handle: FileSystemFileHandle) {
+    async add(handle: FileSystemFileHandle, reason?: string) {
         const db = await this.db;
 
         const transaction = db.transaction([STORE_NAME], 'readwrite');
@@ -49,6 +46,10 @@ class RecentFiles {
         });
 
         await wrap(request);
+
+        if (reason) {
+            console.log(`[SCA RECENT FILE] stored handle=${handle.name} reason=${reason}`);
+        }
     }
 
     async get(): Promise<RecentFile[]> {
@@ -60,6 +61,18 @@ class RecentFiles {
         // Sort by date descending
         result.sort((a, b) => b.date - a.date);
         return result;
+    }
+
+    async getLast(): Promise<RecentFile | null> {
+        const files = await this.get();
+        return files.length > 0 ? files[0] : null;
+    }
+
+    async remove(name: string) {
+        const db = await this.db;
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        await wrap(store.delete(name));
     }
 
     async clear() {

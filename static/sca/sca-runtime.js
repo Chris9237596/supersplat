@@ -864,6 +864,13 @@
         return
       }
 
+      const clickable = hotspot.interaction?.clickable !== false
+      const isDirectInteraction = emitClick || source === 'click' || source === 'annotation'
+      if (isDirectInteraction && !clickable) {
+        window.scaDebug?.('navigation', `[SCA3D] hotspot click ignored (not clickable): ${hotspot.id}`)
+        return
+      }
+
       window.SCA3D.state.selectedHotspotId = target.id
       window.SCA3D.state.selectedRegionId = null
       window.SCA3D.hotspotOverlay?.setSelected?.(target.id)
@@ -877,6 +884,12 @@
         window.SCA3D.handleHotspotClick?.(hotspot)
       }
     } else if (target.type === 'region') {
+      const isDirectClick = emitClick || source === 'click'
+      if (isDirectClick && window.SCA3D.state.selectedRegionId === target.id) {
+        setActiveTarget(viewer, viewerConfig, null, { source, emitClick: false })
+        return
+      }
+
       window.SCA3D.state.selectedRegionId = target.id
       window.SCA3D.state.selectedHotspotId = null
       window.SCA3D.hotspotOverlay?.setSelected?.(null)

@@ -21,6 +21,7 @@ class ScaHotspotForm extends Container {
     private nameInput: TextInput;
     private textInput: TextAreaInput;
     private enabledInput: BooleanInput;
+    private clickableInput: BooleanInput;
     private showInNavigationInput: BooleanInput;
     private positionInput: VectorInput;
 
@@ -73,6 +74,19 @@ class ScaHotspotForm extends Container {
             text: 'Interaction'
         });
 
+        const clickableRow = new Container({ class: 'sca-hotspot-form-row' });
+        const clickableLabel = new Label({
+            class: 'sca-hotspot-form-label',
+            text: 'Clickable'
+        });
+        this.clickableInput = new BooleanInput({
+            class: 'sca-hotspot-form-toggle',
+            type: 'toggle',
+            value: true
+        });
+        clickableRow.append(clickableLabel);
+        clickableRow.append(this.clickableInput);
+
         const showInNavigationRow = new Container({ class: 'sca-hotspot-form-row' });
         const showInNavigationLabel = new Label({
             class: 'sca-hotspot-form-label',
@@ -114,6 +128,7 @@ class ScaHotspotForm extends Container {
         this.append(textRow);
         this.append(enabledRow);
         this.append(interactionTitle);
+        this.append(clickableRow);
         this.append(showInNavigationRow);
         this.append(positionRow);
         this.append(placeButton);
@@ -129,6 +144,14 @@ class ScaHotspotForm extends Container {
 
         this.enabledInput.on('change', (value: boolean) => {
             this.updateSelected({ enabled: value });
+        });
+
+        this.clickableInput.on('change', (value: boolean) => {
+            this.updateSelected({
+                interaction: {
+                    clickable: value
+                }
+            });
         });
 
         this.showInNavigationInput.on('change', (value: boolean) => {
@@ -218,6 +241,7 @@ class ScaHotspotForm extends Container {
         this.nameInput.value = hotspot.name;
         this.textInput.value = hotspot.text;
         this.enabledInput.value = hotspot.enabled;
+        this.clickableInput.value = hotspot.interaction?.clickable !== false;
         this.showInNavigationInput.value = hotspot.interaction?.showInNavigation !== false;
         this.positionInput.value = [...hotspot.position];
         this.syncing = false;

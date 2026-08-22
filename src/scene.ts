@@ -249,6 +249,75 @@ class Scene {
         this.add(this.underlay);
     }
 
+    private readyPromise: Promise<void> | null = null;
+
+    /** Layout metrics used for startup readiness (no render required). */
+    getStartupLayoutMetrics(): {
+        canvasWidth: number;
+        canvasHeight: number;
+        targetWidth: number;
+        targetHeight: number;
+    } {
+        const rect = this.canvas.getBoundingClientRect();
+        const canvasWidth = Math.round(rect.width);
+        const canvasHeight = Math.round(rect.height);
+        const pixelRatio = window.devicePixelRatio || 1;
+        const deviceWidth = this.canvas.width > 0 ?
+            this.canvas.width :
+            Math.max(1, Math.ceil(canvasWidth * pixelRatio));
+        const deviceHeight = this.canvas.height > 0 ?
+            this.canvas.height :
+            Math.max(1, Math.ceil(canvasHeight * pixelRatio));
+        const targetWidth = Math.ceil(deviceWidth / this.config.camera.pixelScale);
+        const targetHeight = Math.ceil(deviceHeight / this.config.camera.pixelScale);
+        return { canvasWidth, canvasHeight, targetWidth, targetHeight };
+    }
+
+    private static nextFrame(): Promise<void> {
+        return new Promise((resolve) => {
+            requestAnimationFrame(() => resolve());
+        });
+    }
+
+    private hasValidStartupLayout(): boolean {
+        const { canvasWidth, canvasHeight, targetWidth, targetHeight } = this.getStartupLayoutMetrics();
+        return canvasWidth > 0 && canvasHeight > 0 && targetWidth > 0 && targetHeight > 0;
+    }
+
+    /** Apply canvas pixel size from layout so targetSize is valid before the first render. */
+    private syncLayoutFromDom(): void {
+        const rect = this.canvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return;
+        }
+
+        const pixelRatio = window.devicePixelRatio || 1;
+        const width = Math.ceil(rect.width * pixelRatio);
+        const height = Math.ceil(rect.height * pixelRatio);
+
+        if (this.canvas.width !== width || this.canvas.height !== height) {
+            this.canvas.width = width;
+            this.canvas.height = height;
+        }
+
+        this.targetSize.width = Math.ceil(width / this.config.camera.pixelScale);
+        this.targetSize.height = Math.ceil(height / this.config.camera.pixelScale);
+    }
+
+    /** Resolves once the canvas has a non-zero layout size (does not wait for render). */
+    whenReady(): Promise<void> {
+        if (!this.readyPromise) {
+            this.readyPromise = (async () => {
+                await Scene.nextFrame();
+                while (!this.hasValidStartupLayout()) {
+                    await Scene.nextFrame();
+                }
+                this.syncLayoutFromDom();
+            })();
+        }
+        return this.readyPromise;
+    }
+
     start() {
         // start the app
         this.app.start();

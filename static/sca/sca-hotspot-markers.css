@@ -56,6 +56,11 @@
     -moz-osx-font-smoothing: grayscale;
 }
 
+.sca-hotspot-marker-badge.pc-annotation-hotspot.is-not-clickable {
+    cursor: default;
+    pointer-events: none;
+}
+
 .sca-hotspot-marker-badge.pc-annotation-hotspot::before {
     content: '';
     position: absolute;

@@ -14,7 +14,7 @@ import { registerPublishEvents } from './publish';
 import { registerRenderEvents } from './render';
 import { Scene } from './scene';
 import { getSceneConfig } from './scene-config';
-import { registerSca, registerScaEvents, registerScaScene } from './sca';
+import { registerSca, registerScaEvents, registerScaScene, registerScaUi } from './sca';
 import { registerScaSaveDiagnostics } from './sca/edit/register-sca-save-diagnostics';
 import { registerSelectionEvents } from './selection';
 import { registerSequenceEvents } from './sequence';
@@ -280,6 +280,13 @@ const main = async () => {
     registerSelectionEvents(events, scene);
     registerSequenceEvents(events, scene);
     registerDocEvents(scene, events);
+    registerScaUi(
+        events,
+        editorUI.tooltips,
+        editorUI.canvasContainer,
+        editorUI.rightToolbar,
+        events.invoke('sca.assetStore')
+    );
     registerRenderEvents(scene, events);
     initFileHandler(scene, events, editorUI.appContainer.dom);
     editorUI.initMenu(events);
@@ -305,6 +312,15 @@ const main = async () => {
             filename,
             url: decoded
         }]);
+    }
+
+    if (loadList.length === 0) {
+        await scene.whenReady();
+        const layout = scene.getStartupLayoutMetrics();
+        console.log(
+            `[SCA AUTO REOPEN READY] canvasWidth=${layout.canvasWidth} canvasHeight=${layout.canvasHeight} targetWidth=${layout.targetWidth} targetHeight=${layout.targetHeight}`
+        );
+        await events.invoke('doc.tryAutoReopenLast');
     }
 
 

@@ -5,6 +5,8 @@
 
 import { MemoryFileSystem, type FileSystem, type Writer } from '@playcanvas/splat-transform';
 
+type DownloadCompleteCallback = (data: Uint8Array, filename: string) => void;
+
 /**
  * Writer implementation for FileSystemWritableFileStream (File System Access API).
  */
@@ -78,9 +80,11 @@ class BrowserDownloadWriter implements Writer {
     private memFs: MemoryFileSystem;
     private innerWriter: Writer;
     private filename: string;
+    private onDownload?: DownloadCompleteCallback;
 
-    constructor(filename: string) {
+    constructor(filename: string, onDownload?: DownloadCompleteCallback) {
         this.filename = filename;
+        this.onDownload = onDownload;
         this.memFs = new MemoryFileSystem();
         this.innerWriter = this.memFs.createWriter(filename);
     }
@@ -97,6 +101,7 @@ class BrowserDownloadWriter implements Writer {
         this.innerWriter.close();
         const data = this.memFs.results.get(this.filename);
         if (data) {
+            this.onDownload?.(data, this.filename);
             triggerDownload(data, this.filename);
         }
     }
@@ -114,22 +119,25 @@ class BrowserDownloadWriter implements Writer {
 class BrowserFileSystem implements FileSystem {
     private stream?: FileSystemWritableFileStream;
     private filename: string;
+    private onDownload?: DownloadCompleteCallback;
 
     /**
      * Create a BrowserFileSystem.
      * @param filename - The filename for downloads (fallback mode)
      * @param stream - Optional FileSystemWritableFileStream for direct file access
+     * @param onDownload - Optional callback with serialized bytes before download
      */
-    constructor(filename: string, stream?: FileSystemWritableFileStream) {
+    constructor(filename: string, stream?: FileSystemWritableFileStream, onDownload?: DownloadCompleteCallback) {
         this.filename = filename;
         this.stream = stream;
+        this.onDownload = onDownload;
     }
 
     createWriter(_filename: string): Writer {
         if (this.stream) {
             return new BrowserFileWriter(this.stream);
         }
-        return new BrowserDownloadWriter(this.filename);
+        return new BrowserDownloadWriter(this.filename, this.onDownload);
     }
 
     mkdir(_path: string): Promise<void> {

@@ -62,6 +62,11 @@
       return
     }
 
+    if (hotspot.interaction?.clickable === false) {
+      window.scaDebug?.('navigation', `[SCA3D] hotspot click ignored (not clickable): ${hotspot.id}`)
+      return
+    }
+
     if (hotspot.click?.enabled === false) {
       window.scaDebug?.('navigation', `[SCA3D] hotspot click ignored (disabled): ${hotspot.id}`)
       return

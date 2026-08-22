@@ -53,8 +53,12 @@ const registerScaEvents = (events: Events): HotspotStore => {
     });
 
     events.on('sca.hotspot.select', (id: string | null) => {
-        store.selectHotspot(id);
-        console.log('[SCA] hotspot selected:', id);
+        if (id !== null && id === store.getSelectedHotspotId()) {
+            store.selectHotspot(null);
+        } else {
+            store.selectHotspot(id);
+        }
+        console.log('[SCA] hotspot selected:', store.getSelectedHotspotId());
         notifySelectionChanged();
     });
 

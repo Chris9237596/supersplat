@@ -13,7 +13,7 @@ import {
     parseRegionHoverColor,
     resolveRegionVisual
 } from '../src/sca/presentation';
-import { resolveRegion, isClickableRegion } from '../src/sca/interaction/sca-region-core';
+import { resolveRegion, isClickableRegion, ScaRegionInteractionCore } from '../src/sca/interaction/sca-region-core';
 import { createStorageRegionMaskLookup } from '../src/sca/interaction/sca-storage-mask-lookup';
 import { ScaRegionMembershipOp } from '../src/sca/edit/sca-region-ops';
 import { ScaProjectOp } from '../src/sca/edit/sca-edit-ops';
@@ -30,6 +30,11 @@ import {
     indexRangesToSelectionMask,
     resolveRegionGaussianSelection
 } from '../src/sca/regions/region-selection-apply';
+import {
+    readSourceSplatSelectionRanges,
+    resolveRegionReplaceContext
+} from '../src/sca/regions/region-selection-replace';
+import { getRegionMask, cloneAssets, setRegionMask } from '../src/sca/regions/region-mask-store';
 import { regionMaskStorePath } from '../src/sca/regions/region-mask-paths';
 import { SelectOp } from '../src/edit-ops';
 import { remapRegionMaskToRuntime } from '../src/sca/regions/region-mask-runtime-export';
@@ -411,6 +416,42 @@ const runRegionCoreTests = () => {
     assert.equal(isClickableRegion(nonClickable), false);
     assert.equal(isClickableRegion(regionA), true);
 
+    let selectedRegionId: string | null = null;
+    const core = new ScaRegionInteractionCore(lookup, {
+        getRegion: (regionId) => {
+            if (regionId === regionA.id) {
+                return regionA;
+            }
+            if (regionId === regionB.id) {
+                return regionB;
+            }
+            return null;
+        },
+        getSelectedRegionId: () => selectedRegionId,
+        onHoverChange: () => {},
+        onSelectionChange: (regionId) => {
+            selectedRegionId = regionId;
+        }
+    });
+
+    core.activateRegion('region_01', 'click');
+    assert.equal(selectedRegionId, 'region_01');
+
+    core.activateRegion('region_01', 'click');
+    assert.equal(selectedRegionId, null);
+
+    core.activateRegion('region_01', 'click');
+    assert.equal(selectedRegionId, 'region_01');
+
+    core.activateRegion(null, 'click');
+    assert.equal(selectedRegionId, null);
+
+    core.activateRegion('region_02', 'nav');
+    assert.equal(selectedRegionId, 'region_02');
+
+    core.activateRegion('region_02', 'nav');
+    assert.equal(selectedRegionId, 'region_02');
+
     console.log('[sca-regions] shared region core PASS');
 };
 
@@ -559,6 +600,110 @@ const runRegionSelectionApplyTests = () => {
     console.log('[sca-regions] region selection apply PASS');
 };
 
+const runRegionReplaceSelectionTests = async () => {
+    const total = 20;
+    const originalRanges = IndexRanges.fromPredicate(total, (i) => i < 4);
+    const newSelectionRanges = IndexRanges.fromPredicate(total, (i) => i === 10 || i === 11 || i === 12);
+
+    const stateData = new Uint8Array(total);
+    for (const index of [10, 11, 12]) {
+        stateData[index] = State.selected;
+    }
+
+    const mockSplat = {
+        visible: true,
+        scaSplatId: 'splat_01',
+        splatData: {
+            numSplats: total,
+            getProp: (name: string) => (name === 'state' ? stateData : undefined)
+        }
+    };
+
+    const otherSplat = {
+        visible: true,
+        scaSplatId: 'splat_02',
+        splatData: { numSplats: total }
+    };
+
+    const store = new HotspotStore(createEmptyProject());
+    const assetStore = new ScaAssetStore();
+    const region = sampleRegion('region_01', 'Region 1', 'splat_01', total);
+    region.name = 'Keep This Name';
+    region.text = 'Keep This Text';
+    store.loadProject({
+        ...createEmptyProject(),
+        regions: [region]
+    });
+    setRegionMask(assetStore, region.id, originalRanges, total);
+
+    const scene = {
+        getElementsByType: () => [mockSplat, otherSplat]
+    };
+
+    const context = resolveRegionReplaceContext(store, scene as never, region.id);
+    assert.equal(context.ok, true);
+    if (context.ok) {
+        assert.equal(context.splat.scaSplatId, 'splat_01');
+    }
+
+    const selection = readSourceSplatSelectionRanges(mockSplat as never);
+    const selectedIndices: number[] = [];
+    selection.forEach((index) => selectedIndices.push(index));
+    assert.deepEqual(selectedIndices, [10, 11, 12]);
+
+    const beforeProject = structuredClone(store.getProject());
+    const beforeAssets = cloneAssets(assetStore);
+    const afterProject = structuredClone(beforeProject);
+    afterProject.regions[0].capture.gaussianCount = total;
+
+    setRegionMask(assetStore, region.id, newSelectionRanges, total);
+    const afterAssets = cloneAssets(assetStore);
+
+    const events = new Events();
+    const applying = { value: false };
+
+    const replaceOp = new ScaRegionMembershipOp(
+        'replaceRegionSelection',
+        events,
+        store,
+        assetStore,
+        applying,
+        beforeProject,
+        afterProject,
+        region.id,
+        region.id,
+        beforeAssets,
+        afterAssets,
+        null,
+        null
+    );
+
+    await replaceOp.do();
+
+    const replacedMask = getRegionMask(assetStore, region.id);
+    assert.ok(replacedMask);
+    const replacedIndices: number[] = [];
+    replacedMask!.forEach((index) => replacedIndices.push(index));
+    assert.deepEqual(replacedIndices, [10, 11, 12]);
+    assert.equal(store.getRegions()[0].name, 'Keep This Name');
+    assert.equal(store.getRegions()[0].text, 'Keep This Text');
+
+    await replaceOp.undo();
+    const restoredMask = getRegionMask(assetStore, region.id);
+    const restoredIndices: number[] = [];
+    restoredMask!.forEach((index) => restoredIndices.push(index));
+    assert.deepEqual(restoredIndices, [0, 1, 2, 3]);
+    assert.equal(store.getRegions()[0].name, 'Keep This Name');
+
+    await replaceOp.do();
+    const redoMask = getRegionMask(assetStore, region.id);
+    const redoIndices: number[] = [];
+    redoMask!.forEach((index) => redoIndices.push(index));
+    assert.deepEqual(redoIndices, [10, 11, 12]);
+
+    console.log('[sca-regions] region replace selection PASS');
+};
+
 const runRuntimePickDecodeTests = () => {
     const miss = decodeRuntimePickPixel([0, 0, 0, 0]);
     assert.equal(miss.gaussianIndex, null);
@@ -588,6 +733,7 @@ async function main() {
     runRegionCoreTests();
     runPresentationTests();
     runRegionSelectionApplyTests();
+    await runRegionReplaceSelectionTests();
     runRuntimePickDecodeTests();
     await runHistoryTests();
 
@@ -605,6 +751,7 @@ async function main() {
     console.log('Shared region core: PASS');
     console.log('Shared presentation: PASS');
     console.log('Region selection apply: PASS');
+    console.log('Region replace selection: PASS');
     console.log('Runtime pick decode: PASS');
     console.log('Membership op undo/redo: PASS');
     console.log('===========================================================\n');

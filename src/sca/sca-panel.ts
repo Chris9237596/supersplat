@@ -1,5 +1,6 @@
 import { Button, BooleanInput, Container, Label, SelectInput } from '@playcanvas/pcui';
 
+import { ElementType } from '../element';
 import { Events } from '../events';
 import { Tooltips } from '../ui/tooltips';
 
@@ -46,6 +47,38 @@ class ScaPanel extends Container {
         header.append(title);
         header.append(new Label({ class: 'panel-header-spacer' }));
         header.append(closeButton);
+
+        const projectBar = new Container({ class: 'sca-project-bar' });
+        const projectTitle = new Label({
+            class: 'sca-project-bar-label',
+            text: 'Project'
+        });
+        const projectName = new Label({
+            class: 'sca-project-bar-name',
+            text: 'Unsaved project'
+        });
+        const projectSaveHint = new Label({
+            class: 'sca-project-bar-hint',
+            text: ''
+        });
+        projectBar.append(projectTitle);
+        projectBar.append(projectName);
+        projectBar.append(projectSaveHint);
+
+        const reopenBanner = new Container({
+            class: 'sca-reopen-banner',
+            hidden: true
+        });
+        const reopenBannerText = new Label({
+            class: 'sca-reopen-banner-text',
+            text: ''
+        });
+        const reopenBannerButton = new Button({
+            class: 'sca-reopen-banner-button',
+            text: 'Reopen last project'
+        });
+        reopenBanner.append(reopenBannerText);
+        reopenBanner.append(reopenBannerButton);
 
         const body = new Container({
             class: 'sca-panel-body'
@@ -175,7 +208,75 @@ class ScaPanel extends Container {
         });
 
         this.append(header);
+        this.append(projectBar);
+        this.append(reopenBanner);
         this.append(body);
+
+        const hideReopenBanner = () => {
+            reopenBanner.hidden = true;
+        };
+
+        const showReopenBanner = (name: string) => {
+            reopenBannerText.text = `Last project: ${name}`;
+            reopenBanner.hidden = false;
+        };
+
+        const refreshProjectBar = () => {
+            const name = events.invoke('doc.name') as string | null;
+            const isRecovery = events.functions.has('doc.isRecoverySession') &&
+                (events.invoke('doc.isRecoverySession') as boolean);
+
+            if (name) {
+                projectName.text = name;
+                if (isRecovery) {
+                    projectSaveHint.text = 'Browser recovery';
+                    projectSaveHint.hidden = false;
+                } else {
+                    const dirty = events.invoke('scene.dirty') as boolean;
+                    projectSaveHint.text = dirty ? 'Unsaved changes' : 'Saved';
+                    projectSaveHint.hidden = false;
+                }
+            } else {
+                projectName.text = 'Unsaved project';
+                projectSaveHint.hidden = true;
+            }
+        };
+
+        reopenBannerButton.on('click', async () => {
+            if (await events.invoke('doc.reopenLast')) {
+                hideReopenBanner();
+            }
+        });
+
+        events.on('doc.lastProjectAvailable', (payload: { name: string, permission: string }) => {
+            if (!payload?.name || payload.permission === 'granted') {
+                return;
+            }
+            if (events.invoke('scene.empty')) {
+                showReopenBanner(payload.name);
+            }
+        });
+
+        events.on('doc.loaded', () => {
+            hideReopenBanner();
+            refreshProjectBar();
+        });
+
+        events.on('doc.name', () => {
+            refreshProjectBar();
+        });
+
+        events.on('doc.saveStateChanged', () => {
+            refreshProjectBar();
+        });
+
+        events.on('scene.elementAdded', (element) => {
+            if (element.type === ElementType.splat && !events.invoke('scene.empty')) {
+                hideReopenBanner();
+            }
+        });
+
+        refreshProjectBar();
 
         closeButton.on('click', () => {
             events.fire('scaPanel.setVisible', false);
