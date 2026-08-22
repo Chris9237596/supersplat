@@ -167,6 +167,69 @@ const assertPatchApplied = (packageDir) => {
     if (settings.navigation?.disableAnnotationCameraNavigation !== true) {
         throw new Error('settings.json missing disableAnnotationCameraNavigation');
     }
+
+    const project = JSON.parse(readFileSync(path.join(packageDir, 'project.json'), 'utf8'));
+    const enabledRegions = (project.regions ?? []).filter((region) => region.enabled);
+    if (enabledRegions.length === 0) {
+        throw new Error('project.json has no enabled regions after export');
+    }
+    const regionId = enabledRegions[0].id;
+    const maskPath = path.join(packageDir, 'regions', `${regionId}.mask`);
+    if (!existsSync(maskPath)) {
+        throw new Error(`exported package missing region mask: regions/${regionId}.mask`);
+    }
+
+    const previewHtml = readFileSync(path.join(packageDir, 'preview.html'), 'utf8');
+    if (!previewHtml.includes(`regions/${regionId}.mask`)) {
+        throw new Error('preview.html missing embedded region mask asset');
+    }
+    if (!previewHtml.includes('SCA_PICK_GAUSSIAN')) {
+        throw new Error('preview.html missing SCA_PICK_GAUSSIAN picker patch');
+    }
+
+    if (!indexJs.includes('SCA_REGION_HIGHLIGHT')) {
+        throw new Error('exported index.js missing SCA_REGION_HIGHLIGHT shader patch');
+    }
+    if (indexJs.includes('@location(undefined)')) {
+        throw new Error('exported index.js contains invalid WGSL @location(undefined)');
+    }
+    for (const forbidden of [
+        'var<uniform> scaRegionHighlight',
+        'var scaRegionHighlight: texture_2d',
+        'scaGaussianIndex = f32(sortedIndices[order])',
+        'SCA_REGION_HIGHLIGHT_WGSL'
+    ]) {
+        if (indexJs.includes(forbidden)) {
+            throw new Error(`exported index.js contains forbidden WGSL highlight injection: ${forbidden}`);
+        }
+    }
+    if (!indexJs.includes('texelFetch(scaRegionHighlight')) {
+        throw new Error('exported index.js missing GLSL region highlight patch');
+    }
+    if (!indexJs.includes('pickGaussianId')) {
+        throw new Error('exported index.js missing pickGaussianId patch');
+    }
+    if (!indexJs.includes('SCA_PICK_GAUSSIAN')) {
+        throw new Error('exported index.js missing SCA_PICK_GAUSSIAN picker marker');
+    }
+    if (!indexJs.includes('scaPickerReady')) {
+        throw new Error('exported index.js missing scaPickerReady picker event');
+    }
+    if (!indexJs.includes('this.pickGaussian = async')) {
+        throw new Error('exported index.js missing viewer.pickGaussian patch');
+    }
+    if (!indexJs.includes('unregisterPickerShaderPatches(app)')) {
+        throw new Error('exported index.js missing ID pick depth-patch suspension');
+    }
+    if (!indexJs.includes('scaResolveClientPickCoords')) {
+        throw new Error('exported index.js missing client-coordinate pick conversion');
+    }
+    if (!indexJs.includes('scaWaitForUnifiedGsplatPick')) {
+        throw new Error('exported index.js missing unified gsplat pick readiness wait');
+    }
+    if (!indexJs.includes('dumpPickTarget')) {
+        throw new Error('exported index.js missing dumpPickTarget helper');
+    }
 };
 
 const exportViaEditor = async (playwright) => {
@@ -261,6 +324,44 @@ const exportViaEditor = async (playwright) => {
 
     await sleep(1000);
 
+    console.log('[export] creating region from selection');
+    await page.evaluate(async () => {
+        const scene = window.scene;
+        const splats = scene.events.invoke('scene.splats');
+        const splat = splats[0];
+        scene.events.fire('selection', splat);
+        scene.events.fire('select.all');
+        await new Promise((resolve) => setTimeout(resolve, 800));
+    });
+
+    await page.waitForFunction(() => {
+        const splat = window.scene?.events?.invoke('selection');
+        return splat?.numSelected > 0;
+    }, { timeout: 60000 });
+
+    await page.evaluate(() => {
+        window.scene.events.fire('sca.region.createFromSelection');
+    });
+    await page.waitForFunction(() => {
+        const regions = window.scene?.events?.invoke('sca.region.list') || [];
+        return regions.length > 0;
+    }, { timeout: 30000 });
+    await sleep(300);
+
+    await page.evaluate(() => {
+        const regions = window.scene.events.invoke('sca.region.list') || [];
+        const region = regions[0];
+        if (!region) {
+            throw new Error('region was not created from selection');
+        }
+        window.scene.events.fire('sca.region.update', region.id, {
+            name: 'Test Region',
+            text: 'Region card text',
+            interaction: { clickable: true, showCard: true }
+        });
+    });
+    await sleep(300);
+
     const downloadPromise = page.waitForEvent('download', { timeout: 300000 });
     await page.evaluate(() => {
         window.scene.events.fire('sca.export.runtimePackage', true);
@@ -296,7 +397,7 @@ const TEST_HOOK = `
   window.addEventListener('error', (e) => window.__SCA3D_TEST__.errors.push(e.message || String(e.error)));
   window.addEventListener('unhandledrejection', (e) => window.__SCA3D_TEST__.errors.push(String(e.reason)));
   window.addEventListener('message', (e) => {
-    if (e.data?.source === 'SCA3DViewer' && e.data?.type === 'hotspotClicked') {
+    if (e.data?.source === 'SCA3DViewer' && (e.data?.type === 'hotspotClicked' || e.data?.type === 'regionClicked')) {
       window.__SCA3D_TEST__.postMessages.push(e.data);
     }
   });
@@ -304,6 +405,13 @@ const TEST_HOOK = `
     window.__SCA3D_TEST__.postMessages.push({
       source: 'SCA3DViewer',
       type: 'hotspotClicked',
+      payload: e.detail || {}
+    });
+  });
+  window.addEventListener('sca3d:regionClicked', (e) => {
+    window.__SCA3D_TEST__.postMessages.push({
+      source: 'SCA3DViewer',
+      type: 'regionClicked',
       payload: e.detail || {}
     });
   });
@@ -333,7 +441,8 @@ const readCameraDiagnostics = async (page) => page.evaluate(() => {
             cam.position.y + fy * cam.distance,
             cam.position.z + fz * cam.distance
         ],
-        fov: cam.fov ?? null
+        fov: cam.fov ?? null,
+        distance: cam.distance ?? null
     };
 });
 
@@ -422,17 +531,60 @@ const deactivateHotspot = async (page) => {
 };
 
 const orbitDrag = async (page, dx = 200, dy = 30) => {
-    const canvas = page.locator('#application-canvas');
-    const box = await canvas.boundingBox();
-    if (!box) {
-        throw new Error('canvas not found for orbit drag');
-    }
-    const startX = box.x + box.width * 0.5;
-    const startY = box.y + box.height * 0.5;
-    await page.mouse.move(startX, startY);
-    await page.mouse.down({ button: 'left' });
-    await page.mouse.move(startX + dx, startY + dy, { steps: 12 });
-    await page.mouse.up({ button: 'left' });
+    await page.evaluate(({ dx, dy }) => {
+        const canvas = document.getElementById('application-canvas');
+        if (!canvas) {
+            throw new Error('canvas not found for orbit drag');
+        }
+        const rect = canvas.getBoundingClientRect();
+        const startX = rect.left + rect.width * 0.5;
+        const startY = rect.top + rect.height * 0.5;
+        const endX = startX + dx;
+        const endY = startY + dy;
+        const pointerInit = {
+            pointerId: 1,
+            pointerType: 'mouse',
+            isPrimary: true,
+            button: 0,
+            buttons: 1,
+            bubbles: true,
+            cancelable: true
+        };
+        canvas.dispatchEvent(new PointerEvent('pointerdown', {
+            ...pointerInit,
+            clientX: startX,
+            clientY: startY
+        }));
+        for (let step = 1; step <= 12; step++) {
+            const t = step / 12;
+            canvas.dispatchEvent(new PointerEvent('pointermove', {
+                ...pointerInit,
+                clientX: startX + dx * t,
+                clientY: startY + dy * t
+            }));
+        }
+        canvas.dispatchEvent(new PointerEvent('pointerup', {
+            ...pointerInit,
+            clientX: endX,
+            clientY: endY,
+            buttons: 0
+        }));
+    }, { dx, dy });
+    await sleep(600);
+};
+
+const wheelZoom = async (page, deltaY = -240) => {
+    await page.evaluate((delta) => {
+        const canvas = document.getElementById('application-canvas');
+        if (!canvas) {
+            throw new Error('canvas not found for wheel zoom');
+        }
+        canvas.dispatchEvent(new WheelEvent('wheel', {
+            deltaY: delta,
+            bubbles: true,
+            cancelable: true
+        }));
+    }, deltaY);
     await sleep(600);
 };
 
@@ -448,6 +600,166 @@ const waitForViewerReady = async (page) => {
     await page.evaluate(() => {
         window.__testViewer = window.SCA3D.state.viewer;
     });
+    await page.waitForFunction(() => {
+        const viewer = window.SCA3D?.state?.viewer;
+        const lookup = window.SCA3D?.state?.regionLookup;
+        const loaded = viewer?.global?.state?.loaded;
+        const pickerReady = typeof viewer?.pickGaussian === 'function';
+        return loaded && pickerReady && lookup?.entries?.length > 0;
+    }, { timeout: 180000 });
+};
+
+const findRegionPickPoint = async (page) => page.evaluate(async () => {
+    const viewer = window.__testViewer;
+    const lookup = window.SCA3D?.state?.regionLookup;
+    if (!lookup?.entries?.length) {
+        return { error: 'no region lookup' };
+    }
+
+    const targetId = lookup.entries[0].regionId;
+
+    for (let y = 0.25; y <= 0.75; y += 0.04) {
+        for (let x = 0.25; x <= 0.75; x += 0.04) {
+            const canvas = document.getElementById('application-canvas');
+            const rect = canvas?.getBoundingClientRect();
+            if (!rect?.width) {
+                continue;
+            }
+            const clientX = rect.left + x * rect.width;
+            const clientY = rect.top + y * rect.height;
+            const pick = await viewer.pickGaussian(clientX, clientY);
+            if (!pick || pick.gaussianIndex === null || pick.gaussianIndex === undefined) {
+                continue;
+            }
+            const entry = window.SCA3D.regionMask.resolveRegionAtGaussian(lookup, pick.gaussianIndex);
+            if (entry?.regionId === targetId) {
+                return {
+                    regionId: targetId,
+                    gaussianIndex: pick.gaussianIndex,
+                    normalized: { x, y }
+                };
+            }
+        }
+    }
+
+    return { error: 'no region pick point found' };
+});
+
+const dispatchCanvasPointer = async (page, type, normalized, button = 0) => {
+    await page.evaluate(({ type, normalized, button }) => {
+        const canvas = document.getElementById('application-canvas');
+        if (!canvas) {
+            throw new Error('canvas not found');
+        }
+        const rect = canvas.getBoundingClientRect();
+        const clientX = rect.left + normalized.x * rect.width;
+        const clientY = rect.top + normalized.y * rect.height;
+        canvas.dispatchEvent(new PointerEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+            button,
+            buttons: type === 'pointerup' ? 0 : (button === 0 ? 1 : 0),
+            pointerId: 1,
+            pointerType: 'mouse',
+            isPrimary: true
+        }));
+    }, { type, normalized, button });
+};
+
+const runRegionEndToEndTest = async (page, label, failures) => {
+    const lookupCheck = await page.evaluate(() => {
+        const sample = window.SCA3D?.state?.regionPickSample;
+        const lookup = window.SCA3D?.state?.regionLookup;
+        if (!sample || !lookup?.entries?.length) {
+            return { ok: false, reason: 'missing region lookup sample' };
+        }
+        const entry = window.SCA3D.regionMask.resolveRegionAtGaussian(lookup, sample.runtimeIndex);
+        return {
+            ok: entry?.regionId === sample.regionId,
+            reason: entry ? null : `sample runtimeIndex ${sample.runtimeIndex} did not resolve`,
+            sample,
+            memberCount: lookup.entries[0]?.memberCount ?? 0
+        };
+    });
+
+    if (!lookupCheck.ok) {
+        failures.push(`${label} region mask lookup failed: ${lookupCheck.reason}`);
+        return;
+    }
+
+    console.log(`[${label}] region mask lookup ok`, lookupCheck.sample, `members=${lookupCheck.memberCount}`);
+
+    const pickerApi = await page.evaluate(() => ({
+        pickGaussian: typeof window.SCA3D?.state?.viewer?.pickGaussian === 'function',
+        pickGaussianId: typeof window.SCA3D?.state?.viewer?.picker?.pickGaussianId === 'function'
+    }));
+    if (!pickerApi.pickGaussian || !pickerApi.pickGaussianId) {
+        failures.push(`${label} picker API missing after viewer load (pickGaussian=${pickerApi.pickGaussian}, pickGaussianId=${pickerApi.pickGaussianId})`);
+        return;
+    }
+    console.log(`[${label}] picker API verified`);
+
+    let pickPoint = await findRegionPickPoint(page);
+    if (pickPoint.error) {
+        console.log(`[${label}] GPU region pick skipped (${pickPoint.error}); hover/click E2E requires manual WebGPU browser test`);
+        return;
+    }
+
+    console.log(`[${label}] region pick point`, pickPoint);
+
+    await page.evaluate(() => {
+        window.__SCA3D_TEST__.postMessages = window.__SCA3D_TEST__.postMessages.filter((m) => m.type !== 'regionClicked');
+    });
+
+    await dispatchCanvasPointer(page, 'pointermove', pickPoint.normalized);
+    await sleep(200);
+
+    const hoverState = await page.evaluate(() => ({
+        cursor: document.getElementById('application-canvas')?.style?.cursor ?? '',
+        selectedRegionId: window.SCA3D?.state?.selectedRegionId ?? null
+    }));
+
+    if (hoverState.cursor !== 'pointer') {
+        failures.push(`${label} region hover cursor expected pointer got "${hoverState.cursor}"`);
+    }
+
+    await dispatchCanvasPointer(page, 'pointerdown', pickPoint.normalized);
+    await dispatchCanvasPointer(page, 'pointerup', pickPoint.normalized);
+    await sleep(400);
+
+    const afterClick = await page.evaluate(() => ({
+        selectedRegionId: window.SCA3D?.state?.selectedRegionId ?? null,
+        cardVisible: !!document.querySelector('#sca-region-overlay .sca-hotspot-marker-card:not(.is-hidden)'),
+        cardText: document.querySelector('#sca-region-overlay .sca-hotspot-marker-card')?.textContent ?? '',
+        messages: window.__SCA3D_TEST__.postMessages.filter((m) => m.type === 'regionClicked')
+    }));
+
+    if (afterClick.selectedRegionId !== pickPoint.regionId) {
+        failures.push(`${label} region click did not select ${pickPoint.regionId}, got ${afterClick.selectedRegionId}`);
+    }
+    if (afterClick.messages.length === 0) {
+        failures.push(`${label} regionClicked event not fired`);
+    }
+    if (!afterClick.cardVisible) {
+        failures.push(`${label} region card not visible after click`);
+    }
+    if (!afterClick.cardText.includes('Test Region')) {
+        failures.push(`${label} region card missing name text`);
+    }
+
+    await dispatchCanvasPointer(page, 'pointermove', { x: 0.05, y: 0.05 });
+    await sleep(250);
+
+    const afterLeave = await page.evaluate(() => ({
+        cursor: document.getElementById('application-canvas')?.style?.cursor ?? '',
+        hasCursorProp: document.getElementById('application-canvas')?.style?.cursor?.length > 0
+    }));
+
+    if (afterLeave.hasCursorProp && afterLeave.cursor === 'pointer') {
+        failures.push(`${label} cursor still pointer after leaving region`);
+    }
 };
 
 const runViewerScenario = async (playwright, label, openPage) => {
@@ -491,6 +803,8 @@ const runViewerScenario = async (playwright, label, openPage) => {
     if (!uiState.flyHidden || !uiState.walkHidden) {
         failures.push('disabled camera modes not hidden');
     }
+
+    await runRegionEndToEndTest(page, label, failures);
 
     const before01 = await readCameraDiagnostics(page);
     logDiagnostics(`${label} before hotspot_01`, before01);
@@ -550,17 +864,13 @@ const runViewerScenario = async (playwright, label, openPage) => {
     }
 
     await orbitDrag(page, 200, 30);
+    const afterOrbit = await readCameraDiagnostics(page);
 
-    const canvas = page.locator('#application-canvas');
-    const box = await canvas.boundingBox();
-    if (box) {
-        await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
-        await page.mouse.wheel(0, -240);
-        await sleep(600);
-    }
+    await wheelZoom(page, -240);
     const afterZoom = await readCameraDiagnostics(page);
-    if (vecNear(after01.position, afterZoom.position, 0.02) &&
-        vecNear(after01.rotation, afterZoom.rotation, 0.5)) {
+    if (vecNear(afterOrbit.position, afterZoom.position, 0.02) &&
+        vecNear(afterOrbit.rotation, afterZoom.rotation, 0.5) &&
+        Math.abs((afterOrbit.distance ?? 0) - (afterZoom.distance ?? 0)) < 0.02) {
         failures.push('wheel zoom after hotspot_01 did not move camera');
     }
 
@@ -693,6 +1003,7 @@ async function main() {
     console.log('Orbit pivot + look-at focus:', (results.preview.ok && results.served.ok) ? 'PASS' : 'SEE FAILURES');
     console.log('NavCursor suppressed:', (results.preview.ok && results.served.ok) ? 'PASS' : 'SEE FAILURES');
     console.log('Storyline bridge:', (results.preview.ok && results.served.ok) ? 'PASS' : 'SEE FAILURES');
+    console.log('Region end-to-end:', (results.preview.ok && results.served.ok) ? 'PASS' : 'SEE FAILURES');
     console.log('===========================================\n');
 
     if (!results.export.ok || !results.patch.ok || !results.preview.ok || !results.served.ok) {

@@ -63367,6 +63367,12 @@ var gsplat_default$3 = `
 #if !defined(SHADOW_PASS) && !defined(PICK_PASS) && !defined(PREPASS_PASS)
 	uniform float alphaClipForward;
 #endif
+#ifdef SCA_REGION_HIGHLIGHT
+uniform sampler2D scaRegionHighlight;
+uniform vec4 scaRegionHighlightClr;
+uniform float scaRegionHighlightActive;
+flat varying float scaGaussianIndex;
+#endif
 varying mediump vec2 gaussianUV;
 varying mediump vec4 gaussianColor;
 #if defined(GSPLAT_UNIFIED_ID) && defined(PICK_PASS)
@@ -63416,6 +63422,14 @@ void main(void) {
 			opacityDither(alpha, id * 0.013);
 		#endif
 		vec4 fragColor = vec4(gaussianColor.xyz, alpha);
+        #ifdef SCA_REGION_HIGHLIGHT
+        if (scaRegionHighlightActive > 0.5) {
+            float regionMask = texelFetch(scaRegionHighlight, ivec2(int(scaGaussianIndex) % int(splatTextureSize), int(scaGaussianIndex) / int(splatTextureSize)), 0).r;
+            if (regionMask > 0.0) {
+                fragColor.xyz = mix(fragColor.xyz, scaRegionHighlightClr.xyz, scaRegionHighlightClr.a * regionMask);
+            }
+        }
+        #endif
 		modifySplatColor(gaussianUV, fragColor);
 		gl_FragColor = vec4(fragColor.xyz * fragColor.a, fragColor.a);
 	#endif
@@ -63446,6 +63460,8 @@ var gsplat_default$2 = `
 #include "gsplatCommonVS"
 varying mediump vec2 gaussianUV;
 varying mediump vec4 gaussianColor;
+flat varying float scaGaussianIndex;
+flat varying float scaGaussianIndex;
 #ifndef DITHER_NONE
 	varying float id;
 #endif
@@ -63523,6 +63539,7 @@ void main(void) {
 	#else
 		gaussianColor = vec4(prepareOutputFromGamma(max(clr.xyz, 0.0), -center.view.z), clr.w);
 	#endif
+	scaGaussianIndex = float(splat.index);
 	#ifndef DITHER_NONE
 		id = float(splat.index);
 	#endif
@@ -84795,6 +84812,21 @@ class CameraManager {
             transitionTimer = Math.min(1, transitionTimer + deltaTime * transitionSpeed);
             const controller = getController(state.cameraMode);
             sourcesByMode[state.cameraMode]?.update(dt, this.camera, frame);
+            if (scaLookAnim) {
+                scaLookAnim.elapsed += dt;
+                if (scaLookAnim.elapsed >= scaLookAnim.duration) {
+                    scaSyncOrbitToCamera(controllers.orbit.controller, this.camera, scaLookAnim.focus);
+                    scaLookAnim = null;
+                    getController(state.cameraMode).onEnter(this.camera);
+                    target.copy(this.camera);
+                    from.copy(this.camera);
+                    transitionTimer = 1;
+                }
+            }
+            const scaExclusiveAnim = scaStartupFlyAnim || scaHomeAnim || scaTurntableAnim || scaLookAnim;
+            if (!scaExclusiveAnim) {
+                controller.update(dt, frame, target);
+            }
             if (scaStartupFlyAnim) {
                 scaStartupFlyAnim.elapsed += dt;
                 const flyT = Math.min(1, scaStartupFlyAnim.elapsed / scaStartupFlyAnim.duration);
@@ -84861,7 +84893,6 @@ class CameraManager {
                 }
                 global.app.renderNextFrame = true;
             } else if (scaLookAnim) {
-                scaLookAnim.elapsed += dt;
                 const lookT = Math.min(1, scaLookAnim.elapsed / scaLookAnim.duration);
                 const lookEased = easeOut(lookT);
                 this.camera.position.copy(scaLookAnimFixedPos);
@@ -84871,14 +84902,6 @@ class CameraManager {
                 target.copy(this.camera);
                 from.copy(this.camera);
                 transitionTimer = 1;
-                if (lookT >= 1) {
-                    scaSyncOrbitToCamera(controllers.orbit.controller, this.camera, scaLookAnim.focus);
-                    scaLookAnim = null;
-                    getController(state.cameraMode).onEnter(this.camera);
-                    target.copy(this.camera);
-                    from.copy(this.camera);
-                    transitionTimer = 1;
-                }
                 global.app.renderNextFrame = true;
             } else if (scaTurntableAnim) {
                 scaTurntableAnim.elapsed += dt;
@@ -84904,8 +84927,6 @@ class CameraManager {
                     }
                     global.app.renderNextFrame = true;
                 }
-            } else {
-                controller.update(dt, frame, target);
             }
             if (transitionTimer < 1) {
                 // lerp away from previous camera during transition
@@ -85840,6 +85861,10 @@ class NavInteraction {
         const canvas = this._canvas;
         if (!global || !canvas)
             return;
+        if (scaNavFlags.navigationTargetsEnabled === false) {
+            canvas.style.removeProperty('cursor');
+            return;
+        }
         const { state } = global;
         const canClickTarget = state.inputMode === 'desktop' && ((state.cameraMode === 'walk' && !state.gamingControls) ||
             canTargetFly(global) ||
@@ -85848,7 +85873,7 @@ class NavInteraction {
             canvas.style.cursor = this._mouseClickTracking ? 'default' : 'pointer';
         }
         else {
-            canvas.style.cursor = '';
+            canvas.style.removeProperty('cursor');
         }
     };
     _onCameraModeChanged = () => {
@@ -88077,6 +88102,278 @@ class Picker {
         };
         this.pick = (x, y) => serializePick(() => pick(x, y));
         this.pickSurface = (x, y) => serializePick(() => pickSurface(x, y));
+        let scaIdPickPass = null;
+        let scaIdPickTarget = null;
+        let scaIdPickBuffer = null;
+        let scaIdCacheValid = false;
+        let scaIdCacheWidth = 0;
+        let scaIdCacheHeight = 0;
+        let scaIdPickIdsEnabled = false;
+        let scaLastPickPassDiag = null;
+        let idPickQueue = Promise.resolve();
+        const serializeIdPick = (op) => {
+            const next = idPickQueue.then(() => op());
+            idPickQueue = next.catch(() => {});
+            return next;
+        };
+        const scaIdClearColor = new Color(0, 0, 0, 0);
+        const scaGetSceneCamera = () => camera.camera.camera;
+        const scaGetCameraComponent = () => camera.camera;
+        const scaPickChannel = (value) => {
+            const n = Number(value);
+            if (!Number.isFinite(n)) {
+                return 0;
+            }
+            return n <= 1 ? Math.round(n * 255) : Math.round(n);
+        };
+        const scaDecodePickPixel = (pixels) => {
+            const r = scaPickChannel(pixels[0]);
+            const g = scaPickChannel(pixels[1]);
+            const b = scaPickChannel(pixels[2]);
+            const a = scaPickChannel(pixels[3]);
+            if (r === 0 && g === 0 && b === 0 && a === 0) {
+                return { gaussianIndex: null, rawRGBA: [r, g, b, a] };
+            }
+            const storedId = (r | (g << 8) | (b << 16) | (a << 24)) >>> 0;
+            if (storedId === 0 || storedId === 0xffffffff) {
+                return { gaussianIndex: null, rawRGBA: [r, g, b, a] };
+            }
+            return { gaussianIndex: storedId, rawRGBA: [r, g, b, a] };
+        };
+        const scaCollectPickPassDiagnostics = (worldLayer, width, height, pickMI) => {
+            const sceneCam = scaGetSceneCamera();
+            const camComp = scaGetCameraComponent();
+            const director = app.renderer.gsplatDirector;
+            const cameraData = director?.camerasMap?.get(sceneCam);
+            const layerData = cameraData?.layersMap?.get(worldLayer);
+            const manager = layerData?.gsplatManager;
+            const worldState = manager?.world?.getState(manager.world.currentVersion);
+            const pickMaterial = pickMI?.material;
+            return {
+                renderPassExecuted: false,
+                cameraEntity: camera?.name ?? 'camera',
+                cameraLayers: camComp?.layers ? camComp.layers.slice() : [],
+                worldLayerId: worldLayer?.id,
+                worldLayerName: worldLayer?.name,
+                worldLayerEnabled: !!worldLayer?.enabled,
+                cameraInWorldLayer: !!worldLayer?.camerasSet?.has(sceneCam),
+                gsplatDirectorPresent: !!director,
+                gsplatManagerPresent: !!manager,
+                gsplatIncluded: !!pickMI,
+                gsplatVisible: pickMI?.visible !== false,
+                gsplatInstancingCount: pickMI?.instancingCount ?? 0,
+                gsplatEnableIdsBefore: scaIdPickIdsEnabled,
+                gsplatEnableIdsDuring: app.scene.gsplat.enableIds,
+                sortedBefore: !!worldState?.sortedBefore,
+                totalActiveSplats: worldState?.totalActiveSplats ?? 0,
+                usesGpuSort: !!manager?.renderer?.usesGpuSort,
+                pickUnifiedIdDefine: !!pickMaterial?.getDefine?.('GSPLAT_UNIFIED_ID'),
+                pickCustomIdDefine: !!pickMaterial?.getDefine?.('PICK_CUSTOM_ID'),
+                pickPassVariant: !!pickMaterial?.getDefine?.('GSPLAT_UNIFIED_ID'),
+                gsplatPlacementCount: worldLayer?.gsplatPlacements?.length ?? 0,
+                clearColor: [scaIdClearColor.r, scaIdClearColor.g, scaIdClearColor.b, scaIdClearColor.a],
+                targetWidth: width,
+                targetHeight: height
+            };
+        };
+        const scaLogPickPassDiagnostics = (diag) => {
+            if (!window.SCA3D?.pickPassDebug && !window.SCA3D?.pickDebugLog) {
+                return;
+            }
+            console.log('[SCA PICK PASS]');
+            console.log('drawCalls:', diag.drawCallsEstimate ?? 0);
+            console.log('gsplatIncluded:', diag.gsplatIncluded);
+            console.log('pickPassVariant:', diag.pickPassVariant);
+            console.log('renderPassExecuted:', diag.renderPassExecuted);
+            console.log('cameraInWorldLayer:', diag.cameraInWorldLayer);
+            console.log('sortedBefore:', diag.sortedBefore);
+            console.log('enableIds:', diag.gsplatEnableIdsDuring);
+            console.log('instancingCount:', diag.gsplatInstancingCount);
+            console.log('placements:', diag.gsplatPlacementCount);
+            console.log('detail:', diag);
+        };
+        const scaEnsureCameraOnWorldLayer = (worldLayer) => {
+            const sceneCam = scaGetSceneCamera();
+            if (!worldLayer?.camerasSet?.has(sceneCam)) {
+                worldLayer.addCamera(scaGetCameraComponent());
+            }
+        };
+        const scaWaitForUnifiedGsplatPick = async (worldLayer, width, height) => {
+            const sceneCam = scaGetSceneCamera();
+            const director = app.renderer.gsplatDirector;
+            if (!director) {
+                return null;
+            }
+            scaEnsureCameraOnWorldLayer(worldLayer);
+            if (!app.scene.gsplat.enableIds) {
+                app.scene.gsplat.enableIds = true;
+                scaIdPickIdsEnabled = true;
+            }
+            for (let attempt = 0; attempt < 40; attempt++) {
+                app.renderNextFrame = true;
+                await new Promise((resolve) => app.once('frameend', resolve));
+                const pickMI = director.prepareForPicking(sceneCam, width, height, worldLayer);
+                if (pickMI && pickMI.instancingCount > 0) {
+                    return pickMI;
+                }
+            }
+            return director.prepareForPicking(sceneCam, width, height, worldLayer);
+        };
+        const scaCountPickTargetNonZero = async (width, height) => {
+            const step = Math.max(8, Math.floor(Math.min(width, height) / 32));
+            const flipY = graphicsDevice.isWebGL2 || graphicsDevice.isWebGPU;
+            let nonZeroPixels = 0;
+            let samples = 0;
+            for (let y = 0; y < height; y += step) {
+                for (let x = 0; x < width; x += step) {
+                    const texY = flipY ? height - y - 1 : y;
+                    const px = await scaIdPickBuffer.read(x, texY, 1, 1, {
+                        renderTarget: scaIdPickTarget,
+                        immediate: true
+                    });
+                    samples++;
+                    if (scaPickChannel(px[0]) > 0 || scaPickChannel(px[1]) > 0 ||
+                        scaPickChannel(px[2]) > 0 || scaPickChannel(px[3]) > 0) {
+                        nonZeroPixels++;
+                    }
+                }
+            }
+            return { nonZeroPixels, samples, step, targetWidth: width, targetHeight: height };
+        };
+        const scaEnsureIdPickRendered = async (width, height, worldLayer) => {
+            if (scaIdCacheValid &&
+                scaIdCacheWidth === width &&
+                scaIdCacheHeight === height &&
+                cameraMatches(width, height)) {
+                return scaLastPickPassDiag;
+            }
+            const depthPickerPatchesActive = !!pickerShaderPatchState.get(graphicsDevice);
+            if (!app.scene.gsplat.enableIds) {
+                app.scene.gsplat.enableIds = true;
+                scaIdPickIdsEnabled = true;
+            }
+            scaEnsureCameraOnWorldLayer(worldLayer);
+            const pickMI = await scaWaitForUnifiedGsplatPick(worldLayer, width, height);
+            let diag = scaCollectPickPassDiagnostics(worldLayer, width, height, pickMI);
+            try {
+                if (!scaIdPickPass) {
+                    scaIdPickBuffer = new Texture(graphicsDevice, {
+                        format: PIXELFORMAT_RGBA8,
+                        width,
+                        height,
+                        mipmaps: false,
+                        minFilter: FILTER_NEAREST,
+                        magFilter: FILTER_NEAREST,
+                        addressU: ADDRESS_CLAMP_TO_EDGE,
+                        addressV: ADDRESS_CLAMP_TO_EDGE,
+                        name: 'sca-picker-id'
+                    });
+                    scaIdPickTarget = new RenderTarget({
+                        colorBuffer: scaIdPickBuffer,
+                        depth: true
+                    });
+                    scaIdPickPass = new RenderPassPicker(graphicsDevice, app.renderer);
+                    scaIdPickPass.blendState = BlendState.NOBLEND;
+                } else if (scaIdCacheWidth !== width || scaIdCacheHeight !== height) {
+                    scaIdCacheValid = false;
+                    scaIdPickTarget.resize(width, height);
+                }
+                if (depthPickerPatchesActive) {
+                    unregisterPickerShaderPatches(app);
+                }
+                if (window.SCA3D?.pickDebugForceClear) {
+                    scaIdPickPass.init(scaIdPickTarget);
+                    scaIdPickPass.setClearColor(new Color(1, 0, 0, 1));
+                    scaIdPickPass.update(scaGetCameraComponent(), app.scene, [], new Map(), false);
+                    scaIdPickPass.render();
+                    if (graphicsDevice.isWebGPU) {
+                        await new Promise((resolve) => app.once('frameend', resolve));
+                    }
+                    diag = { ...diag, renderPassExecuted: true, drawCallsEstimate: 0, debugForceClear: true };
+                    scaLastPickPassDiag = diag;
+                    scaLogPickPassDiagnostics(diag);
+                    return diag;
+                }
+                app.renderNextFrame = true;
+                scaIdPickPass.init(scaIdPickTarget);
+                scaIdPickPass.setClearColor(scaIdClearColor);
+                scaIdPickPass.update(scaGetCameraComponent(), app.scene, [worldLayer], new Map(), false);
+                scaIdPickPass.render();
+                if (graphicsDevice.isWebGPU) {
+                    await new Promise((resolve) => app.once('frameend', resolve));
+                }
+                diag = {
+                    ...diag,
+                    renderPassExecuted: true,
+                    drawCallsEstimate: pickMI ? (pickMI.instancingCount > 0 ? 1 : 0) : 0,
+                    gsplatEnableIdsDuring: app.scene.gsplat.enableIds
+                };
+                scaIdCacheWidth = width;
+                scaIdCacheHeight = height;
+                scaIdCacheValid = true;
+            } finally {
+                if (depthPickerPatchesActive) {
+                    registerPickerShaderPatches(app);
+                }
+            }
+            scaLastPickPassDiag = diag;
+            scaLogPickPassDiagnostics(diag);
+            if (window.SCA3D?.pickPassDebug || window.SCA3D?.pickDebugLog) {
+                const grid = await scaCountPickTargetNonZero(width, height);
+                console.log('[SCA PICK PASS] pick target grid:', grid);
+                diag.pickTargetGrid = grid;
+            }
+            return diag;
+        };
+        const pickGaussianId = async (nx, ny) => {
+            const width = Math.floor(graphicsDevice.width);
+            const height = Math.floor(graphicsDevice.height);
+            if (width <= 0 || height <= 0) {
+                return null;
+            }
+            const worldLayer = app.scene.layers.getLayerByName('World');
+            if (!worldLayer) {
+                return null;
+            }
+            const screenX = Math.min(width - 1, Math.max(0, Math.floor(nx * width)));
+            const screenY = Math.min(height - 1, Math.max(0, Math.floor(ny * height)));
+            await scaEnsureIdPickRendered(width, height, worldLayer);
+            const flipY = graphicsDevice.isWebGL2 || graphicsDevice.isWebGPU;
+            const texY = flipY ? scaIdPickTarget.height - screenY - 1 : screenY;
+            const pixels = await scaIdPickBuffer.read(screenX, texY, 1, 1, {
+                renderTarget: scaIdPickTarget,
+                immediate: true
+            });
+            const decoded = scaDecodePickPixel(pixels);
+            const base = {
+                position: null,
+                screenX,
+                screenY,
+                width,
+                height,
+                rawRGBA: decoded.rawRGBA,
+                pickPassDiag: scaLastPickPassDiag
+            };
+            if (decoded.gaussianIndex === null) {
+                return { gaussianIndex: null, ...base };
+            }
+            return { gaussianIndex: decoded.gaussianIndex, ...base };
+        };
+        this.pickGaussianId = (nx, ny) => serializeIdPick(() => pickGaussianId(nx, ny));
+        this.dumpPickTarget = async () => {
+            const width = Math.floor(graphicsDevice.width);
+            const height = Math.floor(graphicsDevice.height);
+            const worldLayer = app.scene.layers.getLayerByName('World');
+            if (!worldLayer || width <= 0 || height <= 0) {
+                return { error: 'pick target unavailable' };
+            }
+            scaIdCacheValid = false;
+            const passDiag = await scaEnsureIdPickRendered(width, height, worldLayer);
+            const grid = await scaCountPickTargetNonZero(width, height);
+            const summary = { ...grid, pickPassDiag: passDiag };
+            console.log('[SCA PICK PASS] dumpPickTarget:', summary);
+            return summary;
+        };
         this.release = () => {
             if (chunksPatched) {
                 unregisterPickerShaderPatches(app);
@@ -88987,6 +89284,271 @@ class Viewer {
                 this.annotations = new Annotations(global, this.cameraFrame != null);
             }
             this.picker = new Picker(app, camera);
+            let scaRegionHighlightShaderReady = true;
+            let scaRegionHighlightTexture = null;
+            let scaRegionHighlightBuffer = null;
+            let scaRegionHighlightMaterial = null;
+            let scaRegionHighlightTexWidth = 0;
+            let scaRegionHighlightTexHeight = 0;
+            const scaFindGsplatMaterial = () => {
+                const sceneMaterial = app.scene?.gsplat?.material ?? null;
+                if (sceneMaterial) {
+                    return sceneMaterial;
+                }
+                const components = app.root.findComponents('gsplat') ?? [];
+                for (const component of components) {
+                    const material = component?.instance?.material ?? component?.material ?? null;
+                    if (material) {
+                        return material;
+                    }
+                }
+                return null;
+            };
+            const scaGetHighlightLayout = (gaussianCount) => {
+                const components = app.root.findComponents('gsplat') ?? [];
+                const component = components[0];
+                const resource = component?.resource ?? component?._resource ?? component?._placement?.resource ?? null;
+                const dims = resource?.textureDimensions ?? resource?.streams?.textureDimensions ?? null;
+                if (dims?.x > 0 && dims?.y > 0) {
+                    return {
+                        width: dims.x,
+                        height: dims.y,
+                        source: 'gsplat.textureDimensions'
+                    };
+                }
+                const splatTextureSize = app.scene?.gsplat?.material?.getParameter?.('splatTextureSize')?.data;
+                if (typeof splatTextureSize === 'number' && splatTextureSize > 0) {
+                    return {
+                        width: splatTextureSize,
+                        height: Math.ceil(gaussianCount / splatTextureSize),
+                        source: 'splatTextureSize'
+                    };
+                }
+                const width = Math.ceil(Math.sqrt(gaussianCount));
+                return {
+                    width,
+                    height: Math.ceil(gaussianCount / width),
+                    source: 'calcTextureSize'
+                };
+            };
+            this.initScaRegionHighlight = (gaussianCount) => {
+                const stage = 'initScaRegionHighlight';
+                try {
+                    if (app.graphicsDevice.isWebGPU) {
+                        console.log('[SCA REGION] highlight skipped on WebGPU (tint disabled; picker/cursor/card active)');
+                        return false;
+                    }
+                    if (!scaRegionHighlightShaderReady) {
+                        console.error('[SCA REGION] highlight init failed: GLSL shader patch unavailable', {
+                            stage,
+                            gaussianCount,
+                            renderer: 'webgl',
+                            scaRegionHighlightShaderReady
+                        });
+                        return false;
+                    }
+                    const material = scaFindGsplatMaterial();
+                    if (!material) {
+                        console.error('[SCA REGION] highlight init failed: gsplat material not found', {
+                            stage,
+                            gaussianCount,
+                            renderer: app.graphicsDevice.isWebGPU ? 'webgpu' : 'webgl',
+                            sceneGsplatMaterial: !!app.scene?.gsplat?.material,
+                            gsplatComponents: (app.root.findComponents('gsplat') ?? []).length
+                        });
+                        return false;
+                    }
+                    if (gaussianCount <= 0) {
+                        console.error('[SCA REGION] highlight init failed: invalid gaussianCount', {
+                            stage,
+                            gaussianCount
+                        });
+                        return false;
+                    }
+                    const layout = scaGetHighlightLayout(gaussianCount);
+                    const maxTextureSize = app.graphicsDevice.maxTextureSize ?? 16384;
+                    if (layout.width > maxTextureSize || layout.height > maxTextureSize) {
+                        console.error('[SCA REGION] highlight init failed: texture exceeds maxTextureSize', {
+                            stage,
+                            gaussianCount,
+                            layout,
+                            maxTextureSize,
+                            renderer: app.graphicsDevice.isWebGPU ? 'webgpu' : 'webgl'
+                        });
+                        return false;
+                    }
+                    scaRegionHighlightMaterial = material;
+                    scaRegionHighlightTexWidth = layout.width;
+                    scaRegionHighlightTexHeight = layout.height;
+                    const bufferSize = layout.width * layout.height;
+                    scaRegionHighlightBuffer = new Uint8Array(bufferSize);
+                    scaRegionHighlightTexture = new Texture(app.graphicsDevice, {
+                        name: 'scaRegionHighlight',
+                        width: layout.width,
+                        height: layout.height,
+                        format: PIXELFORMAT_R8,
+                        mipmaps: false,
+                        minFilter: FILTER_NEAREST,
+                        magFilter: FILTER_NEAREST,
+                        addressU: ADDRESS_CLAMP_TO_EDGE,
+                        addressV: ADDRESS_CLAMP_TO_EDGE
+                    });
+                    scaRegionHighlightTexture.setSource(scaRegionHighlightBuffer);
+                    material.setDefine('SCA_REGION_HIGHLIGHT', true);
+                    material.setParameter('scaRegionHighlight', scaRegionHighlightTexture);
+                    material.setParameter('scaRegionHighlightClr', [1, 0.4, 0, 0.5]);
+                    material.setParameter('scaRegionHighlightActive', 0);
+                    material.update();
+                    app.renderNextFrame = true;
+                    console.log('[SCA REGION] highlight texture created', {
+                        width: layout.width,
+                        height: layout.height,
+                        gaussianCount,
+                        format: 'R8',
+                        layoutSource: layout.source,
+                        renderer: app.graphicsDevice.isWebGPU ? 'webgpu' : 'webgl'
+                    });
+                    return true;
+                } catch (error) {
+                    console.error('[SCA REGION] highlight init failed', error, {
+                        stage,
+                        gaussianCount,
+                        renderer: app.graphicsDevice.isWebGPU ? 'webgpu' : 'webgl',
+                        stack: error?.stack
+                    });
+                    scaRegionHighlightTexture = null;
+                    scaRegionHighlightBuffer = null;
+                    scaRegionHighlightMaterial = null;
+                    scaRegionHighlightTexWidth = 0;
+                    scaRegionHighlightTexHeight = 0;
+                    return false;
+                }
+            };
+            this.setScaRegionHighlight = (bitset, color, active) => {
+                if (!scaRegionHighlightTexture || !scaRegionHighlightMaterial || !scaRegionHighlightBuffer) {
+                    return;
+                }
+                scaRegionHighlightBuffer.fill(0);
+                if (bitset && active) {
+                    const limit = Math.min(bitset.length, scaRegionHighlightBuffer.length);
+                    for (let i = 0; i < limit; i++) {
+                        if (bitset[i]) {
+                            scaRegionHighlightBuffer[i] = 255;
+                        }
+                    }
+                }
+                scaRegionHighlightTexture.setSource(scaRegionHighlightBuffer);
+                scaRegionHighlightMaterial.setParameter('scaRegionHighlightClr', color);
+                scaRegionHighlightMaterial.setParameter('scaRegionHighlightActive', active ? 1 : 0);
+                scaRegionHighlightMaterial.update();
+                app.renderNextFrame = true;
+            };
+            this.clearScaRegionHighlight = () => {
+                this.setScaRegionHighlight(null, [0, 0, 0, 0], false);
+            };
+            const scaResolveClientPickCoords = (clientX, clientY) => {
+                const canvas = app.graphicsDevice.canvas;
+                const rect = canvas.getBoundingClientRect();
+                const width = Math.floor(app.graphicsDevice.width);
+                const height = Math.floor(app.graphicsDevice.height);
+                if (!rect.width || !rect.height || width <= 0 || height <= 0) {
+                    return null;
+                }
+                const scaleX = width / rect.width;
+                const scaleY = height / rect.height;
+                const pixelX = Math.min(width - 1, Math.max(0, Math.floor((clientX - rect.left) * scaleX)));
+                const pixelY = Math.min(height - 1, Math.max(0, Math.floor((clientY - rect.top) * scaleY)));
+                return {
+                    clientX,
+                    clientY,
+                    canvasRect: {
+                        left: rect.left,
+                        top: rect.top,
+                        width: rect.width,
+                        height: rect.height
+                    },
+                    dpr: window.devicePixelRatio || 1,
+                    pixelX,
+                    pixelY,
+                    targetWidth: width,
+                    targetHeight: height,
+                    nx: pixelX / width,
+                    ny: pixelY / height
+                };
+            };
+            let scaLastPickDebugKey = '';
+            const scaLogPickDebug = (coords, rawRGBA, decodedIndex) => {
+                if (!window.SCA3D?.pickDebugLog) {
+                    return;
+                }
+                const key = [
+                    coords.pixelX,
+                    coords.pixelY,
+                    decodedIndex ?? 'miss',
+                    rawRGBA?.join?.(',') ?? ''
+                ].join('|');
+                if (key === scaLastPickDebugKey) {
+                    return;
+                }
+                scaLastPickDebugKey = key;
+                console.log('[SCA PICK DEBUG]');
+                console.log('clientX:', coords.clientX);
+                console.log('clientY:', coords.clientY);
+                console.log('canvasRect:', coords.canvasRect);
+                console.log('dpr:', coords.dpr);
+                console.log('pixelX:', coords.pixelX);
+                console.log('pixelY:', coords.pixelY);
+                console.log('targetWidth:', coords.targetWidth);
+                console.log('targetHeight:', coords.targetHeight);
+                console.log('rawRGBA:', rawRGBA);
+                console.log('decodedIndex:', decodedIndex);
+            };
+            // viewer.pickGaussian(clientX, clientY) — client/viewport coordinates; converts to render-target pixels internally.
+            this.pickGaussian = async (clientX, clientY) => {
+                const coords = scaResolveClientPickCoords(clientX, clientY);
+                if (!coords) {
+                    return null;
+                }
+                const result = await this.picker.pickGaussianId(coords.nx, coords.ny);
+                scaLogPickDebug(coords, result?.rawRGBA ?? null, result?.gaussianIndex ?? null);
+                if (!result || result.gaussianIndex === null || result.gaussianIndex === undefined) {
+                    return null;
+                }
+                return {
+                    gaussianIndex: result.gaussianIndex,
+                    position: result.position,
+                    scaSplatId: window.SCA3D?.state?.defaultScaSplatId ?? 'splat_01',
+                    screenX: coords.pixelX,
+                    screenY: coords.pixelY,
+                    clientX: coords.clientX,
+                    clientY: coords.clientY
+                };
+            };
+            window.SCA3D = window.SCA3D || {};
+            window.SCA3D.pickDebugLog = window.SCA3D.pickDebugLog ?? false;
+            window.SCA3D.pickPassDebug = window.SCA3D.pickPassDebug ?? false;
+            window.SCA3D.pickDebugForceClear = window.SCA3D.pickDebugForceClear ?? false;
+            window.SCA3D.debugPick = async (clientX, clientY) => {
+                const prev = window.SCA3D.pickDebugLog;
+                const prevPass = window.SCA3D.pickPassDebug;
+                window.SCA3D.pickDebugLog = true;
+                window.SCA3D.pickPassDebug = true;
+                scaLastPickDebugKey = '';
+                const result = await this.pickGaussian(clientX, clientY);
+                window.SCA3D.pickDebugLog = prev;
+                window.SCA3D.pickPassDebug = prevPass;
+                return result;
+            };
+            window.SCA3D.dumpPickTarget = () => this.picker?.dumpPickTarget?.();
+            window.SCA3D.debugPickReadback = async () => {
+                const prev = window.SCA3D.pickDebugForceClear;
+                window.SCA3D.pickDebugForceClear = true;
+                window.SCA3D.pickPassDebug = true;
+                const summary = await this.picker?.dumpPickTarget?.();
+                window.SCA3D.pickDebugForceClear = prev;
+                return summary;
+            };
+            events.fire('scaPickerReady'); // SCA_PICK_GAUSSIAN
             this.inputController = new InputController(global, this.picker);
             this.inputController.collision = collision ?? null;
             // hasCollision = collision data exists (drives fly-mode collision

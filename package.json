@@ -24,7 +24,9 @@
         "test:sca-persistence": "npx tsx tools/sca-ssproj-persistence-test.ts",
         "test:sca-history": "npx tsx tools/sca-history-test.ts",
         "test:sca-background": "npx tsx tools/sca-background-test.ts",
-        "test:sca-camera-animation": "npx tsx tools/sca-camera-animation-test.ts"
+        "test:sca-camera-animation": "npx tsx tools/sca-camera-animation-test.ts",
+        "test:sca-regions": "npx tsx tools/sca-regions-test.ts",
+        "test:spike-gaussian-pick": "npx tsx tools/spike-gaussian-pick.mjs"
     },
     "engines": {
         "node": ">=20.19.0"

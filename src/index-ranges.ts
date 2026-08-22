@@ -63,6 +63,10 @@ class IndexRanges {
         return new IndexRanges(new Uint32Array(ranges));
     }
 
+    static fromData(data: Uint32Array) {
+        return new IndexRanges(data.slice());
+    }
+
     /** Whether there are no indices. */
     get empty() {
         return this.data.length === 0;
@@ -83,6 +87,30 @@ class IndexRanges {
                 r += 2;
             }
         }
+    }
+
+    /** Union of two index sets (uses member iteration, not full splat scan). */
+    static union(a: IndexRanges, b: IndexRanges, total: number): IndexRanges {
+        const bits = new Uint8Array(total);
+        a.forEach((index) => {
+            bits[index] = 1;
+        });
+        b.forEach((index) => {
+            bits[index] = 1;
+        });
+        return IndexRanges.fromPredicate(total, (i) => bits[i] === 1);
+    }
+
+    /** Set difference A \\ B (uses member iteration, not full splat scan). */
+    static subtract(a: IndexRanges, b: IndexRanges, total: number): IndexRanges {
+        const bits = new Uint8Array(total);
+        a.forEach((index) => {
+            bits[index] = 1;
+        });
+        b.forEach((index) => {
+            bits[index] = 0;
+        });
+        return IndexRanges.fromPredicate(total, (i) => bits[i] === 1);
     }
 }
 

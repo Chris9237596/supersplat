@@ -56,6 +56,7 @@ const migrateSsprojScaBlock = (raw: unknown): ScaProject => {
     return normalizeProject({
         version: SCA_PROJECT_VERSION,
         hotspots: projectRaw.hotspots as ScaProject['hotspots'],
+        regions: Array.isArray(projectRaw.regions) ? projectRaw.regions : [],
         viewer: projectRaw.viewer as ScaProject['viewer']
     });
 };

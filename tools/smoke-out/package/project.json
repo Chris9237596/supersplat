@@ -82,6 +82,32 @@
       }
     }
   ],
+  "regions": [
+    {
+      "id": "region_01",
+      "name": "Test Region",
+      "text": "Region card text",
+      "enabled": true,
+      "source": {
+        "type": "gaussian-mask",
+        "scaSplatId": "splat_01",
+        "maskAsset": "regions/region_01.mask"
+      },
+      "capture": {
+        "gaussianCount": 62137
+      },
+      "interaction": {
+        "clickable": true,
+        "showCard": true
+      },
+      "visual": {
+        "hoverTint": "#ff6600",
+        "hoverOpacity": 0.35,
+        "activeTint": "#ff6600",
+        "activeOpacity": 0.55
+      }
+    }
+  ],
   "viewer": {
     "camera": {
       "initial": {
@@ -129,5 +155,11 @@
     "hotspots": {
       "showCards": true
     }
-  }
+  },
+  "splats": [
+    {
+      "scaSplatId": "splat_01",
+      "name": "http://127.0.0.1:4173/test-assets/dragon.compressed.ply"
+    }
+  ]
 }

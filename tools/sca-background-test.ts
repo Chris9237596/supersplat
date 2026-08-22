@@ -82,6 +82,8 @@ const runBackgroundHistoryTests = async () => {
         after,
         null,
         null,
+        null,
+        null,
         [],
         [],
         applying
@@ -114,6 +116,8 @@ const runBackgroundHistoryTests = async () => {
         assetStore,
         after,
         withImage,
+        null,
+        null,
         null,
         null,
         [],

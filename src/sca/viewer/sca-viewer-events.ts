@@ -148,6 +148,14 @@ const registerScaViewerEvents = (
         });
     });
 
+    events.on('sca.viewer.navigationTargets.update', (patch: Partial<NonNullable<ScaViewerConfig['navigationTargets']>>) => {
+        history.record(() => {
+            store.ensureViewerConfig();
+            store.updateViewerNavigationTargets(patch);
+            notifyViewerChanged();
+        });
+    });
+
     events.on('sca.viewer.background.update', (background: ScaViewerBackground) => {
         history.record(() => {
             store.ensureViewerConfig();

@@ -17,7 +17,7 @@
 
   const SCA_NAVIGATION_SETTINGS = {
     disableAnnotationCameraNavigation: true,
-    navigationTargetsEnabled: false,
+    navigationTargetsEnabled: true,
   }
 
   /**
@@ -355,6 +355,7 @@
 
     const animationType = normalizeAnimationType(rawAnimation.type)
     const turntableRaw = rawAnimation.turntable
+    const rawNavTargets = raw?.navigationTargets ?? {}
 
     return {
       camera: {
@@ -369,10 +370,203 @@
         defaultMode,
         allowedModes
       },
+      navigationTargets: {
+        enabled: rawNavTargets.enabled !== false,
+        hotspots: rawNavTargets.hotspots !== false,
+        regions: rawNavTargets.regions !== false,
+      },
       interaction: normalizeInteraction(rawInteraction),
       background: normalizeBackground(raw?.background),
       hotspots: normalizeHotspots(raw?.hotspots),
     }
+  }
+
+  /**
+   * Convert client coordinates to render-target pixels (mirrors viewer.pickGaussian).
+   * @param {object} viewer
+   * @param {number} clientX
+   * @param {number} clientY
+   */
+  function clientToPickNormalized(viewer, clientX, clientY) {
+    const canvas = viewer?.global?.app?.graphicsDevice?.canvas ??
+      document.getElementById('application-canvas')
+    const device = viewer?.global?.app?.graphicsDevice
+    if (!canvas || !device) {
+      return null
+    }
+
+    const rect = canvas.getBoundingClientRect()
+    const width = Math.floor(device.width)
+    const height = Math.floor(device.height)
+    if (!rect.width || !rect.height || width <= 0 || height <= 0) {
+      return null
+    }
+
+    const scaleX = width / rect.width
+    const scaleY = height / rect.height
+    const pixelX = Math.min(width - 1, Math.max(0, Math.floor((clientX - rect.left) * scaleX)))
+    const pixelY = Math.min(height - 1, Math.max(0, Math.floor((clientY - rect.top) * scaleY)))
+
+    return {
+      nx: pixelX / width,
+      ny: pixelY / height,
+      pixelX,
+      pixelY,
+    }
+  }
+
+  /**
+   * Top navigation: Hotspots + Regions in the viewer annotation nav bar.
+   * @param {object} viewer
+   * @param {object} project
+   * @param {ReturnType<typeof normalizeViewerConfig>} viewerConfig
+   */
+  function initScaNavigationTargets(viewer, project, viewerConfig) {
+    const navConfig = viewerConfig.navigationTargets ?? { enabled: true, hotspots: true, regions: true }
+
+    if (navConfig.enabled === false) {
+      return
+    }
+
+    const targets = []
+
+    if (navConfig.hotspots !== false) {
+      const hotspots = Array.isArray(project?.hotspots) ? project.hotspots : []
+      for (const hotspot of hotspots) {
+        if (hotspot?.enabled === false) {
+          continue
+        }
+        if (hotspot?.interaction?.showInNavigation === false) {
+          continue
+        }
+        targets.push({
+          type: 'hotspot',
+          id: hotspot.id,
+          title: hotspot.name || hotspot.title || hotspot.id || 'Hotspot',
+          data: hotspot,
+        })
+      }
+    }
+
+    if (navConfig.regions !== false) {
+      const regions = Array.isArray(project?.regions) ? project.regions : []
+      for (const region of regions) {
+        if (region?.enabled === false) {
+          continue
+        }
+        if (region?.interaction?.showInNavigation === false) {
+          continue
+        }
+        targets.push({
+          type: 'region',
+          id: region.id,
+          title: region.name || region.title || region.id || 'Region',
+          data: region,
+        })
+      }
+    }
+
+    if (targets.length < 2) {
+      return
+    }
+
+    const nav = document.getElementById('annotationNav')
+    const titleEl = document.getElementById('annotationNavTitle')
+    const prevBtn = document.getElementById('annotationPrev')
+    const nextBtn = document.getElementById('annotationNext')
+    const infoEl = document.getElementById('annotationInfo')
+    if (!nav || !titleEl || !prevBtn || !nextBtn || !infoEl) {
+      return
+    }
+
+    let typeEl = document.getElementById('annotationNavType')
+    if (!typeEl) {
+      typeEl = document.createElement('span')
+      typeEl.id = 'annotationNavType'
+      typeEl.className = 'sca-nav-target-type'
+      typeEl.style.display = 'block'
+      typeEl.style.fontSize = '10px'
+      typeEl.style.letterSpacing = '0.08em'
+      typeEl.style.opacity = '0.65'
+      infoEl.insertBefore(typeEl, titleEl)
+    }
+
+    let currentIndex = 0
+
+    const updateDisplay = () => {
+      const target = targets[currentIndex]
+      typeEl.textContent = target.type === 'region' ? 'REGION' : 'HOTSPOT'
+      titleEl.textContent = target.title
+    }
+
+    const activateTarget = (target) => {
+      if (target.type === 'hotspot') {
+        window.SCA3D.activateHotspot?.(target.data)
+        window.SCA3D.handleHotspotClick?.(target.data)
+        return
+      }
+
+      window.SCA3D.activateRegion?.(target.data)
+      window.SCA3D.state.selectedRegionId = target.id
+      window.SCA3D.hotspotOverlay?.setSelected(null)
+
+      if (target.data.interaction?.showCard === false) {
+        window.SCA3D.regionOverlay?.hide()
+        return
+      }
+
+      window.SCA3D.regionOverlay?.setActiveRegion(target.id, null)
+      console.log(`[SCA REGION CARD] show ${target.id} (navigation)`)
+    }
+
+    const goTo = (index) => {
+      currentIndex = ((index % targets.length) + targets.length) % targets.length
+      updateDisplay()
+      activateTarget(targets[currentIndex])
+    }
+
+    prevBtn.replaceWith(prevBtn.cloneNode(true))
+    nextBtn.replaceWith(nextBtn.cloneNode(true))
+    const freshPrev = document.getElementById('annotationPrev')
+    const freshNext = document.getElementById('annotationNext')
+
+    freshPrev.addEventListener('click', (event) => {
+      event.stopPropagation()
+      goTo(currentIndex - 1)
+    })
+    freshNext.addEventListener('click', (event) => {
+      event.stopPropagation()
+      goTo(currentIndex + 1)
+    })
+
+    const { events, state } = viewer.global
+    const syncMode = () => {
+      if (!state.loaded) {
+        return
+      }
+      nav.classList.remove('desktop', 'touch', 'hidden')
+      nav.classList.add(state.inputMode)
+    }
+    const syncFade = () => {
+      if (!state.loaded) {
+        return
+      }
+      nav.classList.toggle('faded-in', !state.controlsHidden)
+      nav.classList.toggle('faded-out', state.controlsHidden)
+    }
+
+    events.on('loaded:changed', () => {
+      syncMode()
+      syncFade()
+    })
+    events.on('inputMode:changed', syncMode)
+    events.on('controlsHidden:changed', syncFade)
+
+    updateDisplay()
+    syncMode()
+    syncFade()
+
+    console.log(`[SCA3D] navigation targets ready (${targets.length}: ${targets.filter((t) => t.type === 'hotspot').length} hotspot(s), ${targets.filter((t) => t.type === 'region').length} region(s))`)
   }
 
   /**
@@ -497,11 +691,13 @@
   /**
    * @param {object} settingsJson
    */
-  function applyScaNavigationSettings(settingsJson) {
+  function applyScaNavigationSettings(settingsJson, viewerConfig) {
     const clone = JSON.parse(JSON.stringify(settingsJson))
+    const navTargets = viewerConfig?.navigationTargets ?? { enabled: true, hotspots: true, regions: true }
     clone.navigation = {
-      ...(clone.navigation || {}),
       ...SCA_NAVIGATION_SETTINGS,
+      ...(clone.navigation || {}),
+      navigationTargetsEnabled: navTargets.enabled !== false,
     }
     return clone
   }
@@ -689,7 +885,9 @@
     interruptCameraTransitions(viewer)
 
     window.SCA3D.state.selectedHotspotId = hotspot.id
+    window.SCA3D.state.selectedRegionId = null
     window.SCA3D.hotspotOverlay?.setSelected(hotspot.id)
+    window.SCA3D.regionOverlay?.hide()
 
     if (hotspot.position) {
       animateHotspotFocus(
@@ -698,6 +896,22 @@
         viewerConfig.interaction.focusTransition.duration
       )
     }
+  }
+
+  /**
+   * @param {object} viewer
+   * @param {object} region
+   */
+  function activateScaRegion(viewer, region) {
+    if (!region?.id) {
+      return
+    }
+
+    interruptCameraTransitions(viewer)
+
+    window.SCA3D.state.selectedRegionId = region.id
+    window.SCA3D.state.selectedHotspotId = null
+    window.SCA3D.hotspotOverlay?.setSelected(null)
   }
 
   /**
@@ -1009,7 +1223,12 @@
         throw new Error('[SCA3D] invalid embedded project: expected { version: 1, hotspots: [] }')
       }
 
-      console.log(`[SCA3D] project loaded: ${project.hotspots.length} hotspot(s) from embedded preview data`)
+      if (!Array.isArray(project.regions)) {
+        project.regions = []
+      }
+
+      const regionCount = project.regions.length
+      console.log(`[SCA3D] project loaded: ${project.hotspots.length} hotspot(s), ${regionCount} region(s) from embedded preview data`)
       return project
     }
 
@@ -1023,8 +1242,104 @@
       throw new Error('[SCA3D] invalid project.json: expected { version: 1, hotspots: [] }')
     }
 
-    console.log(`[SCA3D] project loaded: ${project.hotspots.length} hotspot(s) from ${url}`)
+    if (!Array.isArray(project.regions)) {
+      project.regions = []
+    }
+
+    console.log(`[SCA3D] project loaded: ${project.hotspots.length} hotspot(s), ${project.regions.length} region(s) from ${url}`)
     return project
+  }
+
+  /**
+   * Attach viewer.pickGaussian from the patched Viewer/Picker API if present.
+   * @param {object} viewer
+   * @returns {boolean}
+   */
+  function attachScaPickGaussian(viewer) {
+    if (typeof viewer?.pickGaussian === 'function') {
+      return true
+    }
+    if (typeof viewer?.picker?.pickGaussianId === 'function') {
+      viewer.pickGaussian = async (clientX, clientY) => {
+        const coords = clientToPickNormalized(viewer, clientX, clientY)
+        if (!coords) {
+          return null
+        }
+        const result = await viewer.picker.pickGaussianId(coords.nx, coords.ny)
+        if (!result || result.gaussianIndex === null || result.gaussianIndex === undefined) {
+          return null
+        }
+        return {
+          gaussianIndex: result.gaussianIndex,
+          position: result.position,
+          scaSplatId: window.SCA3D?.state?.defaultScaSplatId ?? 'splat_01',
+          screenX: coords.pixelX,
+          screenY: coords.pixelY,
+          clientX,
+          clientY,
+        }
+      }
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Wait until the viewer bundle exposes the Gaussian picker (after gsplat load).
+   * @param {object} viewer
+   * @param {number} [timeoutMs]
+   */
+  function waitForScaPicker(viewer, timeoutMs = 120000) {
+    if (attachScaPickGaussian(viewer)) {
+      return Promise.resolve()
+    }
+
+    const { events } = viewer.global
+    return new Promise((resolve, reject) => {
+      const deadline = Date.now() + timeoutMs
+      let settled = false
+
+      const cleanup = () => {
+        events.off('scaPickerReady', onSignal)
+        events.off('frame:ready', onSignal)
+        clearInterval(timer)
+      }
+
+      const tryAttach = () => {
+        if (settled) {
+          return true
+        }
+        if (attachScaPickGaussian(viewer)) {
+          settled = true
+          cleanup()
+          resolve()
+          return true
+        }
+        return false
+      }
+
+      const onSignal = () => {
+        tryAttach()
+      }
+
+      events.on('scaPickerReady', onSignal)
+      events.on('frame:ready', onSignal)
+
+      if (tryAttach()) {
+        return
+      }
+
+      const timer = setInterval(() => {
+        if (tryAttach()) {
+          return
+        }
+        if (Date.now() > deadline) {
+          settled = true
+          cleanup()
+          reject(new Error('[SCA3D] timed out waiting for Gaussian picker'))
+        }
+      }, 100)
+    })
   }
 
   /**
@@ -1034,7 +1349,7 @@
     const project = await loadProject()
     const viewerConfig = normalizeViewerConfig(project, settingsJson)
     const hotspotById = buildHotspotById(project.hotspots)
-    const settingsForViewer = applyScaNavigationSettings(settingsJson)
+    const settingsForViewer = applyScaNavigationSettings(settingsJson, viewerConfig)
 
     if (viewerConfig.background.type === 'panorama') {
       const filename = viewerConfig.background.image?.filename
@@ -1052,6 +1367,7 @@
     window.SCA3D.state.hotspotById = hotspotById
     window.SCA3D.state.viewer = viewer
     window.SCA3D.activateHotspot = (hotspot) => activateScaHotspot(viewer, viewerConfig, hotspot)
+    window.SCA3D.activateRegion = (region) => activateScaRegion(viewer, region)
 
     applyRuntimeUx(viewer, viewerConfig, hotspotById)
     applyViewerBackground(viewerConfig.background, viewer)
@@ -1071,6 +1387,35 @@
     } else {
       console.warn('[SCA3D] hotspot overlay not available')
     }
+
+    if (typeof initRegionBridge === 'function') {
+      initRegionBridge(viewer, { project })
+    } else {
+      console.warn('[SCA3D] region bridge not available')
+    }
+
+    if (typeof initScaRegionOverlay === 'function') {
+      initScaRegionOverlay(viewer, project)
+    }
+
+    const enabledRegions = Array.isArray(project.regions) ?
+      project.regions.filter((region) => region?.enabled) :
+      []
+
+    if (enabledRegions.length > 0) {
+      try {
+        await waitForScaPicker(viewer)
+      } catch (error) {
+        console.error('[SCA3D] region picker unavailable:', error)
+        throw error
+      }
+
+      if (typeof initScaRegionRuntime === 'function') {
+        await initScaRegionRuntime(viewer, { project })
+      }
+    }
+
+    initScaNavigationTargets(viewer, project, viewerConfig)
 
     applyViewerConfig(viewer, viewerConfig).catch((error) => {
       console.warn('[SCA3D] viewer config application failed:', error)

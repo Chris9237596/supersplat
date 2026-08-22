@@ -20,6 +20,10 @@ type ScaHotspotClick = {
     action: ScaClickAction;
 };
 
+type ScaHotspotInteraction = {
+    showInNavigation?: boolean;
+};
+
 type ScaCameraPose = {
     position: Vec3;
     target: Vec3;
@@ -88,9 +92,16 @@ type ScaViewerHotspots = {
     showCards: boolean;
 };
 
+type ScaViewerNavigationTargets = {
+    enabled?: boolean;
+    hotspots?: boolean;
+    regions?: boolean;
+};
+
 type ScaViewerConfig = {
     camera: ScaViewerCamera;
     navigation: ScaViewerNavigation;
+    navigationTargets?: ScaViewerNavigationTargets;
     interaction: ScaViewerInteraction;
     background?: ScaViewerBackground;
     hotspots?: ScaViewerHotspots;
@@ -106,13 +117,23 @@ type ScaHotspot = {
     visual: ScaHotspotVisual;
     hover: ScaHotspotHover;
     click: ScaHotspotClick;
+    interaction?: ScaHotspotInteraction;
     camera: ScaHotspotCamera;
+};
+
+import type { ScaRegion } from './region';
+
+type ScaRuntimeSplatRef = {
+    scaSplatId: string;
+    name?: string;
 };
 
 /** SCA project.json root document (version 1). */
 type ScaProject = {
     version: 1;
     hotspots: ScaHotspot[];
+    regions: ScaRegion[];
+    splats?: ScaRuntimeSplatRef[];
     viewer?: ScaViewerConfig;
 };
 
@@ -121,6 +142,7 @@ const SCA_PROJECT_VERSION = 1 as const;
 const createEmptyProject = (): ScaProject => ({
     version: SCA_PROJECT_VERSION,
     hotspots: [],
+    regions: [],
     viewer: undefined
 });
 
@@ -135,9 +157,11 @@ export {
     ScaHotspotCamera,
     ScaHotspotClick,
     ScaHotspotHover,
+    ScaHotspotInteraction,
     ScaHotspotVisual,
     ScaNavigationMode,
     ScaProject,
+    ScaRuntimeSplatRef,
     ScaStartAnimationType,
     ScaTurntableAnimation,
     ScaTurntableDirection,
@@ -150,5 +174,8 @@ export {
     ScaViewerHotspots,
     ScaViewerInteraction,
     ScaViewerNavigation,
+    ScaViewerNavigationTargets,
     Vec3
 };
+
+export type { ScaRegion } from './region';

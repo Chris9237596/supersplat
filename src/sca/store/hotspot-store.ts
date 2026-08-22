@@ -1,5 +1,6 @@
 import { ScaHotspot, ScaNavigationMode, ScaProject, ScaViewerBackground, ScaViewerConfig } from '../types/project';
 import { createEmptyProject } from '../types/project';
+import { ScaRegion, ScaRegionPatch } from '../types/region';
 import {
     createDefaultViewerConfig,
     ensureNavigationValid,
@@ -10,6 +11,7 @@ import {
 class HotspotStore {
     private project: ScaProject;
     private selectedHotspotId: string | null = null;
+    private selectedRegionId: string | null = null;
 
     constructor(project: ScaProject = createEmptyProject()) {
         this.project = structuredClone(project);
@@ -142,6 +144,24 @@ class HotspotStore {
         });
     }
 
+    updateViewerNavigationTargets(patch: Partial<NonNullable<ScaViewerConfig['navigationTargets']>>): void {
+        const current = this.getViewerConfig();
+        const currentTargets = current.navigationTargets ?? {
+            enabled: true,
+            hotspots: true,
+            regions: true
+        };
+
+        this.project.viewer = normalizeViewerConfig({
+            ...current,
+            navigationTargets: {
+                enabled: patch.enabled ?? currentTargets.enabled,
+                hotspots: patch.hotspots ?? currentTargets.hotspots,
+                regions: patch.regions ?? currentTargets.regions
+            }
+        });
+    }
+
     getViewerBackground(): ScaViewerBackground {
         return this.getViewerConfig().background!;
     }
@@ -192,10 +212,16 @@ class HotspotStore {
             throw new Error(`[SCA] duplicate hotspot id: ${nextId}`);
         }
 
+        const { interaction: interactionPatch, ...restPatch } = patch;
+
         this.project.hotspots[index] = {
             ...structuredClone(current),
-            ...structuredClone(patch),
-            id: nextId
+            ...structuredClone(restPatch),
+            id: nextId,
+            interaction: interactionPatch ? {
+                ...structuredClone(current.interaction ?? {}),
+                ...structuredClone(interactionPatch)
+            } : current.interaction
         };
 
         if (this.selectedHotspotId === id && nextId !== id) {
@@ -216,12 +242,103 @@ class HotspotStore {
         }
     }
 
+    getRegions(): ScaRegion[] {
+        return this.project.regions.map((region) => structuredClone(region));
+    }
+
+    getSelectedRegionId(): string | null {
+        return this.selectedRegionId;
+    }
+
+    getSelectedRegion(): ScaRegion | null {
+        if (!this.selectedRegionId) {
+            return null;
+        }
+
+        const region = this.project.regions.find((entry) => entry.id === this.selectedRegionId);
+        return region ? structuredClone(region) : null;
+    }
+
+    selectRegion(id: string | null): void {
+        if (id !== null && !this.project.regions.some((region) => region.id === id)) {
+            return;
+        }
+
+        this.selectedRegionId = id;
+    }
+
+    addRegion(region: ScaRegion): void {
+        if (this.project.regions.some((entry) => entry.id === region.id)) {
+            throw new Error(`[SCA] duplicate region id: ${region.id}`);
+        }
+
+        this.project.regions.push(structuredClone(region));
+    }
+
+    updateRegion(id: string, patch: ScaRegionPatch): void {
+        const index = this.project.regions.findIndex((region) => region.id === id);
+        if (index === -1) {
+            throw new Error(`[SCA] unknown region id: ${id}`);
+        }
+
+        const current = this.project.regions[index];
+        const nextId = patch.id ?? current.id;
+
+        if (nextId !== id && this.project.regions.some((region) => region.id === nextId)) {
+            throw new Error(`[SCA] duplicate region id: ${nextId}`);
+        }
+
+        this.project.regions[index] = {
+            ...structuredClone(current),
+            ...structuredClone(patch),
+            id: nextId,
+            source: {
+                ...structuredClone(current.source),
+                ...(patch.source ? structuredClone(patch.source) : {})
+            },
+            capture: {
+                ...structuredClone(current.capture),
+                ...(patch.capture ? structuredClone(patch.capture) : {})
+            },
+            interaction: {
+                ...structuredClone(current.interaction),
+                ...(patch.interaction ? structuredClone(patch.interaction) : {})
+            },
+            visual: {
+                ...structuredClone(current.visual),
+                ...(patch.visual ? structuredClone(patch.visual) : {})
+            }
+        };
+
+        if (this.selectedRegionId === id && nextId !== id) {
+            this.selectedRegionId = nextId;
+        }
+    }
+
+    deleteRegion(id: string): void {
+        const index = this.project.regions.findIndex((region) => region.id === id);
+        if (index === -1) {
+            throw new Error(`[SCA] unknown region id: ${id}`);
+        }
+
+        this.project.regions.splice(index, 1);
+
+        if (this.selectedRegionId === id) {
+            this.selectedRegionId = null;
+        }
+    }
+
     loadProject(project: ScaProject): void {
         this.project = normalizeProject(project);
 
         if (this.selectedHotspotId &&
             !this.project.hotspots.some((hotspot) => hotspot.id === this.selectedHotspotId)) {
             this.selectedHotspotId = null;
+        }
+
+        if (this.selectedRegionId &&
+            !this.project.regions.some((region) => region.id === this.selectedRegionId)) {
+            this.selectedRegionId = null;
         }
     }
 

@@ -1,7 +1,10 @@
 import {
     createChunkDataPool,
+    Column,
+    DataTable,
     logger as splatTransformLogger,
     MemoryFileSystem,
+    sortMortonOrder,
     Transform,
     writeSource,
     ZipFileSystem,
@@ -652,7 +655,106 @@ class SuperSplatChunkSource implements ChunkSource {
     async close(): Promise<void> {
         // nothing to release; the scene data is owned by the editor
     }
+
+    /** Export-row -> source splat index in the constructor's splats array. */
+    getSplatIndexForExportRow(exportRow: number): number {
+        return this.splatOf[exportRow];
+    }
+
+    /** Storage index within the source splat for an export row. */
+    getStorageIndexForExportRow(exportRow: number): number {
+        return this.localOf[exportRow];
+    }
 }
+
+export type ExportGaussianMap = {
+    exportCount: number;
+    runtimeGaussianCount: number;
+    splatOf: Uint32Array;
+    localOf: Uint32Array;
+    storageToExportRowBySplatId: Map<string, Int32Array>;
+    exportRowToRuntime: Uint32Array;
+};
+
+/**
+ * Build the same export filter + Morton ordering used by SOG runtime export.
+ * Region masks in authoring space (per-source-splat storage indices) are remapped
+ * through this table into final runtime SOG gaussian indices.
+ */
+const buildExportGaussianMap = (splats: Splat[], settings: SerializeSettings): ExportGaussianMap | null => {
+    const source = new SuperSplatChunkSource(splats, settings);
+    const total = source.meta.numGaussians;
+    if (total === 0) {
+        return null;
+    }
+
+    const splatOf = new Uint32Array(total);
+    const localOf = new Uint32Array(total);
+    for (let row = 0; row < total; row++) {
+        splatOf[row] = source.getSplatIndexForExportRow(row);
+        localOf[row] = source.getStorageIndexForExportRow(row);
+    }
+
+    const storageToExportRowBySplatId = new Map<string, Int32Array>();
+    for (let s = 0; s < splats.length; s++) {
+        const splat = splats[s];
+        const scaSplatId = splat.scaSplatId ?? `splat_${String(s + 1).padStart(2, '0')}`;
+        const map = new Int32Array(splat.splatData.numSplats);
+        map.fill(-1);
+        storageToExportRowBySplatId.set(scaSplatId, map);
+    }
+
+    const filter = new GaussianFilter(settings);
+    let exportRow = 0;
+    for (let s = 0; s < splats.length; s++) {
+        const splat = splats[s];
+        const scaSplatId = splat.scaSplatId ?? `splat_${String(s + 1).padStart(2, '0')}`;
+        const map = storageToExportRowBySplatId.get(scaSplatId)!;
+        filter.set(splat);
+        for (let i = 0; i < splat.splatData.numSplats; i++) {
+            if (filter.test(i)) {
+                map[i] = exportRow++;
+            }
+        }
+    }
+
+    const singleSplat = new SingleSplat(['x', 'y', 'z'], settings);
+    const x = new Float32Array(total);
+    const y = new Float32Array(total);
+    const z = new Float32Array(total);
+    for (let row = 0; row < total; row++) {
+        const splat = splats[splatOf[row]];
+        singleSplat.read(splat, localOf[row]);
+        x[row] = singleSplat.data.x;
+        y[row] = singleSplat.data.y;
+        z[row] = singleSplat.data.z;
+    }
+
+    const table = new DataTable([
+        new Column('x', x),
+        new Column('y', y),
+        new Column('z', z)
+    ]);
+    const order = new Uint32Array(total);
+    for (let i = 0; i < total; i++) {
+        order[i] = i;
+    }
+    sortMortonOrder(table, order);
+
+    const exportRowToRuntime = new Uint32Array(total);
+    for (let runtimeIndex = 0; runtimeIndex < total; runtimeIndex++) {
+        exportRowToRuntime[order[runtimeIndex]] = runtimeIndex;
+    }
+
+    return {
+        exportCount: total,
+        runtimeGaussianCount: total,
+        splatOf,
+        localOf,
+        storageToExportRowBySplatId,
+        exportRowToRuntime
+    };
+};
 
 /**
  * Build a ChunkSource + matching pool over the given splats, or null if nothing
@@ -904,6 +1006,7 @@ export {
     serializeSog,
     serializeSpz,
     serializeViewer,
+    buildExportGaussianMap,
     AnimTrack,
     CameraPose,
     Camera,

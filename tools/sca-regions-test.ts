@@ -1,0 +1,391 @@
+import { strict as assert } from 'node:assert';
+
+import { Events } from '../src/events';
+import { IndexRanges } from '../src/index-ranges';
+import { ScaRegionMembershipOp } from '../src/sca/edit/sca-region-ops';
+import { ScaProjectOp } from '../src/sca/edit/sca-edit-ops';
+import { generateRegionId } from '../src/sca/ids/generate-region-id';
+import { generateSplatId } from '../src/sca/ids/generate-splat-id';
+import { createDefaultRegion, normalizeRegions } from '../src/sca/region-defaults';
+import {
+    decodeRegionMask,
+    encodeRegionMask,
+    remapIndexRanges,
+    buildCompactionMap
+} from '../src/sca/regions/region-mask-format';
+import { remapRegionMaskToRuntime } from '../src/sca/regions/region-mask-runtime-export';
+import {
+    deserializeSsprojScaBlock,
+    serializeSsprojScaBlock
+} from '../src/sca/persistence/sca-project-persistence';
+import { ExportGaussianMap } from '../src/splat-serialize';
+import { ScaAssetStore } from '../src/sca/store/sca-asset-store';
+import { HotspotStore } from '../src/sca/store/hotspot-store';
+import { createEmptyProject, SCA_PROJECT_VERSION } from '../src/sca/types/project';
+import { ScaRegion } from '../src/sca/types/region';
+import { State } from '../src/splat-state';
+
+const sampleRegion = (
+    id: string,
+    name: string,
+    scaSplatId: string,
+    gaussianCount: number
+): ScaRegion => ({
+    id,
+    name,
+    enabled: true,
+    source: {
+        type: 'gaussian-mask',
+        scaSplatId,
+        maskAsset: `sca/regions/${id}.mask`
+    },
+    capture: {
+        gaussianCount
+    },
+    interaction: {
+        clickable: true,
+        showCard: true
+    },
+    visual: {
+        hoverTint: '#ff6600',
+        hoverOpacity: 0.35,
+        activeTint: '#ff6600',
+        activeOpacity: 0.55
+    }
+});
+
+const runIdTests = () => {
+    const empty = createEmptyProject();
+    assert.equal(generateRegionId(empty), 'region_01');
+    assert.equal(generateSplatId(new Set()), 'splat_01');
+    assert.equal(generateSplatId(new Set(['splat_01'])), 'splat_02');
+    console.log('[sca-regions] id allocation PASS');
+};
+
+const runMaskFormatTests = () => {
+    const ranges = IndexRanges.fromPredicate(10, (i) => i === 2 || i === 3 || i === 7);
+    const encoded = encodeRegionMask(ranges, 10);
+    const decoded = decodeRegionMask(encoded);
+
+    assert.equal(decoded.header.gaussianCount, 10);
+    const members: number[] = [];
+    decoded.ranges.forEach((index) => members.push(index));
+    assert.deepEqual(members, [2, 3, 7]);
+
+    console.log('[sca-regions] mask encode/decode PASS');
+};
+
+const runRemapTests = () => {
+    const state = new Uint8Array(6);
+    state[1] = State.deleted;
+    state[4] = State.deleted;
+
+    const { map, survivorCount } = buildCompactionMap(state);
+    assert.equal(survivorCount, 4);
+
+    const ranges = IndexRanges.fromPredicate(6, (i) => i === 0 || i === 1 || i === 2 || i === 5);
+    const remapped = remapIndexRanges(ranges, map, survivorCount);
+
+    const members: number[] = [];
+    remapped.forEach((index) => members.push(index));
+    assert.deepEqual(members, [0, 1, 3]);
+
+    const roundTrip = encodeRegionMask(remapped, survivorCount);
+    const decoded = decodeRegionMask(roundTrip);
+    assert.equal(decoded.header.gaussianCount, survivorCount);
+
+    console.log('[sca-regions] mask remapping PASS');
+};
+
+const runStoreTests = () => {
+    const store = new HotspotStore(createEmptyProject());
+    const region = createDefaultRegion(store.getProject(), 'splat_01', 1000, 'Kitchen');
+
+    store.addRegion(region);
+    assert.equal(store.getRegions()[0].source.type, 'gaussian-mask');
+    assert.equal(store.getRegions()[0].source.scaSplatId, 'splat_01');
+    assert.equal(store.getRegions()[0].capture.gaussianCount, 1000);
+
+    store.deleteRegion('region_01');
+    assert.equal(store.getRegions().length, 0);
+
+    console.log('[sca-regions] store CRUD PASS');
+};
+
+const runLegacyRejectTests = () => {
+    const normalized = normalizeRegions([
+        sampleRegion('region_01', 'Valid', 'splat_01', 10),
+        {
+            id: 'legacy_01',
+            name: 'Legacy',
+            enabled: true,
+            source: { type: 'splat-object', splatId: 'region_01' },
+            interaction: { clickable: true },
+            visual: sampleRegion('x', 'x', 'splat_01', 1).visual
+        }
+    ]);
+
+    assert.equal(normalized.length, 1);
+    assert.equal(normalized[0].id, 'region_01');
+
+    console.log('[sca-regions] legacy region rejection PASS');
+};
+
+const runPersistenceTests = () => {
+    const source = {
+        version: SCA_PROJECT_VERSION,
+        hotspots: [],
+        regions: [
+            sampleRegion('region_01', 'Alpha', 'splat_01', 100),
+            sampleRegion('region_02', 'Beta', 'splat_01', 100)
+        ],
+        viewer: undefined
+    };
+
+    const block = serializeSsprojScaBlock(source);
+    const restored = deserializeSsprojScaBlock(block);
+
+    assert.equal(restored.regions[0].source.type, 'gaussian-mask');
+    assert.equal(restored.regions[0].source.scaSplatId, 'splat_01');
+    assert.equal(restored.regions[0].capture.gaussianCount, 100);
+
+    console.log('[sca-regions] ssproj round-trip PASS');
+};
+
+/**
+ * Runtime region mask decode and lookup tests (Node).
+ * Full browser runtime is covered by sca-smoke-test.mjs.
+ */
+const runRuntimeLookupTests = () => {
+    const regions = [
+        sampleRegion('region_01', 'Alpha', 'splat_01', 10),
+        sampleRegion('region_02', 'Beta', 'splat_01', 10)
+    ];
+
+    const maskA = encodeRegionMask(IndexRanges.fromPredicate(10, (i) => i === 2), 10);
+    const maskB = encodeRegionMask(IndexRanges.fromPredicate(10, (i) => i === 2 || i === 5), 10);
+
+    const maskBytesByRegionId = new Map([
+        ['region_01', maskA],
+        ['region_02', maskB]
+    ]);
+
+    // Simulate browser buildRegionLookup
+    const buildMembershipBitset = (payload: Uint32Array, gaussianCount: number) => {
+        const SINGLE_BIT = 0x80000000;
+        const INDEX_MASK = 0x7fffffff;
+        const bitset = new Uint8Array(gaussianCount);
+        let r = 0;
+        while (r < payload.length) {
+            if (payload[r] & SINGLE_BIT) {
+                const index = payload[r] & INDEX_MASK;
+                if (index >= 0 && index < gaussianCount) {
+                    bitset[index] = 1;
+                }
+                r += 1;
+            } else {
+                const start = payload[r];
+                const count = payload[r + 1];
+                for (let i = start, end = start + count; i < end; i++) {
+                    if (i >= 0 && i < gaussianCount) {
+                        bitset[i] = 1;
+                    }
+                }
+                r += 2;
+            }
+        }
+        return bitset;
+    };
+
+    const bySplatId = new Map<string, { gaussianCount: number; entries: { regionId: string; bitset: Uint8Array }[] }>();
+    const unified = { gaussianCount: 10, entries: [] as { regionId: string; bitset: Uint8Array }[] };
+    for (const region of regions) {
+        const decoded = decodeRegionMask(maskBytesByRegionId.get(region.id)!);
+        const bitset = buildMembershipBitset(decoded.ranges.data, decoded.header.gaussianCount);
+        unified.entries.push({ regionId: region.id, bitset });
+    }
+
+    const resolve = (index: number) => {
+        for (const entry of unified.entries) {
+            if (entry.bitset[index]) {
+                return entry.regionId;
+            }
+        }
+        return null;
+    };
+
+    assert.equal(resolve(2), 'region_01', 'overlap uses first project region order');
+    assert.equal(resolve(5), 'region_02');
+    assert.equal(resolve(0), null);
+
+    console.log('[sca-regions] runtime lookup overlap PASS');
+};
+
+const runInteractionDefaultsTests = () => {
+    const normalized = normalizeRegions([{
+        ...sampleRegion('region_01', 'Alpha', 'splat_01', 10),
+        interaction: { clickable: true }
+    }]);
+
+    assert.equal(normalized[0].interaction.showCard, true);
+    assert.equal(normalized[0].interaction.showInNavigation, true);
+
+    const created = createDefaultRegion(createEmptyProject(), 'splat_01', 10);
+    assert.equal(created.interaction.showCard, true);
+    assert.equal(created.interaction.showInNavigation, true);
+
+    console.log('[sca-regions] interaction defaults PASS');
+};
+
+const runHistoryTests = async () => {
+    const events = new Events();
+    const store = new HotspotStore(createEmptyProject());
+    const assetStore = new ScaAssetStore();
+    const applying = { value: false };
+    const emptyAssets: [] = [];
+
+    const before = store.getProject();
+    const region = createDefaultRegion(before, 'splat_01', 50, 'Lobby');
+    const after = {
+        ...before,
+        regions: [region]
+    };
+
+    const op = new ScaProjectOp(
+        events,
+        store,
+        assetStore,
+        before,
+        after,
+        null,
+        null,
+        null,
+        region.id,
+        emptyAssets,
+        emptyAssets,
+        applying
+    );
+
+    await op.do();
+    assert.equal(store.getRegions().length, 1);
+
+    await op.undo();
+    assert.equal(store.getRegions().length, 0);
+
+    const ranges = IndexRanges.fromPredicate(20, (i) => i < 5);
+    const maskBytes = encodeRegionMask(ranges, 20);
+    const beforeAssets = emptyAssets;
+    const afterAssets = [{
+        path: 'regions/region_01.mask',
+        data: maskBytes,
+        mimeType: 'application/x-sca-region-mask'
+    }];
+
+    const createOp = new ScaRegionMembershipOp(
+        'createRegion',
+        events,
+        store,
+        assetStore,
+        applying,
+        before,
+        after,
+        null,
+        null,
+        beforeAssets,
+        afterAssets,
+        null,
+        null
+    );
+
+    await createOp.do();
+    assert.equal(store.getRegions().length, 1);
+    assert.ok(assetStore.get('regions/region_01.mask'));
+
+    await createOp.undo();
+    assert.equal(store.getRegions().length, 0);
+    assert.equal(assetStore.get('regions/region_01.mask'), undefined);
+
+    console.log('[sca-regions] membership op undo/redo PASS');
+};
+
+const runIndexRangeSetOpsTests = () => {
+    const total = 12;
+    const a = IndexRanges.fromPredicate(total, (i) => i < 6);
+    const b = IndexRanges.fromPredicate(total, (i) => i >= 4 && i < 9);
+
+    const union = IndexRanges.union(a, b, total);
+    const unionMembers: number[] = [];
+    union.forEach((index) => unionMembers.push(index));
+    assert.deepEqual(unionMembers, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+
+    const subtract = IndexRanges.subtract(a, IndexRanges.fromPredicate(total, (i) => i >= 2 && i < 4), total);
+    const subtractMembers: number[] = [];
+    subtract.forEach((index) => subtractMembers.push(index));
+    assert.deepEqual(subtractMembers, [0, 1, 4, 5]);
+
+    console.log('[sca-regions] IndexRanges union/subtract PASS');
+};
+
+const runRuntimeExportRemapTests = () => {
+    const exportMap: ExportGaussianMap = {
+        exportCount: 4,
+        runtimeGaussianCount: 4,
+        splatOf: new Uint32Array([0, 0, 0, 0]),
+        localOf: new Uint32Array([0, 2, 3, 5]),
+        storageToExportRowBySplatId: new Map([
+            ['splat_01', new Int32Array([0, -1, 1, 2, -1, 3])]
+        ]),
+        exportRowToRuntime: new Uint32Array([3, 1, 0, 2])
+    };
+
+    const sourceMask = encodeRegionMask(
+        IndexRanges.fromPredicate(6, (i) => i === 0 || i === 2 || i === 5),
+        6
+    );
+    const region = sampleRegion('region_01', 'Alpha', 'splat_01', 6);
+
+    const remapped = remapRegionMaskToRuntime(sourceMask, region, exportMap, false);
+    const decoded = decodeRegionMask(remapped.bytes);
+
+    assert.equal(decoded.header.gaussianCount, 4);
+
+    const members: number[] = [];
+    decoded.ranges.forEach((index) => members.push(index));
+    members.sort((a, b) => a - b);
+    assert.deepEqual(members, [1, 2, 3]);
+
+    console.log('[sca-regions] runtime export mask remap PASS');
+};
+
+async function main() {
+    runIdTests();
+    runMaskFormatTests();
+    runRemapTests();
+    runStoreTests();
+    runLegacyRejectTests();
+    runPersistenceTests();
+    runRuntimeLookupTests();
+    runInteractionDefaultsTests();
+    runIndexRangeSetOpsTests();
+    runRuntimeExportRemapTests();
+    await runHistoryTests();
+
+    console.log('\n========== SCA REGIONS PHASE 1 REWORK TEST REPORT ==========');
+    console.log('ID allocation: PASS');
+    console.log('Mask encode/decode: PASS');
+    console.log('Mask remapping: PASS');
+    console.log('Store CRUD: PASS');
+    console.log('Legacy rejection: PASS');
+    console.log('Ssproj round-trip: PASS');
+    console.log('Runtime lookup overlap: PASS');
+    console.log('Interaction defaults: PASS');
+    console.log('IndexRanges union/subtract: PASS');
+    console.log('Runtime export mask remap: PASS');
+    console.log('Membership op undo/redo: PASS');
+    console.log('===========================================================\n');
+}
+
+main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+});

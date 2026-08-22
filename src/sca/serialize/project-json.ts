@@ -25,6 +25,7 @@ const parseProjectJson = (json: string): ScaProject => {
     return normalizeProject({
         version: SCA_PROJECT_VERSION,
         hotspots: record.hotspots as ScaProject['hotspots'],
+        regions: Array.isArray(record.regions) ? record.regions : [],
         viewer: record.viewer as ScaViewerConfig | undefined
     });
 };

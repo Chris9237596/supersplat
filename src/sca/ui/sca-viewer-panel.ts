@@ -14,11 +14,12 @@ import { Events } from '../../events';
 
 import {
     ScaNavigationMode,
+    ScaProject,
     ScaStartAnimationType,
     ScaTurntableDirection,
     ScaViewerConfig
 } from '../types/project';
-import { computeCameraDistance } from '../viewer/viewer-config';
+import { computeCameraDistance, buildNavigationPreview } from '../viewer/viewer-config';
 import { parseHexColor, rgbToHex } from '../viewer/viewer-background';
 
 class ScaViewerPanel extends Container {
@@ -46,6 +47,11 @@ class ScaViewerPanel extends Container {
     private focusTransitionSlider: SliderInput;
     private homeTransitionSlider: SliderInput;
     private showHotspotCardsInput: BooleanInput;
+
+    private showTopNavigationInput: BooleanInput;
+    private includeHotspotsNavInput: BooleanInput;
+    private includeRegionsNavInput: BooleanInput;
+    private navigationPreviewContainer: Container;
 
     private backgroundTypeSelect: SelectInput;
     private backgroundColorPicker: ColorPicker;
@@ -264,6 +270,56 @@ class ScaViewerPanel extends Container {
             text: 'Show hotspot cards'
         }));
 
+        const topNavigationTitle = new Label({
+            class: 'sca-panel-subsection-label',
+            text: 'Top Navigation'
+        });
+
+        const showTopNavigationRow = new Container({ class: 'sca-viewer-checkbox-row' });
+        this.showTopNavigationInput = new BooleanInput({
+            class: 'sca-export-preview-checkbox',
+            type: 'checkbox',
+            value: true
+        });
+        showTopNavigationRow.append(this.showTopNavigationInput);
+        showTopNavigationRow.append(new Label({
+            class: 'sca-export-preview-label',
+            text: 'Show top navigation'
+        }));
+
+        const includeHotspotsNavRow = new Container({ class: 'sca-viewer-checkbox-row' });
+        this.includeHotspotsNavInput = new BooleanInput({
+            class: 'sca-export-preview-checkbox',
+            type: 'checkbox',
+            value: true
+        });
+        includeHotspotsNavRow.append(this.includeHotspotsNavInput);
+        includeHotspotsNavRow.append(new Label({
+            class: 'sca-export-preview-label',
+            text: 'Include Hotspots'
+        }));
+
+        const includeRegionsNavRow = new Container({ class: 'sca-viewer-checkbox-row' });
+        this.includeRegionsNavInput = new BooleanInput({
+            class: 'sca-export-preview-checkbox',
+            type: 'checkbox',
+            value: true
+        });
+        includeRegionsNavRow.append(this.includeRegionsNavInput);
+        includeRegionsNavRow.append(new Label({
+            class: 'sca-export-preview-label',
+            text: 'Include Regions'
+        }));
+
+        const navigationPreviewTitle = new Label({
+            class: 'sca-panel-subsection-label',
+            text: 'Navigation Order'
+        });
+
+        this.navigationPreviewContainer = new Container({
+            class: 'sca-viewer-nav-preview'
+        });
+
         const backgroundTitle = new Label({
             class: 'sca-panel-subsection-label',
             text: 'Background'
@@ -354,6 +410,12 @@ class ScaViewerPanel extends Container {
         this.append(this.makeRow('Duration (s)', this.homeTransitionSlider));
         this.append(hotspotsTitle);
         this.append(showHotspotCardsRow);
+        this.append(topNavigationTitle);
+        this.append(showTopNavigationRow);
+        this.append(includeHotspotsNavRow);
+        this.append(includeRegionsNavRow);
+        this.append(navigationPreviewTitle);
+        this.append(this.navigationPreviewContainer);
         this.append(backgroundTitle);
         this.append(this.makeRow('Type', this.backgroundTypeSelect));
         this.append(this.backgroundColorRow);
@@ -451,6 +513,18 @@ class ScaViewerPanel extends Container {
 
         this.showHotspotCardsInput.on('change', (value: boolean) => {
             this.emitHotspotsPatch({ showCards: value });
+        });
+
+        this.showTopNavigationInput.on('change', (value: boolean) => {
+            this.emitNavigationTargetsPatch({ enabled: value });
+        });
+
+        this.includeHotspotsNavInput.on('change', (value: boolean) => {
+            this.emitNavigationTargetsPatch({ hotspots: value });
+        });
+
+        this.includeRegionsNavInput.on('change', (value: boolean) => {
+            this.emitNavigationTargetsPatch({ regions: value });
         });
 
         this.backgroundTypeSelect.on('change', (value: string) => {
@@ -582,6 +656,13 @@ class ScaViewerPanel extends Container {
         this.events.fire('sca.viewer.hotspots.update', patch);
     }
 
+    private emitNavigationTargetsPatch(patch: Partial<NonNullable<ScaViewerConfig['navigationTargets']>>): void {
+        if (this.syncing) {
+            return;
+        }
+        this.events.fire('sca.viewer.navigationTargets.update', patch);
+    }
+
     private bindVectorHistory(input: VectorInput): void {
         input.dom.addEventListener('focusin', () => {
             this.events.invoke('sca.history.beginTransaction');
@@ -655,7 +736,7 @@ class ScaViewerPanel extends Container {
         }
 
         const { initial, animation } = viewer.camera;
-        const { navigation, interaction, background, hotspots } = viewer;
+        const { navigation, interaction, background, hotspots, navigationTargets } = viewer;
 
         this.syncing = true;
         this.positionInput.value = [...initial.position];
@@ -684,6 +765,15 @@ class ScaViewerPanel extends Container {
         this.homeTransitionSlider.value = interaction.homeTransition.duration;
         this.showHotspotCardsInput.value = hotspots?.showCards !== false;
 
+        const navTargets = navigationTargets ?? { enabled: true, hotspots: true, regions: true };
+        this.showTopNavigationInput.value = navTargets.enabled !== false;
+        this.includeHotspotsNavInput.value = navTargets.hotspots !== false;
+        this.includeRegionsNavInput.value = navTargets.regions !== false;
+        this.includeHotspotsNavInput.enabled = navTargets.enabled !== false;
+        this.includeRegionsNavInput.enabled = navTargets.enabled !== false;
+
+        this.refreshNavigationPreview(viewer);
+
         const bg = background ?? { type: 'color' as const, color: '#000000' };
         this.backgroundTypeSelect.value = bg.type;
         this.backgroundColorRow.hidden = bg.type !== 'color';
@@ -707,6 +797,39 @@ class ScaViewerPanel extends Container {
         this.distanceLabel.text = `Distance: ${computeCameraDistance(initial).toFixed(2)}`;
         this.refreshPreviewState();
         this.refreshAnimationPreviewState();
+    }
+
+    private refreshNavigationPreview(viewer: ScaViewerConfig): void {
+        const project = this.events.invoke('sca.project.get') as ScaProject | null;
+        if (!project) {
+            return;
+        }
+
+        const entries = buildNavigationPreview(
+            project.hotspots,
+            project.regions,
+            viewer.navigationTargets
+        );
+
+        this.navigationPreviewContainer.clear();
+
+        if (entries.length === 0) {
+            const emptyLabel = new Label({
+                class: 'sca-viewer-nav-preview-empty',
+                text: 'No navigation targets'
+            });
+            this.navigationPreviewContainer.append(emptyLabel);
+            return;
+        }
+
+        entries.forEach((entry, index) => {
+            const typeLabel = entry.type === 'hotspot' ? 'Hotspot' : 'Region';
+            const line = new Label({
+                class: 'sca-viewer-nav-preview-item',
+                text: `${index + 1}. ${typeLabel} — ${entry.name}`
+            });
+            this.navigationPreviewContainer.append(line);
+        });
     }
 }
 

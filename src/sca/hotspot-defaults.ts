@@ -33,6 +33,9 @@ const createDefaultHotspot = (project: ScaProject): ScaHotspot => {
                 eventName: 'hotspotClicked'
             }
         },
+        interaction: {
+            showInNavigation: true
+        },
         camera: defaultCameraForHotspot(position)
     };
 };

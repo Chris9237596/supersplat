@@ -23,6 +23,10 @@ import { ScaAssetStore } from '../store/sca-asset-store';
 
 import { hotspotsToAnnotations } from './hotspot-to-annotation';
 import { patchViewerBundle } from './patch-viewer-bundle';
+import { ensureScaSplatId } from '../regions/splat-identity';
+import { regionMaskStorePath } from '../regions/region-mask-paths';
+import { remapRegionMasksForRuntimeExport } from '../regions/region-mask-runtime-export';
+import { ScaRegion } from '../types/region';
 
 const PACKAGE_FILENAME = 'sca-runtime-package.zip';
 const PREVIEW_FILENAME = 'preview.html';
@@ -113,6 +117,8 @@ const buildViewerExperienceSettings = (events: Events, project: ScaProject): Exp
         }
     }];
 
+    const navTargets = viewerConfig.navigationTargets ?? { enabled: true, hotspots: true, regions: true };
+
     return {
         version: 2,
         tonemapping: 'none',
@@ -125,7 +131,7 @@ const buildViewerExperienceSettings = (events: Events, project: ScaProject): Exp
         startMode: 'default',
         navigation: {
             disableAnnotationCameraNavigation: true,
-            navigationTargetsEnabled: false
+            navigationTargetsEnabled: navTargets.enabled !== false
         }
     };
 };
@@ -150,7 +156,11 @@ const patchIndexHtml = (html: string): string => {
         '        <!-- Application Script -->',
         '        <script src="./camera-animation.js"></script>\n' +
         '        <script src="./hotspot-bridge.js"></script>\n' +
+        '        <script src="./region-bridge.js"></script>\n' +
+        '        <script src="./region-mask-runtime.js"></script>\n' +
         '        <script src="./sca-hotspot-overlay.js"></script>\n' +
+        '        <script src="./sca-region-overlay.js"></script>\n' +
+        '        <script src="./sca-region-runtime.js"></script>\n' +
         '        <script src="./sca-runtime.js"></script>\n\n' +
         '        <!-- Application Script -->'
     );
@@ -163,7 +173,11 @@ const patchPreviewHtml = (
     project: ScaProject,
     cameraAnimationJs: string,
     bridgeJs: string,
+    regionBridgeJs: string,
+    regionMaskJs: string,
     overlayJs: string,
+    regionOverlayJs: string,
+    regionRuntimeJs: string,
     hotspotCss: string,
     runtimeJs: string,
     embeddedAssets: Record<string, string> = {}
@@ -176,7 +190,11 @@ const patchPreviewHtml = (
         `<style>\n${hotspotCss}\n</style>\n` +
         `<script>\n${cameraAnimationJs}\n</script>\n` +
         `<script>\n${bridgeJs}\n</script>\n` +
+        `<script>\n${regionBridgeJs}\n</script>\n` +
+        `<script>\n${regionMaskJs}\n</script>\n` +
         `<script>\n${overlayJs}\n</script>\n` +
+        `<script>\n${regionOverlayJs}\n</script>\n` +
+        `<script>\n${regionRuntimeJs}\n</script>\n` +
         `<script>\n${runtimeJs}\n</script>\n\n`;
 
     let patched = html.replace(
@@ -185,6 +203,97 @@ const patchPreviewHtml = (
     );
 
     return patchViewerBootstrap(patched);
+};
+
+const buildRuntimeExportProject = (
+    project: ScaProject,
+    splats: Splat[],
+    viewerConfig: ScaProject['viewer'],
+    runtimeGaussianCount?: number
+): ScaProject => {
+    const runtimeSplats = splats.map((splat) => {
+        const scene = splat.scene;
+        const scaSplatId = splat.scaSplatId ?? (scene ? ensureScaSplatId(splat, scene) : 'splat_01');
+        return {
+            scaSplatId,
+            name: splat.name
+        };
+    });
+
+    const runtimeRegions: ScaRegion[] = project.regions
+        .filter((region) => region.enabled)
+        .map((region) => ({
+            ...structuredClone(region),
+            source: {
+                ...region.source,
+                maskAsset: regionMaskStorePath(region.id)
+            },
+            capture: runtimeGaussianCount ?
+                { ...region.capture, gaussianCount: runtimeGaussianCount } :
+                region.capture
+        }));
+
+    return {
+        ...project,
+        regions: runtimeRegions,
+        splats: runtimeSplats,
+        viewer: viewerConfig
+    };
+};
+
+const writeRegionMaskAssets = (
+    memFs: MemoryFileSystem,
+    project: ScaProject,
+    splats: Splat[],
+    serializeSettings: SerializeSettings,
+    assetStore: ScaAssetStore | undefined,
+    embeddedAssets: Record<string, string>
+): number => {
+    if (!assetStore) {
+        return 0;
+    }
+
+    const enabledRegions = project.regions.filter((region) => region.enabled);
+    if (enabledRegions.length === 0) {
+        return 0;
+    }
+
+    const sourceMaskBytes = new Map<string, Uint8Array>();
+    for (const region of enabledRegions) {
+        const storePath = region.source.maskAsset.startsWith('sca/') ?
+            region.source.maskAsset.replace(/^sca\//, '') :
+            region.source.maskAsset;
+        const asset = assetStore.get(storePath) ?? assetStore.get(`sca/${storePath}`);
+        if (!asset) {
+            console.warn(`[SCA] runtime export: missing region mask for ${region.id}`);
+            continue;
+        }
+        sourceMaskBytes.set(region.id, asset.data);
+    }
+
+    if (sourceMaskBytes.size === 0) {
+        return 0;
+    }
+
+    const { exportMap, runtimeMasks } = remapRegionMasksForRuntimeExport(
+        splats,
+        serializeSettings,
+        enabledRegions,
+        sourceMaskBytes
+    );
+
+    for (const region of enabledRegions) {
+        const runtimePath = regionMaskStorePath(region.id);
+        const bytes = runtimeMasks.get(region.id);
+        if (!bytes) {
+            continue;
+        }
+
+        memFs.results.set(runtimePath, bytes);
+        embeddedAssets[runtimePath] = `data:application/octet-stream;base64,${bytesToBase64(bytes)}`;
+    }
+
+    return exportMap.runtimeGaussianCount;
 };
 
 const bytesToBase64 = (bytes: Uint8Array): string => {
@@ -271,21 +380,15 @@ const exportScaRuntimePackage = async (
     } : undefined;
 
     const viewerConfig = resolveViewerConfig(project, fallbackInitial);
-    const exportProject: ScaProject = {
-        ...project,
-        viewer: viewerConfig
-    };
-
-    const experienceSettings = buildViewerExperienceSettings(events, exportProject);
     const serializeSettings: SerializeSettings = {
         maxSHBands: events.invoke('view.bands') as number
     };
 
-    const exported = {
-        project: exportProject,
+    const experienceSettings = buildViewerExperienceSettings(events, project);
+    console.log('[SCA] runtime package export preview:', {
+        project,
         annotations: experienceSettings.annotations
-    };
-    console.log('[SCA] runtime package export preview:', exported);
+    });
 
     splatTransformLogger.setRenderer(createProgressRenderer('Exporting SCA Runtime Package', events));
 
@@ -310,19 +413,43 @@ const exportScaRuntimePackage = async (
         memFs.results.set('index.html', encoder.encode(patchedHtml));
         const cameraAnimationJs = await fetchRuntimeAsset('camera-animation.js');
         const bridgeJs = await fetchRuntimeAsset('hotspot-bridge.js');
+        const regionBridgeJs = await fetchRuntimeAsset('region-bridge.js');
+        const regionMaskJs = await fetchRuntimeAsset('region-mask-runtime.js');
         const overlayJs = await fetchRuntimeAsset('sca-hotspot-overlay.js');
+        const regionOverlayJs = await fetchRuntimeAsset('sca-region-overlay.js');
+        const regionRuntimeJs = await fetchRuntimeAsset('sca-region-runtime.js');
         const hotspotCss = await fetchRuntimeAsset('sca-hotspot-markers.css');
         const runtimeJs = await fetchRuntimeAsset('sca-runtime.js');
 
-        memFs.results.set('project.json', encoder.encode(stringifyProjectJson(exportProject)));
         memFs.results.set('camera-animation.js', encoder.encode(cameraAnimationJs));
         memFs.results.set('hotspot-bridge.js', encoder.encode(bridgeJs));
+        memFs.results.set('region-bridge.js', encoder.encode(regionBridgeJs));
+        memFs.results.set('region-mask-runtime.js', encoder.encode(regionMaskJs));
         memFs.results.set('sca-hotspot-overlay.js', encoder.encode(overlayJs));
+        memFs.results.set('sca-region-overlay.js', encoder.encode(regionOverlayJs));
+        memFs.results.set('sca-region-runtime.js', encoder.encode(regionRuntimeJs));
         memFs.results.set('sca-hotspot-markers.css', encoder.encode(hotspotCss));
         memFs.results.set('sca-runtime.js', encoder.encode(runtimeJs));
 
-        const background = exportProject.viewer?.background;
+        const draftExportProject = buildRuntimeExportProject(project, splats, viewerConfig);
         const embeddedAssets: Record<string, string> = {};
+        const runtimeGaussianCount = writeRegionMaskAssets(
+            memFs,
+            draftExportProject,
+            splats,
+            serializeSettings,
+            assetStore,
+            embeddedAssets
+        );
+        const exportProject = buildRuntimeExportProject(
+            project,
+            splats,
+            viewerConfig,
+            runtimeGaussianCount > 0 ? runtimeGaussianCount : undefined
+        );
+        memFs.results.set('project.json', encoder.encode(stringifyProjectJson(exportProject)));
+
+        const background = exportProject.viewer?.background;
         if ((background?.type === 'image' || background?.type === 'panorama') && background.image?.filename && assetStore) {
             const assetPath = backgroundAssetPath(background.image.filename);
             const asset = assetStore.get(assetPath);
@@ -353,7 +480,11 @@ const exportScaRuntimePackage = async (
                 exportProject,
                 cameraAnimationJs,
                 bridgeJs,
+                regionBridgeJs,
+                regionMaskJs,
                 overlayJs,
+                regionOverlayJs,
+                regionRuntimeJs,
                 hotspotCss,
                 runtimeJs,
                 embeddedAssets

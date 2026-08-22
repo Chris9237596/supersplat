@@ -21,6 +21,7 @@ class ScaHotspotForm extends Container {
     private nameInput: TextInput;
     private textInput: TextAreaInput;
     private enabledInput: BooleanInput;
+    private showInNavigationInput: BooleanInput;
     private positionInput: VectorInput;
 
     constructor(private events: Events, args = {}) {
@@ -67,6 +68,24 @@ class ScaHotspotForm extends Container {
         enabledRow.append(enabledLabel);
         enabledRow.append(this.enabledInput);
 
+        const interactionTitle = new Label({
+            class: 'sca-panel-subsection-label',
+            text: 'Interaction'
+        });
+
+        const showInNavigationRow = new Container({ class: 'sca-hotspot-form-row' });
+        const showInNavigationLabel = new Label({
+            class: 'sca-hotspot-form-label',
+            text: 'Show in top navigation'
+        });
+        this.showInNavigationInput = new BooleanInput({
+            class: 'sca-hotspot-form-toggle',
+            type: 'toggle',
+            value: true
+        });
+        showInNavigationRow.append(showInNavigationLabel);
+        showInNavigationRow.append(this.showInNavigationInput);
+
         const positionRow = new Container({ class: 'sca-hotspot-form-row' });
         const positionLabel = new Label({ class: 'sca-hotspot-form-label', text: 'Position' });
         this.positionInput = new VectorInput({
@@ -94,6 +113,8 @@ class ScaHotspotForm extends Container {
         this.append(nameRow);
         this.append(textRow);
         this.append(enabledRow);
+        this.append(interactionTitle);
+        this.append(showInNavigationRow);
         this.append(positionRow);
         this.append(placeButton);
         this.append(deleteButton);
@@ -108,6 +129,14 @@ class ScaHotspotForm extends Container {
 
         this.enabledInput.on('change', (value: boolean) => {
             this.updateSelected({ enabled: value });
+        });
+
+        this.showInNavigationInput.on('change', (value: boolean) => {
+            this.updateSelected({
+                interaction: {
+                    showInNavigation: value
+                }
+            });
         });
 
         this.positionInput.on('change', (value: number[]) => {
@@ -189,6 +218,7 @@ class ScaHotspotForm extends Container {
         this.nameInput.value = hotspot.name;
         this.textInput.value = hotspot.text;
         this.enabledInput.value = hotspot.enabled;
+        this.showInNavigationInput.value = hotspot.interaction?.showInNavigation !== false;
         this.positionInput.value = [...hotspot.position];
         this.syncing = false;
     }

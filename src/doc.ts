@@ -9,6 +9,7 @@ import { writeSplatFile } from './splat-serialize';
 import { Transform } from './transform';
 import { i18n } from './ui/localization';
 import { loadScaAssetsFromZip } from './sca/persistence/register-sca-doc-events';
+import { ScaProject } from './sca/types/project';
 
 // ts compiler and vscode find this type, but eslint does not
 type FilePickerAcceptType = unknown;
@@ -135,7 +136,7 @@ const registerDocEvents = (scene: Scene, events: Events) => {
 
             const scaAssets = await loadScaAssetsFromZip(
                 zipFs,
-                events.invoke('sca.project.get') as { viewer?: { background?: { type?: string; image?: { filename?: string } } } }
+                events.invoke('sca.project.get') as ScaProject
             );
             if (scaAssets.length > 0) {
                 events.fire('docDeserialize.scaAssets', scaAssets);
@@ -173,6 +174,8 @@ const registerDocEvents = (scene: Scene, events: Events) => {
 
         try {
             const splats = events.invoke('scene.allSplats') as Splat[];
+
+            events.invoke('sca.regions.remapMasksForSave');
 
             const document = {
                 version: 0,

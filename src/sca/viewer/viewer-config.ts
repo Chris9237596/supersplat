@@ -1,14 +1,18 @@
 import {
     ScaCameraPose,
+    ScaHotspot,
     ScaNavigationMode,
     ScaProject,
     ScaStartAnimationType,
     ScaTurntableAnimation,
     ScaViewerBackground,
     ScaViewerConfig,
+    ScaViewerNavigationTargets,
     Vec3
 } from '../types/project';
+import { ScaRegion } from '../types/region';
 
+import { normalizeRegions } from '../region-defaults';
 import { normalizeBackground } from './viewer-background';
 
 const DEFAULT_FOV = 60;
@@ -158,6 +162,60 @@ const normalizeHotspots = (raw: unknown): ScaViewerConfig['hotspots'] => {
     };
 };
 
+const normalizeNavigationTargets = (raw: unknown): ScaViewerNavigationTargets => {
+    const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+
+    return {
+        enabled: record.enabled !== false,
+        hotspots: record.hotspots !== false,
+        regions: record.regions !== false
+    };
+};
+
+type NavigationPreviewEntry = {
+    type: 'hotspot' | 'region';
+    name: string;
+};
+
+const buildNavigationPreview = (
+    hotspots: ScaHotspot[],
+    regions: ScaRegion[],
+    navigationTargets?: ScaViewerNavigationTargets
+): NavigationPreviewEntry[] => {
+    const nav = normalizeNavigationTargets(navigationTargets);
+    if (nav.enabled === false) {
+        return [];
+    }
+
+    const entries: NavigationPreviewEntry[] = [];
+
+    if (nav.hotspots !== false) {
+        for (const hotspot of hotspots) {
+            if (hotspot.enabled === false) {
+                continue;
+            }
+            if (hotspot.interaction?.showInNavigation === false) {
+                continue;
+            }
+            entries.push({ type: 'hotspot', name: hotspot.name });
+        }
+    }
+
+    if (nav.regions !== false) {
+        for (const region of regions) {
+            if (!region.enabled) {
+                continue;
+            }
+            if (region.interaction.showInNavigation === false) {
+                continue;
+            }
+            entries.push({ type: 'region', name: region.name });
+        }
+    }
+
+    return entries;
+};
+
 const createDefaultViewerConfig = (initial?: Partial<ScaCameraPose>): ScaViewerConfig => {
     const basePose: ScaCameraPose = {
         position: initial?.position ? cloneVec3(initial.position) : cloneVec3(DEFAULT_POSITION),
@@ -180,7 +238,8 @@ const createDefaultViewerConfig = (initial?: Partial<ScaCameraPose>): ScaViewerC
         },
         interaction: normalizeInteraction(undefined),
         background: normalizeBackground(undefined),
-        hotspots: normalizeHotspots(undefined)
+        hotspots: normalizeHotspots(undefined),
+        navigationTargets: normalizeNavigationTargets(undefined)
     };
 };
 
@@ -244,7 +303,8 @@ const normalizeViewerConfig = (
         },
         interaction: normalizeInteraction(interactionRaw),
         background: normalizeBackground(record.background),
-        hotspots: normalizeHotspots(record.hotspots)
+        hotspots: normalizeHotspots(record.hotspots),
+        navigationTargets: normalizeNavigationTargets(record.navigationTargets)
     };
 };
 
@@ -252,6 +312,7 @@ const normalizeProject = (project: ScaProject, fallbackInitial?: Partial<ScaCame
     return {
         version: project.version,
         hotspots: project.hotspots,
+        regions: normalizeRegions(project.regions),
         viewer: project.viewer ?
             normalizeViewerConfig(project.viewer, fallbackInitial) :
             undefined
@@ -313,6 +374,7 @@ const ensureNavigationValid = (
 };
 
 export {
+    buildNavigationPreview,
     clonePose,
     computeCameraDistance,
     computeFlyToStartPose,
@@ -324,7 +386,9 @@ export {
     DEFAULT_TURNTABLE_DEGREES,
     DEFAULT_TURNTABLE_DURATION,
     ensureNavigationValid,
+    NavigationPreviewEntry,
     normalizeBackground,
+    normalizeNavigationTargets,
     normalizeProject,
     normalizeTurntable,
     normalizeViewerConfig,

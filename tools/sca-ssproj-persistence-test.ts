@@ -56,6 +56,7 @@ const createSampleProject = (): ScaProject => {
             sampleHotspot('hotspot_a', 'Alpha', [0.4, 0.2, 0.1]),
             sampleHotspot('hotspot_b', 'Beta', [-0.5, 0.15, -0.2])
         ],
+        regions: [],
         viewer
     };
 };

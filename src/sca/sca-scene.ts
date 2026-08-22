@@ -20,6 +20,9 @@ import { HotspotPlaceTool } from './tools/hotspot-place-tool';
 
 import { ScaAssetStore } from './store/sca-asset-store';
 import { registerScaPanoramaBackground } from './viewer/sca-panorama-background';
+import { registerScaRegionEvents } from './regions/register-sca-region-events';
+import { registerScaRegionCardPreview } from './regions/sca-region-card-preview';
+import { registerScaRegionHighlight } from './regions/sca-region-highlight';
 
 
 
@@ -42,6 +45,9 @@ const registerScaScene = (
     new HotspotMarkerManager(events, scene, canvasContainer);
 
     registerScaPanoramaBackground(events, scene, assetStore);
+    registerScaRegionEvents(events, scene);
+    registerScaRegionHighlight(events, scene);
+    registerScaRegionCardPreview(events, scene, canvasContainer);
 
 
 

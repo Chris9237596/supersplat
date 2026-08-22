@@ -9,6 +9,7 @@ import type { GridPlane } from './infinite-grid';
 import { MappedReadFileSystem } from './io';
 import { Scene } from './scene';
 import { Splat } from './splat';
+import { stripScaSplatId } from './sca/regions/splat-identity';
 import { writeSplatFile } from './splat-serialize';
 
 const removeExtension = (filename: string) => {
@@ -707,6 +708,8 @@ const registerEditorEvents = (events: Events, editHistory: EditHistory, scene: S
             const fileSystem = new MappedReadFileSystem();
             fileSystem.addFile(filename, blob);
             const copy = await scene.assetLoader.load(filename, fileSystem);
+
+            stripScaSplatId(copy);
 
             if (func === 'separate') {
                 editHistory.add(new MultiOp([

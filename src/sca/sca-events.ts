@@ -12,7 +12,8 @@ import { exportScaRuntimePackage, WebGPUUnavailableError } from './export/export
 import { stringifyProjectJson } from './serialize/project-json';
 import { HotspotStore } from './store/hotspot-store';
 import { mimeTypeForFilename, ScaAssetStore } from './store/sca-asset-store';
-import { createEmptyProject, ScaHotspot, ScaProject, ScaViewerBackground } from './types/project';
+import { createEmptyProject, ScaHotspot, ScaProject, ScaRegion, ScaViewerBackground } from './types/project';
+import { ScaRegionPatch } from './types/region';
 
 const registerScaEvents = (events: Events): HotspotStore => {
     const store = new HotspotStore(createEmptyProject());
@@ -89,17 +90,63 @@ const registerScaEvents = (events: Events): HotspotStore => {
         });
     });
 
+    const notifyRegionSelectionChanged = () => {
+        events.fire('sca.region.selected', store.getSelectedRegionId());
+    };
+
+    events.function('sca.region.getSelected', () => {
+        return store.getSelectedRegionId();
+    });
+
+    events.function('sca.region.get', (id?: string) => {
+        if (id) {
+            return store.getRegions().find((region) => region.id === id) ?? null;
+        }
+
+        return store.getSelectedRegion();
+    });
+
+    events.function('sca.region.list', () => {
+        return store.getRegions();
+    });
+
+    events.on('sca.region.select', (id: string | null) => {
+        if (id !== null && id === store.getSelectedRegionId()) {
+            store.selectRegion(null);
+        } else {
+            store.selectRegion(id);
+        }
+        console.log('[SCA] region selected:', store.getSelectedRegionId());
+        notifyRegionSelectionChanged();
+    });
+
+    events.on('sca.region.update', (id: string, patch: ScaRegionPatch) => {
+        history.record(() => {
+            store.updateRegion(id, patch);
+            notifyProjectChanged();
+        });
+    });
+
+    events.on('sca.region.delete', (id: string) => {
+        events.fire('sca.region.delete.request', id);
+    });
+
     events.on('sca.project.load', (project: ScaProject) => {
         store.loadProject(project);
         notifyProjectChanged();
         notifySelectionChanged();
+        notifyRegionSelectionChanged();
     });
 
     registerScaFocusEvents(events);
     registerScaViewerEvents(events, store, history, assetStore);
     registerScaDocEvents(events, store, assetStore);
 
+    events.function('sca.store', () => store);
+
     events.function('sca.assetStore', () => assetStore);
+
+    events.function('sca.history.applying', () => history.applying);
 
     events.on('sca.export.runtime', () => {
         exportScaRuntime(store.getProject());

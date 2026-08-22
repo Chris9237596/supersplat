@@ -3,6 +3,10 @@ const vertexShader = /* glsl*/`
 
 uniform sampler2D splatState;
 
+uniform sampler2D scaRegionHighlight;
+uniform vec4 scaRegionHighlightClr;
+uniform float scaRegionHighlightActive;
+
 uniform vec4 selectedClr;
 uniform vec4 lockedClr;
 
@@ -141,6 +145,11 @@ void main(void) {
         } else if ((vertexState & 1u) != 0u) {
             // selected
             color.xyz = mix(color.xyz, selectedClr.xyz, selectedClr.a);
+        } else if (scaRegionHighlightActive > 0.5) {
+            float regionMask = texelFetch(scaRegionHighlight, splat.uv, 0).r;
+            if (regionMask > 0.0) {
+                color.xyz = mix(color.xyz, scaRegionHighlightClr.xyz, scaRegionHighlightClr.a * regionMask);
+            }
         }
     #endif
 }

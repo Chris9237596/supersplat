@@ -39,6 +39,7 @@ const runHistoryTests = async () => {
     const withHotspot = {
         version: SCA_PROJECT_VERSION,
         hotspots: [sampleHotspot('hs_1', 'First')],
+        regions: [],
         viewer: createDefaultViewerConfig()
     };
 
@@ -50,6 +51,8 @@ const runHistoryTests = async () => {
         withHotspot,
         null,
         'hs_1',
+        null,
+        null,
         emptyAssets,
         emptyAssets,
         applying
@@ -83,6 +86,8 @@ const runHistoryTests = async () => {
         },
         'hs_1',
         'hs_1',
+        null,
+        null,
         emptyAssets,
         emptyAssets,
         applying

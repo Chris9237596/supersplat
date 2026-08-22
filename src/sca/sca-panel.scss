@@ -227,6 +227,27 @@
         margin: 2px 0 2px 72px;
     }
 
+    .sca-viewer-nav-preview {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin: 4px 0 12px 72px;
+        padding: 8px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.04);
+        font-size: 12px;
+        line-height: 1.4;
+    }
+
+    .sca-viewer-nav-preview-empty {
+        opacity: 0.6;
+        font-style: italic;
+    }
+
+    .sca-viewer-nav-preview-item {
+        font-family: inherit;
+    }
+
     .sca-viewer-select,
     .sca-viewer-fov-slider,
     .sca-viewer-duration-slider {
@@ -300,6 +321,10 @@
         margin-top: 8px;
         background-color: rgba(255, 255, 255, 0.06);
         border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .sca-region-delete-button {
+        margin-top: 8px;
     }
 }
 

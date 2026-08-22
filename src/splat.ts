@@ -16,6 +16,7 @@ import {
 } from 'playcanvas';
 
 import { Element, ElementType } from './element';
+import { IndexRanges } from './index-ranges';
 import { Serializer } from './serializer';
 import { vertexShader, fragmentShader, gsplatCenter } from './shaders/splat-shader';
 import { State, SplatState } from './splat-state';
@@ -64,6 +65,10 @@ class Splat extends Element {
     selectionAlpha = 1;
 
     _name = '';
+    scaSplatId: string | undefined;
+    scaRegionHighlightTexture: Texture;
+    scaRegionHighlightActive = false;
+    private scaRegionHighlightClr = new Color(1, 0.4, 0, 0.55);
     _tintClr = new Color(1, 1, 1);
     _temperature = 0;
     _saturation = 1;
@@ -117,6 +122,14 @@ class Splat extends Element {
             material.setDefine('SH_BANDS', `${Math.min(bands, (instance.resource as GSplatResource).shBands)}`);
             material.setParameter('splatState', this.stateTexture);
             material.setParameter('splatTransform', this.transformTexture);
+            material.setParameter('scaRegionHighlight', this.scaRegionHighlightTexture);
+            material.setParameter('scaRegionHighlightActive', this.scaRegionHighlightActive ? 1 : 0);
+            material.setParameter('scaRegionHighlightClr', [
+                this.scaRegionHighlightClr.r,
+                this.scaRegionHighlightClr.g,
+                this.scaRegionHighlightClr.b,
+                this.scaRegionHighlightClr.a
+            ]);
             material.update();
         };
 
@@ -196,6 +209,7 @@ class Splat extends Element {
         this.stateTexture = createTexture('splatState', PIXELFORMAT_R8);
         this.state = new SplatState(splatData.getProp('state') as Uint8Array, this.stateTexture);
         this.transformTexture = createTexture('splatTransform', PIXELFORMAT_R16U);
+        this.scaRegionHighlightTexture = createTexture('scaRegionHighlight', PIXELFORMAT_R8);
 
         this.localBoundStorage = instance.resource.aabb;
         // @ts-ignore
@@ -474,6 +488,13 @@ class Splat extends Element {
 
         material.setParameter('saturation', this.saturation);
         material.setParameter('transformPalette', this.transformPalette.texture);
+        material.setParameter('scaRegionHighlightActive', this.scaRegionHighlightActive ? 1 : 0);
+        material.setParameter('scaRegionHighlightClr', [
+            this.scaRegionHighlightClr.r,
+            this.scaRegionHighlightClr.g,
+            this.scaRegionHighlightClr.b,
+            this.scaRegionHighlightClr.a
+        ]);
 
         if (this.visible && selected) {
             // render bounding box
@@ -655,6 +676,40 @@ class Splat extends Element {
         return !this.localFrameOrigin.equals(Vec3.ZERO) || !this.localFrame.equals(Quat.IDENTITY);
     }
 
+    clearScaRegionHighlight() {
+        if (!this.scaRegionHighlightActive) {
+            return;
+        }
+
+        const buffer = this.scaRegionHighlightTexture.lock() as Uint8Array;
+        buffer.fill(0);
+        this.scaRegionHighlightTexture.unlock();
+        this.scaRegionHighlightActive = false;
+        this.scene?.forceRender && (this.scene.forceRender = true);
+    }
+
+    setScaRegionHighlight(ranges: IndexRanges | null, color?: Color) {
+        if (!ranges || ranges.empty) {
+            this.clearScaRegionHighlight();
+            return;
+        }
+
+        if (color) {
+            this.scaRegionHighlightClr.set(color.r, color.g, color.b, color.a);
+        }
+
+        const buffer = this.scaRegionHighlightTexture.lock() as Uint8Array;
+        buffer.fill(0);
+        ranges.forEach((index) => {
+            if (index >= 0 && index < buffer.length) {
+                buffer[index] = 255;
+            }
+        });
+        this.scaRegionHighlightTexture.unlock();
+        this.scaRegionHighlightActive = true;
+        this.scene?.forceRender && (this.scene.forceRender = true);
+    }
+
     docSerialize() {
         const pack3 = (v: Vec3) => [v.x, v.y, v.z];
         const pack4 = (q: Quat) => [q.x, q.y, q.z, q.w];
@@ -673,7 +728,8 @@ class Splat extends Element {
             brightness: this.brightness,
             blackPoint: this.blackPoint,
             whitePoint: this.whitePoint,
-            transparency: this.transparency
+            transparency: this.transparency,
+            ...(this.scaSplatId ? { scaSplatId: this.scaSplatId } : {})
         };
     }
 
@@ -693,6 +749,9 @@ class Splat extends Element {
         this.blackPoint = blackPoint;
         this.whitePoint = whitePoint;
         this.transparency = transparency;
+        this.scaSplatId = typeof doc.scaSplatId === 'string' && doc.scaSplatId.trim().length > 0 ?
+            doc.scaSplatId.trim() :
+            undefined;
     }
 }
 
