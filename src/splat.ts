@@ -763,7 +763,30 @@ class Splat extends Element {
 
         this.scaRegionHighlightTexture.unlock();
         this.scaRegionHighlightActive = true;
+        this.entity.gsplat.instance.material.update();
         this.scene?.forceRender && (this.scene.forceRender = true);
+    }
+
+    getScaRegionHighlightStateCounts(): { hover: number; selected: number } {
+        if (!this.scaRegionHighlightActive) {
+            return { hover: 0, selected: 0 };
+        }
+
+        const buffer = this.scaRegionHighlightTexture.lock() as Uint8Array;
+        let hover = 0;
+        let selected = 0;
+
+        for (let i = 0; i < buffer.length; i++) {
+            const value = buffer[i];
+            if (value === 85) {
+                hover++;
+            } else if (value === 255) {
+                selected++;
+            }
+        }
+
+        this.scaRegionHighlightTexture.unlock();
+        return { hover, selected };
     }
 
     docSerialize() {

@@ -7,6 +7,7 @@ import { HotspotStore } from '../store/hotspot-store';
 import { ScaAssetStore } from '../store/sca-asset-store';
 import { ScaRegion } from '../types/region';
 
+import { logEditorRegionHover } from '../debug/editor-region-preview-debug';
 import {
     createEditorPickerAdapter,
     EditorPickerBackend
@@ -40,27 +41,36 @@ const registerScaViewerInteractionPreview = (
     let pointerDownY = 0;
     let pointerActive = false;
     let pickInFlight = false;
+    let pendingHoverPick: { clientX: number; clientY: number } | null = null;
     let lastHoverLog = '';
     let lastHoverAt = 0;
+    let interactionCore: ScaRegionInteractionCore | null = null;
 
     const getInteractionCore = (): ScaRegionInteractionCore => {
+        if (interactionCore) {
+            return interactionCore;
+        }
+
         const store = events.invoke('sca.store') as HotspotStore;
         const assetStore = events.invoke('sca.assetStore') as ScaAssetStore;
         const lookup = createStorageRegionMaskLookup(store, assetStore);
 
-        return new ScaRegionInteractionCore(lookup, {
+        interactionCore = new ScaRegionInteractionCore(lookup, {
             getRegion: (regionId: string) =>
                 events.invoke('sca.region.get', regionId) as ScaRegion | null,
             getSelectedRegionId: () =>
                 events.invoke('sca.region.getSelected') as string | null,
             onHoverChange: (regionId: string | null) => {
                 canvasContainer.dom.style.cursor = regionId ? 'pointer' : '';
+                logEditorRegionHover(enabled, regionId);
                 events.fire('sca.region.hoverPreview', regionId);
             },
             onSelectionChange: (regionId: string | null) => {
                 events.fire('sca.region.select', regionId);
             }
         });
+
+        return interactionCore;
     };
 
     events.function('sca.viewerInteractionPreview.enabled', () => enabled);
@@ -68,11 +78,13 @@ const registerScaViewerInteractionPreview = (
     events.on('sca.viewerInteractionPreview.setEnabled', (value: boolean) => {
         enabled = !!value;
         lastHoverLog = '';
+        pendingHoverPick = null;
         if (enabled) {
             console.log('[SCA AUTHORING PREVIEW] enabled — storage-index region pick (Centers or Rings).');
         } else {
             console.log('[SCA AUTHORING PREVIEW] disabled');
             canvasContainer.dom.style.removeProperty('cursor');
+            getInteractionCore().setHoveredRegion(null);
         }
     });
 
@@ -98,6 +110,9 @@ const registerScaViewerInteractionPreview = (
         kind: 'click' | 'hover'
     ): Promise<void> => {
         if (pickInFlight) {
+            if (kind === 'hover') {
+                pendingHoverPick = { clientX, clientY };
+            }
             return;
         }
 
@@ -147,6 +162,11 @@ const registerScaViewerInteractionPreview = (
             }
         } finally {
             pickInFlight = false;
+            const pending = pendingHoverPick;
+            pendingHoverPick = null;
+            if (pending) {
+                void runPick(pending.clientX, pending.clientY, 'hover');
+            }
         }
     };
 

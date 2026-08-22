@@ -25,6 +25,7 @@ import { Events } from '../../events';
 import { ScaRegion, ScaRegionPatch } from '../types/region';
 
 import { DEFAULT_ACTIVE_TINT, DEFAULT_HOVER_TINT } from '../region-defaults';
+import { RegionAuthoringPreviewState } from '../regions/region-authoring-preview-state';
 import { createRegionTintControls } from './region-tint-controls';
 
 
@@ -75,7 +76,10 @@ class ScaRegionsPanel extends Container {
 
     private removeSelectionButton: Button;
 
-
+    private authoringPreviewRefs = {
+        hover: 0,
+        selected: 0
+    };
 
     constructor(private events: Events, args = {}) {
 
@@ -499,21 +503,22 @@ class ScaRegionsPanel extends Container {
             this.commitPatch({
                 visual: { hoverTint }
             });
+        }, {
+            onPreviewStart: () => this.beginAuthoringPreview('hover'),
+            onPreviewEnd: () => this.endAuthoringPreview('hover')
         });
 
-        this.hoverStrengthInput.on('change', () => {
-
-            this.commitPatch({
-
-                visual: {
-
-                    hoverOpacity: this.hoverStrengthInput.value
-
-                }
-
-            });
-
-        });
+        this.bindStrengthAuthoringPreview(
+            this.hoverStrengthInput,
+            'hover',
+            () => {
+                this.commitPatch({
+                    visual: {
+                        hoverOpacity: this.hoverStrengthInput.value
+                    }
+                });
+            }
+        );
 
 
 
@@ -521,21 +526,22 @@ class ScaRegionsPanel extends Container {
             this.commitPatch({
                 visual: { activeTint }
             });
+        }, {
+            onPreviewStart: () => this.beginAuthoringPreview('selected'),
+            onPreviewEnd: () => this.endAuthoringPreview('selected')
         });
 
-        this.activeStrengthInput.on('change', () => {
-
-            this.commitPatch({
-
-                visual: {
-
-                    activeOpacity: this.activeStrengthInput.value
-
-                }
-
-            });
-
-        });
+        this.bindStrengthAuthoringPreview(
+            this.activeStrengthInput,
+            'selected',
+            () => {
+                this.commitPatch({
+                    visual: {
+                        activeOpacity: this.activeStrengthInput.value
+                    }
+                });
+            }
+        );
 
 
 
@@ -657,9 +663,85 @@ class ScaRegionsPanel extends Container {
 
     }
 
+    private syncAuthoringPreviewState(): void {
+        if (!this.selectedId) {
+            this.events.fire('sca.region.authoringPreview.set', null);
+            return;
+        }
+
+        let state: RegionAuthoringPreviewState = null;
+        if (this.authoringPreviewRefs.hover > 0) {
+            state = 'hover';
+        } else if (this.authoringPreviewRefs.selected > 0) {
+            state = 'selected';
+        }
+
+        this.events.fire('sca.region.authoringPreview.set', state);
+    }
+
+    private beginAuthoringPreview(state: 'hover' | 'selected'): void {
+        if (!this.selectedId) {
+            return;
+        }
+
+        this.authoringPreviewRefs[state]++;
+        this.syncAuthoringPreviewState();
+    }
+
+    private endAuthoringPreview(state: 'hover' | 'selected'): void {
+        this.authoringPreviewRefs[state] = Math.max(0, this.authoringPreviewRefs[state] - 1);
+        this.syncAuthoringPreviewState();
+    }
+
+    private resetAuthoringPreview(): void {
+        this.authoringPreviewRefs.hover = 0;
+        this.authoringPreviewRefs.selected = 0;
+        this.events.fire('sca.region.authoringPreview.set', null);
+    }
+
+    private bindStrengthAuthoringPreview(
+        slider: SliderInput,
+        state: 'hover' | 'selected',
+        onCommit: () => void
+    ): void {
+        let pointerActive = false;
+
+        slider.on('change', onCommit);
+
+        slider.dom.addEventListener('pointerdown', () => {
+            pointerActive = true;
+            this.beginAuthoringPreview(state);
+            this.events.invoke('sca.history.beginTransaction');
+        });
+        slider.dom.addEventListener('pointerup', () => {
+            if (!pointerActive) {
+                return;
+            }
+            pointerActive = false;
+            this.events.invoke('sca.history.commitTransaction');
+            this.endAuthoringPreview(state);
+        });
+        slider.dom.addEventListener('focusin', () => {
+            if (pointerActive) {
+                return;
+            }
+            this.beginAuthoringPreview(state);
+            this.events.invoke('sca.history.beginTransaction');
+        });
+        slider.dom.addEventListener('focusout', () => {
+            if (pointerActive) {
+                return;
+            }
+            this.events.invoke('sca.history.commitTransaction');
+            this.endAuthoringPreview(state);
+        });
+    }
+
 
 
     private loadRegion(selectedId: string | null) {
+
+        this.resetAuthoringPreview();
 
         this.selectedId = selectedId;
 

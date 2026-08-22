@@ -389,7 +389,7 @@ class ScaViewerPanel extends Container {
         });
         const viewerInteractionPreviewLabel = new Label({
             class: 'sca-export-preview-label',
-            text: 'Authoring Interaction Preview'
+            text: 'Authoring Interaction Preview (Hover / Click)'
         });
         viewerInteractionPreviewRow.append(viewerInteractionPreviewInput);
         viewerInteractionPreviewRow.append(viewerInteractionPreviewLabel);

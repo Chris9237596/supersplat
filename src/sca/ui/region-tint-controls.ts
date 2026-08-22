@@ -5,13 +5,22 @@ import { Events } from '../../events';
 import { DEFAULT_ACTIVE_TINT, DEFAULT_HOVER_TINT } from '../region-defaults';
 import { normalizeHexColor } from '../presentation/region-color';
 
+type RegionTintPreviewHandlers = {
+    onPreviewStart?: () => void;
+    onPreviewEnd?: () => void;
+};
+
 type RegionTintControls = {
     row: Container;
     colorInput: HTMLInputElement;
     hexInput: TextInput;
     setValue: (hex: string) => void;
     getValue: () => string;
-    bind: (events: Events, onCommit: (hex: string) => void) => void;
+    bind: (
+        events: Events,
+        onCommit: (hex: string) => void,
+        preview?: RegionTintPreviewHandlers
+    ) => void;
 };
 
 const isValidHexColor = (value: string): boolean => {
@@ -54,7 +63,11 @@ const createRegionTintControls = (
 
     const getValue = () => lastValidHex;
 
-    const bind = (events: Events, onCommit: (hex: string) => void) => {
+    const bind = (
+        events: Events,
+        onCommit: (hex: string) => void,
+        preview?: RegionTintPreviewHandlers
+    ) => {
         const commitHex = (hex: string) => {
             const normalized = normalizeHexColor(hex, fallbackHex);
             lastValidHex = normalized;
@@ -73,13 +86,15 @@ const createRegionTintControls = (
         });
 
         colorInput.addEventListener('pointerdown', () => {
+            preview?.onPreviewStart?.();
             events.invoke('sca.history.beginTransaction');
-        });
-        colorInput.addEventListener('pointerup', () => {
-            events.invoke('sca.history.commitTransaction');
         });
         colorInput.addEventListener('change', () => {
             events.invoke('sca.history.commitTransaction');
+            preview?.onPreviewEnd?.();
+        });
+        colorInput.addEventListener('blur', () => {
+            preview?.onPreviewEnd?.();
         });
 
         hexInput.on('change', () => {
@@ -101,10 +116,12 @@ const createRegionTintControls = (
         });
 
         hexInput.dom.addEventListener('focusin', () => {
+            preview?.onPreviewStart?.();
             events.invoke('sca.history.beginTransaction');
         });
         hexInput.dom.addEventListener('focusout', () => {
             events.invoke('sca.history.commitTransaction');
+            preview?.onPreviewEnd?.();
         });
     };
 
@@ -120,4 +137,4 @@ const createRegionTintControls = (
     };
 };
 
-export { createRegionTintControls };
+export { createRegionTintControls, RegionTintPreviewHandlers };
