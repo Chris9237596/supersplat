@@ -68,8 +68,15 @@ class Splat extends Element {
     scaSplatId: string | undefined;
     scaRegionHighlightTexture: Texture;
     scaRegionHighlightActive = false;
+    scaRegionPulseTexture: Texture;
+    scaRegionPulseActive = false;
     private scaRegionHighlightClr = new Color(1, 0.4, 0, 0.55);
     private scaRegionHoverClr = new Color(1, 0.4, 0, 0.35);
+    private scaRegionPulseClr = new Color(1, 0.4, 0, 1);
+    private scaRegionPulseStrength = 0.5;
+    private scaRegionPulseSpeed = 1;
+    private scaRegionPulseTime = 0;
+    private scaRegionPulseOnce = false;
     _tintClr = new Color(1, 1, 1);
     _temperature = 0;
     _saturation = 1;
@@ -137,6 +144,18 @@ class Splat extends Element {
                 this.scaRegionHoverClr.b,
                 this.scaRegionHoverClr.a
             ]);
+            material.setParameter('scaRegionPulse', this.scaRegionPulseTexture);
+            material.setParameter('scaRegionPulseActive', this.scaRegionPulseActive ? 1 : 0);
+            material.setParameter('scaRegionPulseClr', [
+                this.scaRegionPulseClr.r,
+                this.scaRegionPulseClr.g,
+                this.scaRegionPulseClr.b,
+                this.scaRegionPulseClr.a
+            ]);
+            material.setParameter('scaRegionPulseStrength', this.scaRegionPulseStrength);
+            material.setParameter('scaRegionPulseSpeed', this.scaRegionPulseSpeed);
+            material.setParameter('scaRegionPulseTime', this.scaRegionPulseTime);
+            material.setParameter('scaRegionPulseOnce', this.scaRegionPulseOnce ? 1 : 0);
             material.update();
         };
 
@@ -217,6 +236,7 @@ class Splat extends Element {
         this.state = new SplatState(splatData.getProp('state') as Uint8Array, this.stateTexture);
         this.transformTexture = createTexture('splatTransform', PIXELFORMAT_R16U);
         this.scaRegionHighlightTexture = createTexture('scaRegionHighlight', PIXELFORMAT_R8);
+        this.scaRegionPulseTexture = createTexture('scaRegionPulse', PIXELFORMAT_R8);
 
         this.localBoundStorage = instance.resource.aabb;
         // @ts-ignore
@@ -508,6 +528,17 @@ class Splat extends Element {
             this.scaRegionHoverClr.b,
             this.scaRegionHoverClr.a
         ]);
+        material.setParameter('scaRegionPulseActive', this.scaRegionPulseActive ? 1 : 0);
+        material.setParameter('scaRegionPulseClr', [
+            this.scaRegionPulseClr.r,
+            this.scaRegionPulseClr.g,
+            this.scaRegionPulseClr.b,
+            this.scaRegionPulseClr.a
+        ]);
+        material.setParameter('scaRegionPulseStrength', this.scaRegionPulseStrength);
+        material.setParameter('scaRegionPulseSpeed', this.scaRegionPulseSpeed);
+        material.setParameter('scaRegionPulseTime', this.scaRegionPulseTime);
+        material.setParameter('scaRegionPulseOnce', this.scaRegionPulseOnce ? 1 : 0);
 
         if (this.visible && selected) {
             // render bounding box
@@ -787,6 +818,76 @@ class Splat extends Element {
 
         this.scaRegionHighlightTexture.unlock();
         return { hover, selected };
+    }
+
+    clearScaRegionPulse() {
+        if (!this.scaRegionPulseActive) {
+            return;
+        }
+
+        const buffer = this.scaRegionPulseTexture.lock() as Uint8Array;
+        buffer.fill(0);
+        this.scaRegionPulseTexture.unlock();
+        this.scaRegionPulseActive = false;
+        this.scaRegionPulseTime = 0;
+        this.entity.gsplat.instance.material.setParameter('scaRegionPulseActive', 0);
+        this.entity.gsplat.instance.material.update();
+        this.scene?.forceRender && (this.scene.forceRender = true);
+    }
+
+    setScaRegionPulseMask(ranges: IndexRanges | null) {
+        const hasPulse = !!ranges && !ranges.empty;
+
+        if (!hasPulse) {
+            this.clearScaRegionPulse();
+            return;
+        }
+
+        const buffer = this.scaRegionPulseTexture.lock() as Uint8Array;
+        buffer.fill(0);
+
+        ranges!.forEach((index) => {
+            if (index >= 0 && index < buffer.length) {
+                buffer[index] = 255;
+            }
+        });
+
+        this.scaRegionPulseTexture.unlock();
+        this.scaRegionPulseActive = true;
+        this.entity.gsplat.instance.material.setParameter('scaRegionPulseActive', 1);
+        this.entity.gsplat.instance.material.update();
+        this.scene?.forceRender && (this.scene.forceRender = true);
+    }
+
+    updateScaRegionPulseUniforms(
+        color: Color,
+        strength: number,
+        speed: number,
+        time: number,
+        once: boolean
+    ) {
+        if (!this.scaRegionPulseActive) {
+            return;
+        }
+
+        this.scaRegionPulseClr.copy(color);
+        this.scaRegionPulseStrength = strength;
+        this.scaRegionPulseSpeed = speed;
+        this.scaRegionPulseTime = time;
+        this.scaRegionPulseOnce = once;
+
+        const material = this.entity.gsplat.instance.material;
+        material.setParameter('scaRegionPulseClr', [
+            color.r,
+            color.g,
+            color.b,
+            color.a
+        ]);
+        material.setParameter('scaRegionPulseStrength', strength);
+        material.setParameter('scaRegionPulseSpeed', speed);
+        material.setParameter('scaRegionPulseTime', time);
+        material.setParameter('scaRegionPulseOnce', once ? 1 : 0);
+        material.update();
     }
 
     docSerialize() {

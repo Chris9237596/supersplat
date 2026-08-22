@@ -37,6 +37,57 @@ import { ScaRegion } from '../types/region';
 const PACKAGE_FILENAME = 'sca-runtime-package.zip';
 const PREVIEW_FILENAME = 'preview.html';
 
+const SCA_RUNTIME_ASSET_FILENAMES = [
+    'sca-runtime-capabilities.js',
+    'sca-debug.js',
+    'camera-animation.js',
+    'hotspot-bridge.js',
+    'region-bridge.js',
+    'region-mask-runtime.js',
+    'sca-picker.js',
+    'sca-region-core.js',
+    'sca-annotation-projector.js',
+    'sca-hotspot-overlay.js',
+    'sca-region-overlay.js',
+    'sca-region-runtime.js',
+    'sca-hotspot-markers.css',
+    'sca-runtime.js'
+] as const;
+
+type ScaRuntimeAssetFilename = typeof SCA_RUNTIME_ASSET_FILENAMES[number];
+
+class ScaRuntimeAssetLoadError extends Error {
+    readonly assetPath: string;
+
+    readonly cause: unknown;
+
+    constructor(message: string, assetPath: string, cause: unknown) {
+        super(message);
+        this.name = 'ScaRuntimeAssetLoadError';
+        this.assetPath = assetPath;
+        this.cause = cause;
+    }
+}
+
+type ScaRuntimeAssets = {
+    scaCapabilitiesJs: string;
+    scaDebugJs: string;
+    cameraAnimationJs: string;
+    bridgeJs: string;
+    regionBridgeJs: string;
+    regionMaskJs: string;
+    pickerJs: string;
+    regionCoreJs: string;
+    annotationProjectorJs: string;
+    overlayJs: string;
+    regionOverlayJs: string;
+    regionRuntimeJs: string;
+    hotspotCss: string;
+    runtimeJs: string;
+};
+
+let runtimeAssetFetchCache: Promise<ScaRuntimeAssets> | null = null;
+
 type ScaRuntimePackageOptions = {
     includePreview?: boolean;
     /** @deprecated Debug only — Gaussian Pick Spike. Production uses RuntimeWebGpuPickerAdapter / RuntimeCentersPickerAdapter. */
@@ -45,7 +96,7 @@ type ScaRuntimePackageOptions = {
 };
 
 type ScaRuntimeExportSharedContext = {
-    runtimeAssets: Awaited<ReturnType<typeof fetchScaRuntimeAssets>>;
+    runtimeAssets: ScaRuntimeAssets;
     embeddedAssets: Record<string, string>;
     exportProject: ScaProject;
 };
@@ -385,15 +436,146 @@ const bytesToBase64 = (bytes: Uint8Array): string => {
     return btoa(binary);
 };
 
-const fetchRuntimeAsset = async (filename: string): Promise<string> => {
-    const url = new URL(`static/sca/${filename}`, window.location.href).href;
-    const response = await fetch(url);
+const runtimeAssetPublicPath = (filename: string): string => `static/sca/${filename}`;
 
-    if (!response.ok) {
-        throw new Error(`[SCA] failed to load runtime asset: ${filename} (${response.status})`);
+const isNetworkFetchFailure = (error: unknown): boolean => {
+    if (!(error instanceof TypeError)) {
+        return false;
     }
 
-    return response.text();
+    const message = error.message.toLowerCase();
+    return message.includes('failed to fetch') ||
+        message.includes('networkerror') ||
+        message.includes('network request failed') ||
+        message.includes('load failed');
+};
+
+const formatRuntimeAssetLoadError = (filename: string, error: unknown): ScaRuntimeAssetLoadError => {
+    if (error instanceof ScaRuntimeAssetLoadError) {
+        return error;
+    }
+
+    const assetPath = runtimeAssetPublicPath(filename);
+
+    if (isNetworkFetchFailure(error)) {
+        return new ScaRuntimeAssetLoadError(
+            'SCA Runtime export failed\n\n' +
+            `Could not load:\n${assetPath}\n\n` +
+            'The editor server may no longer be available.\n\n' +
+            'Reload the editor and try again.',
+            assetPath,
+            error
+        );
+    }
+
+    const detail = error instanceof Error ? error.message : String(error);
+    return new ScaRuntimeAssetLoadError(
+        'SCA Runtime export failed\n\n' +
+        `Could not load:\n${assetPath}\n\n` +
+        `${detail}\n\n` +
+        'Runtime assets are unavailable. Reload the editor or restart the development server.',
+        assetPath,
+        error
+    );
+};
+
+const fetchRuntimeAsset = async (filename: ScaRuntimeAssetFilename): Promise<string> => {
+    const assetPath = runtimeAssetPublicPath(filename);
+    const url = new URL(assetPath, window.location.href).href;
+
+    try {
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new ScaRuntimeAssetLoadError(
+                'SCA Runtime export failed\n\n' +
+                `Could not load:\n${assetPath}\n\n` +
+                `The server responded with HTTP ${response.status}.\n\n` +
+                'Reload the editor and try again.',
+                assetPath,
+                new Error(`HTTP ${response.status}`)
+            );
+        }
+
+        return response.text();
+    } catch (error) {
+        throw formatRuntimeAssetLoadError(filename, error);
+    }
+};
+
+const resetRuntimeAssetFetchCache = (): void => {
+    runtimeAssetFetchCache = null;
+};
+
+const fetchScaRuntimeAssetsInternal = async (): Promise<ScaRuntimeAssets> => {
+    console.log(`[SCA EXPORT] loading ${SCA_RUNTIME_ASSET_FILENAMES.length} runtime assets`);
+
+    const [
+        scaCapabilitiesJs,
+        scaDebugJs,
+        cameraAnimationJs,
+        bridgeJs,
+        regionBridgeJs,
+        regionMaskJs,
+        pickerJs,
+        regionCoreJs,
+        annotationProjectorJs,
+        overlayJs,
+        regionOverlayJs,
+        regionRuntimeJs,
+        hotspotCss,
+        runtimeJs
+    ] = await Promise.all(SCA_RUNTIME_ASSET_FILENAMES.map((filename) => fetchRuntimeAsset(filename)));
+
+    return {
+        scaCapabilitiesJs,
+        scaDebugJs,
+        cameraAnimationJs,
+        bridgeJs,
+        regionBridgeJs,
+        regionMaskJs,
+        pickerJs,
+        regionCoreJs,
+        annotationProjectorJs,
+        overlayJs,
+        regionOverlayJs,
+        regionRuntimeJs,
+        hotspotCss,
+        runtimeJs
+    };
+};
+
+const fetchScaRuntimeAssets = async (): Promise<ScaRuntimeAssets> => {
+    if (!runtimeAssetFetchCache) {
+        runtimeAssetFetchCache = fetchScaRuntimeAssetsInternal().catch((error) => {
+            runtimeAssetFetchCache = null;
+            throw error;
+        });
+    }
+
+    return runtimeAssetFetchCache;
+};
+
+/** Fail fast before SOG compression when runtime assets cannot be loaded. */
+const ensureScaRuntimeAssetsAvailable = async (): Promise<ScaRuntimeAssets> => {
+    try {
+        return await fetchScaRuntimeAssets();
+    } catch (error) {
+        if (error instanceof ScaRuntimeAssetLoadError) {
+            console.error('[SCA EXPORT] runtime asset load failed:', {
+                assetPath: error.assetPath,
+                cause: error.cause
+            });
+            throw error;
+        }
+
+        console.error('[SCA EXPORT] runtime asset load failed:', error);
+        throw new ScaRuntimeAssetLoadError(
+            'Runtime assets are unavailable. Reload the editor or restart the development server.',
+            'static/sca/*',
+            error
+        );
+    }
 };
 
 const writeZipFromMemory = async (memFs: MemoryFileSystem, filename: string): Promise<void> => {
@@ -433,57 +615,6 @@ const patchExportedViewerAssets = (memFs: MemoryFileSystem, useGaussianPickSpike
 
         memFs.results.set(filename, encoder.encode(patchViewerBundleForExport(html, useGaussianPickSpike)));
     }
-};
-
-const fetchScaRuntimeAssets = async () => {
-    const [
-        scaCapabilitiesJs,
-        scaDebugJs,
-        cameraAnimationJs,
-        bridgeJs,
-        regionBridgeJs,
-        regionMaskJs,
-        pickerJs,
-        regionCoreJs,
-        annotationProjectorJs,
-        overlayJs,
-        regionOverlayJs,
-        regionRuntimeJs,
-        hotspotCss,
-        runtimeJs
-    ] = await Promise.all([
-        fetchRuntimeAsset('sca-runtime-capabilities.js'),
-        fetchRuntimeAsset('sca-debug.js'),
-        fetchRuntimeAsset('camera-animation.js'),
-        fetchRuntimeAsset('hotspot-bridge.js'),
-        fetchRuntimeAsset('region-bridge.js'),
-        fetchRuntimeAsset('region-mask-runtime.js'),
-        fetchRuntimeAsset('sca-picker.js'),
-        fetchRuntimeAsset('sca-region-core.js'),
-        fetchRuntimeAsset('sca-annotation-projector.js'),
-        fetchRuntimeAsset('sca-hotspot-overlay.js'),
-        fetchRuntimeAsset('sca-region-overlay.js'),
-        fetchRuntimeAsset('sca-region-runtime.js'),
-        fetchRuntimeAsset('sca-hotspot-markers.css'),
-        fetchRuntimeAsset('sca-runtime.js')
-    ]);
-
-    return {
-        scaCapabilitiesJs,
-        scaDebugJs,
-        cameraAnimationJs,
-        bridgeJs,
-        regionBridgeJs,
-        regionMaskJs,
-        pickerJs,
-        regionCoreJs,
-        annotationProjectorJs: annotationProjectorJs,
-        overlayJs,
-        regionOverlayJs,
-        regionRuntimeJs,
-        hotspotCss,
-        runtimeJs
-    };
 };
 
 type RuntimeViewerPreviewResult = {
@@ -539,6 +670,8 @@ const buildRuntimeViewerPreviewHtml = async (
     splatTransformLogger.setRenderer(createProgressRenderer('Building Runtime Viewer Preview', events));
 
     try {
+        const runtimeAssets = shared?.runtimeAssets ?? await ensureScaRuntimeAssetsAvailable();
+
         const previewMemFs = new MemoryFileSystem();
 
         const exportResult = await writeViewerExportWithCachedSog({
@@ -559,8 +692,6 @@ const buildRuntimeViewerPreviewHtml = async (
         if (!previewBytes) {
             throw new Error('[SCA] bundled viewer export did not produce preview.html');
         }
-
-        const runtimeAssets = shared?.runtimeAssets ?? await fetchScaRuntimeAssets();
 
         let exportProject: ScaProject;
         let embeddedAssets: Record<string, string>;
@@ -673,7 +804,7 @@ const exportScaRuntimePackage = async (
 
     fireExportStatus(events, {
         inProgress: true,
-        message: cpuFallback ? 'CPU export — this may take longer' : 'Preparing SOG...',
+        message: 'Checking runtime assets...',
         cpuFallback
     });
 
@@ -686,7 +817,17 @@ const exportScaRuntimePackage = async (
     let totalCacheLookupMs = 0;
     let totalHtmlBundleMs = 0;
 
+    resetRuntimeAssetFetchCache();
+
     try {
+        const runtimeAssets = await ensureScaRuntimeAssetsAvailable();
+
+        fireExportStatus(events, {
+            inProgress: true,
+            message: cpuFallback ? 'CPU export — this may take longer' : 'Preparing SOG...',
+            cpuFallback
+        });
+
         const memFs = new MemoryFileSystem();
 
         const sogResult = await writeViewerExportWithCachedSog({
@@ -721,7 +862,6 @@ const exportScaRuntimePackage = async (
         const encoder = new TextEncoder();
 
         memFs.results.set('index.html', encoder.encode(patchedHtml));
-        const runtimeAssets = await fetchScaRuntimeAssets();
         const {
             scaCapabilitiesJs,
             scaDebugJs,
@@ -830,21 +970,29 @@ const exportScaRuntimePackage = async (
         splatTransformLogger.unwindAll(true);
         fireExportStatus(events, { inProgress: false });
         throw err;
+    } finally {
+        resetRuntimeAssetFetchCache();
     }
 };
 
 export {
     buildRuntimeViewerPreviewHtml,
     buildViewerExperienceSettings,
+    ensureScaRuntimeAssetsAvailable,
     exportScaRuntimePackage,
+    formatRuntimeAssetLoadError,
+    isNetworkFetchFailure,
     PACKAGE_FILENAME,
     patchExportedViewerAssets,
     patchIndexHtml,
     patchPreviewHtml,
     patchViewerBundle,
     PREVIEW_FILENAME,
+    resetRuntimeAssetFetchCache,
     RuntimeViewerPreviewResult,
     ScaExportPackageStatus,
+    ScaRuntimeAssetLoadError,
+    SCA_RUNTIME_ASSET_FILENAMES,
     ScaRuntimeExportSharedContext,
     ScaRuntimePackageOptions,
     SogCompressionMode,

@@ -27,6 +27,7 @@
         "test:sca-camera-animation": "npx tsx tools/sca-camera-animation-test.ts",
         "test:sca-regions": "npx tsx tools/sca-regions-test.ts",
         "test:sca-region-save-persistence": "npx tsx tools/sca-region-save-persistence-test.ts",
+        "test:sca-runtime-export-assets": "npx tsx tools/sca-runtime-export-assets-test.ts",
         "test:spike-gaussian-pick": "npx tsx tools/spike-gaussian-pick.mjs"
     },
     "engines": {

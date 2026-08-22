@@ -8,6 +8,8 @@ import {
 
     Label,
 
+    SelectInput,
+
     SliderInput,
 
     TextAreaInput,
@@ -24,7 +26,7 @@ import { Events } from '../../events';
 
 import { ScaRegion, ScaRegionPatch } from '../types/region';
 
-import { DEFAULT_ACTIVE_TINT, DEFAULT_HOVER_TINT } from '../region-defaults';
+import { DEFAULT_ACTIVE_TINT, DEFAULT_HOVER_TINT, DEFAULT_PULSE_SPEED, DEFAULT_PULSE_STRENGTH } from '../region-defaults';
 import { RegionAuthoringPreviewState } from '../regions/region-authoring-preview-state';
 import { createRegionTintControls } from './region-tint-controls';
 
@@ -65,6 +67,20 @@ class ScaRegionsPanel extends Container {
     private activeTintControls: ReturnType<typeof createRegionTintControls>;
 
     private activeStrengthInput: SliderInput;
+
+    private pulseSectionLabel: Label;
+
+    private pulseEnabledInput: BooleanInput;
+
+    private pulseTintControls: ReturnType<typeof createRegionTintControls>;
+
+    private pulseStrengthInput: SliderInput;
+
+    private pulseSpeedInput: SliderInput;
+
+    private pulseModeSelect: SelectInput;
+
+    private previewPulseButton: Button;
 
     private deleteButton: Button;
 
@@ -331,6 +347,128 @@ class ScaRegionsPanel extends Container {
 
 
 
+        this.pulseSectionLabel = new Label({
+
+            class: ['sca-hotspot-form-label', 'sca-region-section-label'],
+
+            text: 'PULSE / ATTENTION'
+
+        });
+
+
+
+        const pulseEnabledRow = new Container({ class: 'sca-hotspot-form-row' });
+
+        const pulseEnabledLabel = new Label({ class: 'sca-hotspot-form-label', text: 'Enable Pulse' });
+
+        this.pulseEnabledInput = new BooleanInput({
+
+            class: 'sca-hotspot-form-toggle',
+
+            type: 'toggle',
+
+            value: false
+
+        });
+
+        pulseEnabledRow.append(pulseEnabledLabel);
+
+        pulseEnabledRow.append(this.pulseEnabledInput);
+
+
+
+        this.pulseTintControls = createRegionTintControls('Pulse color', DEFAULT_ACTIVE_TINT);
+
+
+
+        const pulseStrengthRow = new Container({ class: 'sca-hotspot-form-row' });
+
+        const pulseStrengthLabel = new Label({ class: 'sca-hotspot-form-label', text: 'Strength' });
+
+        this.pulseStrengthInput = new SliderInput({
+
+            class: 'sca-hotspot-form-slider',
+
+            min: 0,
+
+            max: 1,
+
+            step: 0.01,
+
+            precision: 2,
+
+            value: DEFAULT_PULSE_STRENGTH
+
+        });
+
+        pulseStrengthRow.append(pulseStrengthLabel);
+
+        pulseStrengthRow.append(this.pulseStrengthInput);
+
+
+
+        const pulseSpeedRow = new Container({ class: 'sca-hotspot-form-row' });
+
+        const pulseSpeedLabel = new Label({ class: 'sca-hotspot-form-label', text: 'Speed' });
+
+        this.pulseSpeedInput = new SliderInput({
+
+            class: 'sca-hotspot-form-slider',
+
+            min: 0.1,
+
+            max: 4,
+
+            step: 0.05,
+
+            precision: 2,
+
+            value: DEFAULT_PULSE_SPEED
+
+        });
+
+        pulseSpeedRow.append(pulseSpeedLabel);
+
+        pulseSpeedRow.append(this.pulseSpeedInput);
+
+
+
+        const pulseModeRow = new Container({ class: 'sca-hotspot-form-row' });
+
+        const pulseModeLabel = new Label({ class: 'sca-hotspot-form-label', text: 'Mode' });
+
+        this.pulseModeSelect = new SelectInput({
+
+            class: 'sca-hotspot-form-input',
+
+            options: [
+
+                { v: 'loop', t: 'Loop' },
+
+                { v: 'once', t: 'Once' }
+
+            ],
+
+            value: 'loop'
+
+        });
+
+        pulseModeRow.append(pulseModeLabel);
+
+        pulseModeRow.append(this.pulseModeSelect);
+
+
+
+        this.previewPulseButton = new Button({
+
+            class: ['sca-hotspot-form-button'],
+
+            text: 'Preview Pulse'
+
+        });
+
+
+
         this.deleteButton = new Button({
 
             class: ['sca-hotspot-form-button', 'sca-region-delete-button'],
@@ -396,6 +534,20 @@ class ScaRegionsPanel extends Container {
         this.formContainer.append(this.activeTintControls.row);
 
         this.formContainer.append(activeStrengthRow);
+
+        this.formContainer.append(this.pulseSectionLabel);
+
+        this.formContainer.append(pulseEnabledRow);
+
+        this.formContainer.append(this.pulseTintControls.row);
+
+        this.formContainer.append(pulseStrengthRow);
+
+        this.formContainer.append(pulseSpeedRow);
+
+        this.formContainer.append(pulseModeRow);
+
+        this.formContainer.append(this.previewPulseButton);
 
         this.formContainer.append(this.addSelectionButton);
 
@@ -545,6 +697,49 @@ class ScaRegionsPanel extends Container {
 
 
 
+        this.pulseEnabledInput.on('change', () => {
+            this.commitPulsePatch({ enabled: this.pulseEnabledInput.value });
+        });
+
+
+
+        this.pulseTintControls.bind(events, (color) => {
+            this.commitPulsePatch({ color });
+        });
+
+
+
+        this.pulseStrengthInput.on('change', () => {
+            this.commitPulsePatch({ strength: this.pulseStrengthInput.value });
+        });
+
+
+
+        this.pulseSpeedInput.on('change', () => {
+            this.commitPulsePatch({ speed: this.pulseSpeedInput.value });
+        });
+
+
+
+        this.pulseModeSelect.on('change', () => {
+            this.commitPulsePatch({
+                mode: this.pulseModeSelect.value === 'once' ? 'once' : 'loop'
+            });
+        });
+
+
+
+        this.previewPulseButton.on('click', () => {
+            if (!this.selectedId) {
+                return;
+            }
+
+            events.fire('sca.region.pulse.preview', this.selectedId);
+            this.updatePreviewPulseButton();
+        });
+
+
+
         this.addSelectionButton.on('click', () => {
 
             if (this.selectedId) {
@@ -661,6 +856,33 @@ class ScaRegionsPanel extends Container {
 
         this.events.fire('sca.region.update', this.selectedId, patch);
 
+    }
+
+    private commitPulsePatch(pulsePatch: {
+        enabled?: boolean;
+        color?: string;
+        strength?: number;
+        speed?: number;
+        mode?: 'loop' | 'once';
+    }) {
+        this.commitPatch({
+            visual: {
+                pulse: {
+                    enabled: this.pulseEnabledInput.value,
+                    color: this.pulseTintControls.getValue(),
+                    strength: this.pulseStrengthInput.value,
+                    speed: this.pulseSpeedInput.value,
+                    mode: this.pulseModeSelect.value === 'once' ? 'once' : 'loop',
+                    ...pulsePatch
+                }
+            }
+        });
+    }
+
+    private updatePreviewPulseButton() {
+        const previewId = this.events.invoke('sca.region.pulse.preview.get') as string | null;
+        const active = !!this.selectedId && previewId === this.selectedId;
+        this.previewPulseButton.text = active ? 'Stop Pulse Preview' : 'Preview Pulse';
     }
 
     private syncAuthoringPreviewState(): void {
@@ -798,6 +1020,14 @@ class ScaRegionsPanel extends Container {
         this.activeTintControls.setValue(region.visual.activeTint);
 
         this.activeStrengthInput.value = region.visual.activeOpacity;
+
+        const pulse = region.visual.pulse;
+        this.pulseEnabledInput.value = pulse?.enabled === true;
+        this.pulseTintControls.setValue(pulse?.color ?? region.visual.activeTint ?? DEFAULT_ACTIVE_TINT);
+        this.pulseStrengthInput.value = pulse?.strength ?? DEFAULT_PULSE_STRENGTH;
+        this.pulseSpeedInput.value = pulse?.speed ?? DEFAULT_PULSE_SPEED;
+        this.pulseModeSelect.value = pulse?.mode === 'once' ? 'once' : 'loop';
+        this.updatePreviewPulseButton();
 
         this.updateSelectGaussiansButton(selectedId);
 

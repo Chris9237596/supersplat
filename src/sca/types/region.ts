@@ -14,16 +14,29 @@ type ScaRegionInteraction = {
     showInNavigation?: boolean;
 };
 
+type ScaRegionPulseMode = 'loop' | 'once';
+
+type ScaRegionPulse = {
+    enabled: boolean;
+    color: string;
+    strength: number;
+    speed: number;
+    mode: ScaRegionPulseMode;
+};
+
 type ScaRegionVisual = {
     hoverTint: string;
     hoverOpacity: number;
     activeTint: string;
     activeOpacity: number;
+    pulse?: ScaRegionPulse;
 };
 
 type ScaRegionPatch = Omit<Partial<ScaRegion>, 'interaction' | 'visual'> & {
     interaction?: Partial<ScaRegionInteraction>;
-    visual?: Partial<ScaRegionVisual>;
+    visual?: Partial<ScaRegionVisual> & {
+        pulse?: Partial<ScaRegionPulse>;
+    };
 };
 
 type ScaRegion = {
@@ -42,6 +55,8 @@ export {
     ScaRegionCapture,
     ScaRegionInteraction,
     ScaRegionPatch,
+    ScaRegionPulse,
+    ScaRegionPulseMode,
     ScaRegionSource,
     ScaRegionVisual
 };

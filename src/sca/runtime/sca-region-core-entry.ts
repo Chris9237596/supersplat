@@ -17,7 +17,9 @@ import {
     parseRegionActiveColor,
     parseRegionHexColor,
     parseRegionHoverColor,
-    resolveRegionVisual
+    resolveRegionVisual,
+    resolveRegionPulse,
+    resolveRegionPulsePreview
 } from '../presentation';
 import { ScaRegion } from '../types/region';
 
@@ -55,6 +57,8 @@ Object.assign(scaGlobal.SCA3D, {
     parseRegionHoverColor,
     parseRegionActiveColor,
     resolveRegionVisual,
+    resolveRegionPulse,
+    resolveRegionPulsePreview,
     computeRegionAnchorFromBitset,
     computeRegionAnchorFromIndices,
     createCentersAccessorFromFloat32,

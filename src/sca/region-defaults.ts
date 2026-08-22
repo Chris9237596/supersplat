@@ -1,12 +1,14 @@
 import { generateRegionId } from './ids/generate-region-id';
 import { regionMaskZipPath } from './regions/region-mask-paths';
-import { ScaRegion } from './types/region';
+import { ScaRegion, ScaRegionPulse, ScaRegionPulseMode } from './types/region';
 import { ScaProject } from './types/project';
 
 const DEFAULT_HOVER_TINT = '#ff6600';
 const DEFAULT_ACTIVE_TINT = '#ff6600';
 const DEFAULT_HOVER_OPACITY = 0.35;
 const DEFAULT_ACTIVE_OPACITY = 0.55;
+const DEFAULT_PULSE_STRENGTH = 0.5;
+const DEFAULT_PULSE_SPEED = 1.0;
 
 const normalizeHexColor = (raw: unknown, fallback: string): string => {
     if (typeof raw !== 'string') {
@@ -23,6 +25,47 @@ const normalizeOpacity = (raw: unknown, fallback: number): number => {
     }
 
     return Math.max(0, Math.min(1, raw));
+};
+
+const normalizePulseMode = (raw: unknown): ScaRegionPulseMode => {
+    return raw === 'once' ? 'once' : 'loop';
+};
+
+const normalizePulseStrength = (raw: unknown): number => {
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+        return DEFAULT_PULSE_STRENGTH;
+    }
+
+    return Math.max(0, Math.min(1, raw));
+};
+
+const normalizePulseSpeed = (raw: unknown): number => {
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+        return DEFAULT_PULSE_SPEED;
+    }
+
+    return Math.max(0.1, Math.min(8, raw));
+};
+
+const normalizeRegionPulseField = (
+    raw: unknown,
+    activeTint: string
+): { pulse?: ScaRegionPulse } => {
+    if (!raw || typeof raw !== 'object') {
+        return {};
+    }
+
+    const record = raw as Record<string, unknown>;
+
+    return {
+        pulse: {
+            enabled: record.enabled === true,
+            color: normalizeHexColor(record.color, activeTint),
+            strength: normalizePulseStrength(record.strength),
+            speed: normalizePulseSpeed(record.speed),
+            mode: normalizePulseMode(record.mode)
+        }
+    };
 };
 
 const normalizeRegion = (raw: unknown): ScaRegion | null => {
@@ -113,7 +156,8 @@ const normalizeRegion = (raw: unknown): ScaRegion | null => {
             hoverTint: normalizeHexColor(visualRecord.hoverTint, DEFAULT_HOVER_TINT),
             hoverOpacity: normalizeOpacity(visualRecord.hoverOpacity, DEFAULT_HOVER_OPACITY),
             activeTint: normalizeHexColor(visualRecord.activeTint, DEFAULT_ACTIVE_TINT),
-            activeOpacity: normalizeOpacity(visualRecord.activeOpacity, DEFAULT_ACTIVE_OPACITY)
+            activeOpacity: normalizeOpacity(visualRecord.activeOpacity, DEFAULT_ACTIVE_OPACITY),
+            ...(normalizeRegionPulseField(visualRecord.pulse, normalizeHexColor(visualRecord.activeTint, DEFAULT_ACTIVE_TINT)))
         }
     };
 };
@@ -180,6 +224,8 @@ export {
     DEFAULT_ACTIVE_TINT,
     DEFAULT_HOVER_OPACITY,
     DEFAULT_HOVER_TINT,
+    DEFAULT_PULSE_SPEED,
+    DEFAULT_PULSE_STRENGTH,
     normalizeRegion,
     normalizeRegions
 };

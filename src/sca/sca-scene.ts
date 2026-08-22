@@ -23,6 +23,7 @@ import { registerScaPanoramaBackground } from './viewer/sca-panorama-background'
 import { registerScaRegionEvents } from './regions/register-sca-region-events';
 import { registerScaRegionCardPreview } from './regions/sca-region-card-preview';
 import { registerScaRegionHighlight } from './regions/sca-region-highlight';
+import { registerScaRegionPulse } from './regions/sca-region-pulse';
 import { registerScaViewerInteractionPreview } from './regions/sca-viewer-interaction-preview';
 
 
@@ -48,6 +49,7 @@ const registerScaScene = (
     registerScaPanoramaBackground(events, scene, assetStore);
     registerScaRegionEvents(events, scene);
     registerScaRegionHighlight(events, scene);
+    registerScaRegionPulse(events, scene);
     registerScaRegionCardPreview(events, scene, canvasContainer);
     registerScaViewerInteractionPreview(events, scene, canvasContainer);
 

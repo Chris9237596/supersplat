@@ -8,7 +8,7 @@ import { registerScaDocEvents } from './persistence/register-sca-doc-events';
 import { registerScaFocusEvents } from './focus/sca-focus-events';
 import { registerScaViewerEvents } from './viewer/sca-viewer-events';
 import { exportScaRuntime } from './export/export-sca-runtime';
-import { exportScaRuntimePackage, ScaRuntimePackageOptions, WebGPUUnavailableError } from './export/export-sca-runtime-package';
+import { exportScaRuntimePackage, ScaRuntimeAssetLoadError, ScaRuntimePackageOptions, WebGPUUnavailableError } from './export/export-sca-runtime-package';
 import { stringifyProjectJson } from './serialize/project-json';
 import { HotspotStore } from './store/hotspot-store';
 import { mimeTypeForFilename, ScaAssetStore } from './store/sca-asset-store';
@@ -191,6 +191,19 @@ const registerScaEvents = (events: Events): HotspotStore => {
                     type: 'error',
                     header: i18n.t('popup.error'),
                     message: i18n.t('popup.webgpu-unavailable')
+                });
+                return;
+            }
+
+            if (error instanceof ScaRuntimeAssetLoadError) {
+                console.error('[SCA] runtime package export failed:', {
+                    assetPath: error.assetPath,
+                    cause: error.cause
+                });
+                await events.invoke('showPopup', {
+                    type: 'error',
+                    header: 'SCA Runtime export failed',
+                    message: error.message
                 });
                 return;
             }

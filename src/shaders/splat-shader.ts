@@ -7,6 +7,13 @@ uniform sampler2D scaRegionHighlight;
 uniform vec4 scaRegionHighlightClr;
 uniform vec4 scaRegionHoverClr;
 uniform float scaRegionHighlightActive;
+uniform sampler2D scaRegionPulse;
+uniform vec4 scaRegionPulseClr;
+uniform float scaRegionPulseActive;
+uniform float scaRegionPulseStrength;
+uniform float scaRegionPulseSpeed;
+uniform float scaRegionPulseTime;
+uniform float scaRegionPulseOnce;
 
 uniform vec4 selectedClr;
 uniform vec4 lockedClr;
@@ -151,6 +158,20 @@ void main(void) {
             if (regionState > 0.02) {
                 vec4 tint = regionState > 0.5 ? scaRegionHighlightClr : scaRegionHoverClr;
                 color.xyz = mix(color.xyz, tint.xyz, tint.a);
+            }
+        }
+
+        if (scaRegionPulseActive > 0.5) {
+            float pulseMask = texelFetch(scaRegionPulse, splat.uv, 0).r;
+            if (pulseMask > 0.02) {
+                float pulseWave;
+                if (scaRegionPulseOnce > 0.5) {
+                    pulseWave = sin(min(scaRegionPulseTime * scaRegionPulseSpeed, 3.14159265)) * 0.5 + 0.5;
+                } else {
+                    pulseWave = sin(scaRegionPulseTime * scaRegionPulseSpeed) * 0.5 + 0.5;
+                }
+                float pulseAmount = pulseWave * scaRegionPulseStrength;
+                color.xyz = mix(color.xyz, scaRegionPulseClr.xyz, pulseAmount * scaRegionPulseClr.a);
             }
         }
     #endif

@@ -668,6 +668,152 @@
 
     let lastAnchorDiag = ''
 
+    const manualPulseRegionIds = new Set()
+
+    const pulsePlaybackByRegionId = new Map()
+
+    const shouldPlayRegionPulse = (region) => {
+
+      if (!region?.id) {
+
+        return false
+
+      }
+
+      if (manualPulseRegionIds.has(region.id)) {
+
+        return true
+
+      }
+
+      const pulse = region.visual?.pulse
+
+      return pulse?.enabled === true && pulse.mode === 'loop'
+
+    }
+
+    const resolveRuntimePulse = (region, manual) => {
+
+      if (!region) {
+
+        return null
+
+      }
+
+      if (manual && typeof window.SCA3D?.resolveRegionPulsePreview === 'function') {
+
+        return window.SCA3D.resolveRegionPulsePreview(region)
+
+      }
+
+      if (typeof window.SCA3D?.resolveRegionPulse === 'function') {
+
+        return window.SCA3D.resolveRegionPulse(region)
+
+      }
+
+      return null
+
+    }
+
+    const syncRegionPulse = () => {
+
+      if (typeof viewer.setScaRegionPulse !== 'function') {
+
+        return
+
+      }
+
+      let combinedBitset = null
+
+      let pulseSettings = null
+
+      let primaryRegionId = null
+
+      for (const entry of ctx.lookup.entries) {
+
+        const region = entry.region
+
+        if (!shouldPlayRegionPulse(region)) {
+
+          continue
+
+        }
+
+        const pulse = resolveRuntimePulse(region, manualPulseRegionIds.has(region.id))
+
+        if (!pulse) {
+
+          continue
+
+        }
+
+        if (!combinedBitset) {
+
+          combinedBitset = new Uint8Array(entry.bitset.length)
+
+          pulseSettings = pulse
+
+          primaryRegionId = region.id
+
+        }
+
+        for (let i = 0; i < combinedBitset.length; i++) {
+
+          if (entry.bitset[i]) {
+
+            combinedBitset[i] = 1
+
+          }
+
+        }
+
+      }
+
+      if (!combinedBitset || !pulseSettings || !primaryRegionId) {
+
+        viewer.clearScaRegionPulse?.()
+
+        return
+
+      }
+
+      if (!pulsePlaybackByRegionId.has(primaryRegionId)) {
+
+        pulsePlaybackByRegionId.set(primaryRegionId, {
+
+          elapsed: 0,
+
+          mode: pulseSettings.mode,
+
+          completed: false,
+
+        })
+
+      }
+
+      const playback = pulsePlaybackByRegionId.get(primaryRegionId)
+
+      viewer.setScaRegionPulse(
+
+        combinedBitset,
+
+        [pulseSettings.color.r, pulseSettings.color.g, pulseSettings.color.b, pulseSettings.color.a],
+
+        pulseSettings.strength,
+
+        pulseSettings.speed,
+
+        playback.elapsed,
+
+        pulseSettings.mode === 'once',
+
+        true
+
+      )
+
+    }
+
     const syncRegionPresentation = (source) => {
 
       const buildState = window.SCA3D?.buildRegionPresentationState
@@ -884,6 +1030,8 @@
         window.scaDebug?.('cards', '[SCA REGION CARD] hide')
 
       }
+
+      syncRegionPulse()
 
     }
 
@@ -1353,11 +1501,7 @@
 
 
 
-    if (activeRegionId) {
-
-      syncRegionPresentation()
-
-    }
+    syncRegionPresentation('init')
 
 
 
@@ -1415,6 +1559,120 @@
       activeRegionId = regionId
 
       syncRegionPresentation(source)
+
+    }
+
+
+
+    window.SCA3D.playRegionPulse = (regionId) => {
+
+      if (!regionId) {
+
+        return
+
+      }
+
+      manualPulseRegionIds.add(regionId)
+
+      pulsePlaybackByRegionId.set(regionId, {
+
+        elapsed: 0,
+
+        mode: 'once',
+
+        completed: false,
+
+      })
+
+      syncRegionPulse()
+
+    }
+
+
+
+    window.SCA3D.stopRegionPulse = (regionId) => {
+
+      if (regionId) {
+
+        manualPulseRegionIds.delete(regionId)
+
+        pulsePlaybackByRegionId.delete(regionId)
+
+      } else {
+
+        manualPulseRegionIds.clear()
+
+        pulsePlaybackByRegionId.clear()
+
+      }
+
+      syncRegionPulse()
+
+    }
+
+
+
+    const pulseApp = viewer?.global?.app
+
+    if (pulseApp && !pulseApp.__scaRegionPulseBound) {
+
+      pulseApp.__scaRegionPulseBound = true
+
+      pulseApp.on('update', (dt) => {
+
+        let animating = false
+
+        for (const [regionId, playback] of pulsePlaybackByRegionId.entries()) {
+
+          if (playback.completed) {
+
+            continue
+
+          }
+
+          const region = ctx.lookup.entries.find((entry) => entry.regionId === regionId)?.region
+
+          const pulse = resolveRuntimePulse(region, manualPulseRegionIds.has(regionId))
+
+          playback.elapsed += dt
+
+          if (pulse?.mode === 'once' && playback.elapsed * (pulse.speed ?? 1) >= Math.PI) {
+
+            playback.completed = true
+
+            manualPulseRegionIds.delete(regionId)
+
+            continue
+
+          }
+
+          animating = true
+
+        }
+
+        if (!animating) {
+
+          syncRegionPulse()
+
+          return
+
+        }
+
+        for (const playback of pulsePlaybackByRegionId.values()) {
+
+          if (!playback.completed) {
+
+            viewer.updateScaRegionPulseTime?.(playback.elapsed)
+
+            break
+
+          }
+
+        }
+
+        syncRegionPulse()
+
+      })
 
     }
 

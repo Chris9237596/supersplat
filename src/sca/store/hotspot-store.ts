@@ -304,10 +304,27 @@ class HotspotStore {
                 ...structuredClone(current.interaction),
                 ...(patch.interaction ? structuredClone(patch.interaction) : {})
             },
-            visual: {
-                ...structuredClone(current.visual),
-                ...(patch.visual ? structuredClone(patch.visual) : {})
-            }
+            visual: (() => {
+                const nextVisual = {
+                    ...structuredClone(current.visual),
+                    ...(patch.visual ? structuredClone(patch.visual) : {})
+                };
+
+                if (patch.visual?.pulse) {
+                    nextVisual.pulse = {
+                        ...(current.visual.pulse ?? {
+                            enabled: false,
+                            color: current.visual.activeTint,
+                            strength: 0.5,
+                            speed: 1,
+                            mode: 'loop' as const
+                        }),
+                        ...patch.visual.pulse
+                    };
+                }
+
+                return nextVisual;
+            })()
         };
 
         if (this.selectedRegionId === id && nextId !== id) {

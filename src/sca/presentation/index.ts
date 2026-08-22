@@ -44,3 +44,10 @@ export {
     RegionCardModel,
     buildRegionCardModel
 } from './region-card-model';
+
+export {
+    ResolvedRegionPulse,
+    normalizeRegionPulse,
+    resolveRegionPulse,
+    resolveRegionPulsePreview
+} from './region-pulse';

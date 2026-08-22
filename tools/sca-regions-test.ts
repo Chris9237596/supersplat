@@ -11,7 +11,10 @@ import {
     layoutRegionCard,
     parseRegionActiveColor,
     parseRegionHoverColor,
-    resolveRegionVisual
+    resolveRegionVisual,
+    resolveRegionPulse,
+    resolveRegionPulsePreview,
+    normalizeRegionPulse
 } from '../src/sca/presentation';
 import { resolveRegion, isClickableRegion, ScaRegionInteractionCore } from '../src/sca/interaction/sca-region-core';
 import { createStorageRegionMaskLookup } from '../src/sca/interaction/sca-storage-mask-lookup';
@@ -719,6 +722,72 @@ const runRuntimePickDecodeTests = () => {
     console.log('[sca-regions] runtime pick decode PASS');
 };
 
+const runRegionPulseTests = () => {
+    const withoutPulse = normalizeRegions([sampleRegion('region_01', 'Alpha', 'splat_01', 10)])[0];
+    assert.equal(withoutPulse.visual.pulse, undefined);
+
+    const withPulse = normalizeRegions([{
+        ...sampleRegion('region_01', 'Alpha', 'splat_01', 10),
+        visual: {
+            ...sampleRegion('region_01', 'Alpha', 'splat_01', 10).visual,
+            pulse: {
+                enabled: true,
+                color: '#112233',
+                strength: 0.75,
+                speed: 2,
+                mode: 'once'
+            }
+        }
+    }])[0];
+
+    assert.equal(withPulse.visual.pulse?.enabled, true);
+    assert.equal(withPulse.visual.pulse?.color, '#112233');
+    assert.equal(withPulse.visual.pulse?.strength, 0.75);
+    assert.equal(withPulse.visual.pulse?.speed, 2);
+    assert.equal(withPulse.visual.pulse?.mode, 'once');
+
+    const block = serializeSsprojScaBlock({
+        version: SCA_PROJECT_VERSION,
+        hotspots: [],
+        regions: [withPulse],
+        viewer: undefined
+    });
+    const restored = deserializeSsprojScaBlock(block);
+    assert.equal(restored.regions[0].visual.pulse?.enabled, true);
+    assert.equal(restored.regions[0].visual.pulse?.mode, 'once');
+
+    const resolved = resolveRegionPulse(withPulse);
+    assert.ok(resolved);
+    assert.equal(resolved!.strength, 0.75);
+    assert.equal(resolved!.mode, 'once');
+
+    const disabled = resolveRegionPulse({
+        ...withPulse,
+        visual: {
+            ...withPulse.visual,
+            pulse: { ...withPulse.visual.pulse!, enabled: false }
+        }
+    });
+    assert.equal(disabled, null);
+
+    const preview = resolveRegionPulsePreview(withoutPulse);
+    assert.ok(preview);
+    assert.equal(preview!.mode, 'loop');
+
+    const normalizedPulse = normalizeRegionPulse({
+        enabled: true,
+        color: '#aabbcc',
+        strength: 2,
+        speed: 99,
+        mode: 'loop'
+    }, '#ff6600');
+    assert.equal(normalizedPulse?.color, '#aabbcc');
+    assert.equal(normalizedPulse?.strength, 1);
+    assert.equal(normalizedPulse?.speed, 8);
+
+    console.log('[sca-regions] region pulse PASS');
+};
+
 async function main() {
     runIdTests();
     runMaskFormatTests();
@@ -735,6 +804,7 @@ async function main() {
     runRegionSelectionApplyTests();
     await runRegionReplaceSelectionTests();
     runRuntimePickDecodeTests();
+    runRegionPulseTests();
     await runHistoryTests();
 
     console.log('\n========== SCA REGIONS PHASE 1 REWORK TEST REPORT ==========');
@@ -753,6 +823,7 @@ async function main() {
     console.log('Region selection apply: PASS');
     console.log('Region replace selection: PASS');
     console.log('Runtime pick decode: PASS');
+    console.log('Region pulse: PASS');
     console.log('Membership op undo/redo: PASS');
     console.log('===========================================================\n');
 }

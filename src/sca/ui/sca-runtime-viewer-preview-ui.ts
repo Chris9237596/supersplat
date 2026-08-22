@@ -5,6 +5,7 @@ import { Splat } from '../../splat';
 import { i18n } from '../../ui/localization';
 import {
     buildRuntimeViewerPreviewHtml,
+    ScaRuntimeAssetLoadError,
     ScaRuntimePackageOptions,
     WebGPUUnavailableError
 } from '../export/export-sca-runtime-package';
@@ -211,6 +212,19 @@ const registerScaRuntimeViewerPreviewUi = (events: Events, canvasContainer: Cont
                     type: 'error',
                     header: i18n.t('popup.error'),
                     message: i18n.t('popup.webgpu-unavailable')
+                });
+                return;
+            }
+
+            if (error instanceof ScaRuntimeAssetLoadError) {
+                console.error('[SCA RUNTIME PREVIEW] runtime asset load failed:', {
+                    assetPath: error.assetPath,
+                    cause: error.cause
+                });
+                await events.invoke('showPopup', {
+                    type: 'error',
+                    header: 'SCA Runtime export failed',
+                    message: error.message
                 });
                 return;
             }

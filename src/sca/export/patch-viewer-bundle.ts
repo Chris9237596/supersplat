@@ -730,6 +730,19 @@ const applyScaRegionHighlightGlslPatches = (source: string): RegionHighlightShad
                 fragColor.xyz = mix(fragColor.xyz, tint.xyz, tint.a);
             }
         }
+        if (scaRegionPulseActive > 0.5) {
+            float pulseMask = texelFetch(scaRegionPulse, ivec2(int(scaGaussianIndex) % int(scaRegionHighlightTexWidth), int(scaGaussianIndex) / int(scaRegionHighlightTexWidth)), 0).r;
+            if (pulseMask > 0.02) {
+                float pulseWave;
+                if (scaRegionPulseOnce > 0.5) {
+                    pulseWave = sin(min(scaRegionPulseTime * scaRegionPulseSpeed, 3.14159265)) * 0.5 + 0.5;
+                } else {
+                    pulseWave = sin(scaRegionPulseTime * scaRegionPulseSpeed) * 0.5 + 0.5;
+                }
+                float pulseAmount = pulseWave * scaRegionPulseStrength;
+                fragColor.xyz = mix(fragColor.xyz, scaRegionPulseClr.xyz, pulseAmount * scaRegionPulseClr.a);
+            }
+        }
         #endif`
             );
         }
@@ -760,6 +773,13 @@ uniform vec4 scaRegionHoverClr;
 uniform float scaRegionHighlightActive;
 uniform float scaRegionHighlightTexWidth;
 uniform float scaRegionHighlightTexHeight;
+uniform sampler2D scaRegionPulse;
+uniform vec4 scaRegionPulseClr;
+uniform float scaRegionPulseActive;
+uniform float scaRegionPulseStrength;
+uniform float scaRegionPulseSpeed;
+uniform float scaRegionPulseTime;
+uniform float scaRegionPulseOnce;
 flat varying float scaGaussianIndex;
 #endif
 varying mediump vec2 gaussianUV;
@@ -1100,6 +1120,9 @@ const patchViewerBundle = (source: string): string => {
             let scaRegionHighlightTexHeight = 0;
             let scaRegionHighlightGaussianCount = 0;
             let scaRegionHighlightLastDiag = '';
+            let scaRegionPulseTexture = null;
+            let scaRegionPulseBuffer = null;
+            let scaRegionPulseActive = false;
             const scaFindGsplatMaterial = () => {
                 const sceneMaterial = app.scene?.gsplat?.material ?? null;
                 if (sceneMaterial) {
@@ -1239,6 +1262,28 @@ const patchViewerBundle = (source: string): string => {
                     material.setParameter('scaRegionHighlightActive', 0);
                     material.setParameter('scaRegionHighlightTexWidth', layout.width);
                     material.setParameter('scaRegionHighlightTexHeight', layout.height);
+                    scaRegionPulseBuffer = new Uint8Array(bufferSize);
+                    scaRegionPulseTexture = new Texture(app.graphicsDevice, {
+                        name: 'scaRegionPulse',
+                        width: layout.width,
+                        height: layout.height,
+                        format: PIXELFORMAT_RGBA8,
+                        mipmaps: false,
+                        minFilter: FILTER_NEAREST,
+                        magFilter: FILTER_NEAREST,
+                        addressU: ADDRESS_CLAMP_TO_EDGE,
+                        addressV: ADDRESS_CLAMP_TO_EDGE
+                    });
+                    const pulseLocked = scaRegionPulseTexture.lock();
+                    pulseLocked.fill(0);
+                    scaRegionPulseTexture.unlock();
+                    material.setParameter('scaRegionPulse', scaRegionPulseTexture);
+                    material.setParameter('scaRegionPulseClr', [1, 0.4, 0, 1]);
+                    material.setParameter('scaRegionPulseActive', 0);
+                    material.setParameter('scaRegionPulseStrength', 0.5);
+                    material.setParameter('scaRegionPulseSpeed', 1);
+                    material.setParameter('scaRegionPulseTime', 0);
+                    material.setParameter('scaRegionPulseOnce', 0);
                     material.update();
                     app.renderNextFrame = true;
                     console.log('[SCA REGION] highlight texture created', {
@@ -1263,6 +1308,9 @@ const patchViewerBundle = (source: string): string => {
                     scaRegionHighlightTexWidth = 0;
                     scaRegionHighlightTexHeight = 0;
                     scaRegionHighlightGaussianCount = 0;
+                    scaRegionPulseTexture = null;
+                    scaRegionPulseBuffer = null;
+                    scaRegionPulseActive = false;
                     return false;
                 }
             };
@@ -1382,6 +1430,56 @@ const patchViewerBundle = (source: string): string => {
                     bufferSize: locked.length,
                     gaussianCount: scaRegionHighlightGaussianCount
                 };
+            };
+            this.setScaRegionPulse = (bitset, color, strength, speed, time, once, active) => {
+                if (!scaRegionPulseTexture || !scaRegionHighlightMaterial || !scaRegionPulseBuffer) {
+                    return { nonZeroMask: 0, enabled: false, uploaded: false, bufferSize: 0 };
+                }
+                let nonZeroMask = 0;
+                scaRegionPulseBuffer.fill(0);
+                const locked = scaRegionPulseTexture.lock();
+                locked.fill(0);
+                if (bitset && active) {
+                    const limit = Math.min(
+                        scaRegionHighlightGaussianCount,
+                        scaRegionPulseBuffer.length
+                    );
+                    for (let i = 0; i < limit; i++) {
+                        if (bitset[i]) {
+                            scaRegionPulseBuffer[i] = 255;
+                            locked[i * 4] = 255;
+                            nonZeroMask++;
+                        }
+                    }
+                }
+                scaRegionPulseTexture.unlock();
+                scaRegionPulseActive = !!active && nonZeroMask > 0;
+                scaRegionHighlightMaterial.setParameter('scaRegionPulseClr', color);
+                scaRegionHighlightMaterial.setParameter('scaRegionPulseStrength', strength ?? 0.5);
+                scaRegionHighlightMaterial.setParameter('scaRegionPulseSpeed', speed ?? 1);
+                scaRegionHighlightMaterial.setParameter('scaRegionPulseTime', time ?? 0);
+                scaRegionHighlightMaterial.setParameter('scaRegionPulseOnce', once ? 1 : 0);
+                scaRegionHighlightMaterial.setParameter('scaRegionPulseActive', scaRegionPulseActive ? 1 : 0);
+                scaRegionHighlightMaterial.update();
+                app.renderNextFrame = true;
+                return {
+                    nonZeroMask,
+                    enabled: scaRegionPulseActive,
+                    uploaded: true,
+                    bufferSize: locked.length,
+                    gaussianCount: scaRegionHighlightGaussianCount
+                };
+            };
+            this.updateScaRegionPulseTime = (time) => {
+                if (!scaRegionHighlightMaterial || !scaRegionPulseActive) {
+                    return;
+                }
+                scaRegionHighlightMaterial.setParameter('scaRegionPulseTime', time);
+                scaRegionHighlightMaterial.update();
+                app.renderNextFrame = true;
+            };
+            this.clearScaRegionPulse = () => {
+                this.setScaRegionPulse(null, [0, 0, 0, 0], 0.5, 1, 0, false, false);
             };
             this.clearScaRegionHighlight = () => {
                 this.setScaRegionHighlight(null, [0, 0, 0, 0], false);
