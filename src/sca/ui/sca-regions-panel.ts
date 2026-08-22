@@ -80,6 +80,8 @@ class ScaRegionsPanel extends Container {
 
     private pulseModeSelect: SelectInput;
 
+    private pulseStopOnInteractionInput: BooleanInput;
+
     private previewPulseButton: Button;
 
     private deleteButton: Button;
@@ -459,6 +461,26 @@ class ScaRegionsPanel extends Container {
 
 
 
+        const pulseStopOnInteractionRow = new Container({ class: 'sca-hotspot-form-row' });
+
+        const pulseStopOnInteractionLabel = new Label({ class: 'sca-hotspot-form-label', text: 'Stop after interaction' });
+
+        this.pulseStopOnInteractionInput = new BooleanInput({
+
+            class: 'sca-hotspot-form-toggle',
+
+            type: 'toggle',
+
+            value: false
+
+        });
+
+        pulseStopOnInteractionRow.append(pulseStopOnInteractionLabel);
+
+        pulseStopOnInteractionRow.append(this.pulseStopOnInteractionInput);
+
+
+
         this.previewPulseButton = new Button({
 
             class: ['sca-hotspot-form-button'],
@@ -546,6 +568,8 @@ class ScaRegionsPanel extends Container {
         this.formContainer.append(pulseSpeedRow);
 
         this.formContainer.append(pulseModeRow);
+
+        this.formContainer.append(pulseStopOnInteractionRow);
 
         this.formContainer.append(this.previewPulseButton);
 
@@ -729,6 +753,12 @@ class ScaRegionsPanel extends Container {
 
 
 
+        this.pulseStopOnInteractionInput.on('change', () => {
+            this.commitPulsePatch({ stopOnInteraction: this.pulseStopOnInteractionInput.value });
+        });
+
+
+
         this.previewPulseButton.on('click', () => {
             if (!this.selectedId) {
                 return;
@@ -864,6 +894,7 @@ class ScaRegionsPanel extends Container {
         strength?: number;
         speed?: number;
         mode?: 'loop' | 'once';
+        stopOnInteraction?: boolean;
     }) {
         this.commitPatch({
             visual: {
@@ -873,6 +904,7 @@ class ScaRegionsPanel extends Container {
                     strength: this.pulseStrengthInput.value,
                     speed: this.pulseSpeedInput.value,
                     mode: this.pulseModeSelect.value === 'once' ? 'once' : 'loop',
+                    stopOnInteraction: this.pulseStopOnInteractionInput.value,
                     ...pulsePatch
                 }
             }
@@ -1027,6 +1059,7 @@ class ScaRegionsPanel extends Container {
         this.pulseStrengthInput.value = pulse?.strength ?? DEFAULT_PULSE_STRENGTH;
         this.pulseSpeedInput.value = pulse?.speed ?? DEFAULT_PULSE_SPEED;
         this.pulseModeSelect.value = pulse?.mode === 'once' ? 'once' : 'loop';
+        this.pulseStopOnInteractionInput.value = pulse?.stopOnInteraction === true;
         this.updatePreviewPulseButton();
 
         this.updateSelectGaussiansButton(selectedId);

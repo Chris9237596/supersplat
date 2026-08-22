@@ -569,6 +569,9 @@
 
           activeRegionId = regionId
           logRegionTransition(pendingActivationSource === 'click' ? 'clicked' : 'navigated', regionId)
+          if (pendingActivationSource === 'click') {
+            stopPulseAfterInteraction(regionId)
+          }
           window.SCA3D.setActiveTarget?.(
             { type: 'region', id: regionId },
             {
@@ -672,6 +675,25 @@
 
     const pulsePlaybackByRegionId = new Map()
 
+    /** Session playback state — future visited/interaction hooks can extend this map. */
+    const pulseStoppedByInteractionIds = new Set()
+
+    const syncPulsePlaybackState = () => {
+
+      window.SCA3D.state = window.SCA3D.state || {}
+
+      window.SCA3D.state.regionPulsePlayback = {
+
+        pulseStoppedByInteraction: Object.fromEntries(
+
+          [...pulseStoppedByInteractionIds].map((regionId) => [regionId, true])
+
+        ),
+
+      }
+
+    }
+
     const shouldPlayRegionPulse = (region) => {
 
       if (!region?.id) {
@@ -686,9 +708,55 @@
 
       }
 
+      if (pulseStoppedByInteractionIds.has(region.id)) {
+
+        return false
+
+      }
+
       const pulse = region.visual?.pulse
 
       return pulse?.enabled === true && pulse.mode === 'loop'
+
+    }
+
+    const shouldStopPulseOnRegionInteraction = (region) => {
+
+      const pulse = region?.visual?.pulse
+
+      return pulse?.enabled === true &&
+
+        pulse.mode === 'loop' &&
+
+        pulse.stopOnInteraction === true
+
+    }
+
+    const stopPulseAfterInteraction = (regionId) => {
+
+      if (!regionId) {
+
+        return
+
+      }
+
+      const region = ctx.lookup.entries.find((entry) => entry.regionId === regionId)?.region
+
+      if (!shouldStopPulseOnRegionInteraction(region)) {
+
+        return
+
+      }
+
+      pulseStoppedByInteractionIds.add(regionId)
+
+      manualPulseRegionIds.delete(regionId)
+
+      pulsePlaybackByRegionId.delete(regionId)
+
+      syncPulsePlaybackState()
+
+      syncRegionPulse()
 
     }
 
@@ -1492,6 +1560,8 @@
         return
       }
 
+      stopPulseAfterInteraction(regionEntry.regionId)
+
       window.SCA3D.setActiveTarget?.(
         { type: 'region', id: regionEntry.regionId },
         { source: 'click', emitClick: true }
@@ -1502,6 +1572,8 @@
 
 
     syncRegionPresentation('init')
+
+    syncPulsePlaybackState()
 
 
 
@@ -1572,6 +1644,8 @@
 
       }
 
+      pulseStoppedByInteractionIds.delete(regionId)
+
       manualPulseRegionIds.add(regionId)
 
       pulsePlaybackByRegionId.set(regionId, {
@@ -1583,6 +1657,8 @@
         completed: false,
 
       })
+
+      syncPulsePlaybackState()
 
       syncRegionPulse()
 
@@ -1605,6 +1681,8 @@
         pulsePlaybackByRegionId.clear()
 
       }
+
+      syncPulsePlaybackState()
 
       syncRegionPulse()
 

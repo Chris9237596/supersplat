@@ -22,6 +22,7 @@ type ScaRegionPulse = {
     strength: number;
     speed: number;
     mode: ScaRegionPulseMode;
+    stopOnInteraction?: boolean;
 };
 
 type ScaRegionVisual = {

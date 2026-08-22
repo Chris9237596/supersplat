@@ -14,7 +14,9 @@ import {
     resolveRegionVisual,
     resolveRegionPulse,
     resolveRegionPulsePreview,
-    normalizeRegionPulse
+    normalizeRegionPulse,
+    shouldPlayAuthoredRegionPulse,
+    shouldStopPulseOnRegionInteraction
 } from '../src/sca/presentation';
 import { resolveRegion, isClickableRegion, ScaRegionInteractionCore } from '../src/sca/interaction/sca-region-core';
 import { createStorageRegionMaskLookup } from '../src/sca/interaction/sca-storage-mask-lookup';
@@ -784,6 +786,53 @@ const runRegionPulseTests = () => {
     assert.equal(normalizedPulse?.color, '#aabbcc');
     assert.equal(normalizedPulse?.strength, 1);
     assert.equal(normalizedPulse?.speed, 8);
+
+    const stopOnInteractionRegion = normalizeRegions([{
+        ...sampleRegion('region_01', 'Alpha', 'splat_01', 10),
+        visual: {
+            ...sampleRegion('region_01', 'Alpha', 'splat_01', 10).visual,
+            pulse: {
+                enabled: true,
+                color: '#ff6600',
+                strength: 0.5,
+                speed: 1,
+                mode: 'loop',
+                stopOnInteraction: true
+            }
+        }
+    }])[0];
+
+    assert.equal(stopOnInteractionRegion.visual.pulse?.stopOnInteraction, true);
+
+    const stopBlock = serializeSsprojScaBlock({
+        version: SCA_PROJECT_VERSION,
+        hotspots: [],
+        regions: [stopOnInteractionRegion],
+        viewer: undefined
+    });
+    const stopRestored = deserializeSsprojScaBlock(stopBlock);
+    assert.equal(stopRestored.regions[0].visual.pulse?.stopOnInteraction, true);
+
+    const loopPulse = stopOnInteractionRegion;
+    assert.equal(
+        shouldPlayAuthoredRegionPulse(loopPulse, { pulseStoppedByInteraction: false }),
+        true
+    );
+    assert.equal(
+        shouldPlayAuthoredRegionPulse(loopPulse, { pulseStoppedByInteraction: true }),
+        false
+    );
+    assert.equal(shouldStopPulseOnRegionInteraction(loopPulse), true);
+    assert.equal(
+        shouldStopPulseOnRegionInteraction({
+            ...loopPulse,
+            visual: {
+                ...loopPulse.visual,
+                pulse: { ...loopPulse.visual.pulse!, stopOnInteraction: false }
+            }
+        }),
+        false
+    );
 
     console.log('[sca-regions] region pulse PASS');
 };

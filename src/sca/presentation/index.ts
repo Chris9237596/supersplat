@@ -46,6 +46,12 @@ export {
 } from './region-card-model';
 
 export {
+    RegionPulsePlaybackState,
+    shouldPlayAuthoredRegionPulse,
+    shouldStopPulseOnRegionInteraction
+} from './region-pulse-playback';
+
+export {
     ResolvedRegionPulse,
     normalizeRegionPulse,
     resolveRegionPulse,

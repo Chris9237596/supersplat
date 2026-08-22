@@ -63,7 +63,8 @@ const normalizeRegionPulseField = (
             color: normalizeHexColor(record.color, activeTint),
             strength: normalizePulseStrength(record.strength),
             speed: normalizePulseSpeed(record.speed),
-            mode: normalizePulseMode(record.mode)
+            mode: normalizePulseMode(record.mode),
+            stopOnInteraction: record.stopOnInteraction === true
         }
     };
 };

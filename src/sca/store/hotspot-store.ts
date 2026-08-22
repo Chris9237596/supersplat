@@ -317,7 +317,8 @@ class HotspotStore {
                             color: current.visual.activeTint,
                             strength: 0.5,
                             speed: 1,
-                            mode: 'loop' as const
+                            mode: 'loop' as const,
+                            stopOnInteraction: false
                         }),
                         ...patch.visual.pulse
                     };
