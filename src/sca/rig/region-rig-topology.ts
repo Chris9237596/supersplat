@@ -20,7 +20,11 @@ const computeRigTopology = (events: Events, rig: ScaRig | undefined): string => 
         return '';
     }
 
-    const nodeIds = rig.nodes.map((node) => node.id).sort().join(',');
+    const nodeParts = rig.nodes
+        .slice()
+        .sort((left, right) => left.id.localeCompare(right.id))
+        .map((node) => `${node.id}:${node.parentId ?? ''}`)
+        .join(',');
     const bindingParts = [...rig.bindings]
         .sort((left, right) => (
             left.regionId.localeCompare(right.regionId) ||
@@ -28,10 +32,16 @@ const computeRigTopology = (events: Events, rig: ScaRig | undefined): string => 
         ))
         .map((binding) => {
             const ranges = events.invoke('sca.region.getMask', binding.regionId) as IndexRanges | null;
-            return `${binding.regionId}:${binding.nodeId}:${countIndexRanges(ranges)}`;
+            const offsetKey = binding.bindOffsetMatrix ?
+                binding.bindOffsetMatrix.map((value) => value.toFixed(6)).join(',') :
+                binding.bindOffset ?
+                    `${binding.bindOffset.position.join(',')}:${binding.bindOffset.rotation.join(',')}` :
+                    'legacy';
+            const bindMode = binding.bindMode ?? 'legacy';
+            return `${binding.regionId}:${binding.nodeId}:${countIndexRanges(ranges)}:${bindMode}:${offsetKey}`;
         });
 
-    return `${nodeIds}|${bindingParts.join(';')}`;
+    return `${nodeParts}|${bindingParts.join(';')}`;
 };
 
 type RigSyncPath = 'structural' | 'pose' | 'none';

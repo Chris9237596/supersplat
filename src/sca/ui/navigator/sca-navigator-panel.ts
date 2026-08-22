@@ -7,6 +7,7 @@ import { ScaRegion } from '../../types/region';
 import { ScaRigNode } from '../../types/rig';
 
 import { navigatorLabelForName, ScaNavigatorItem } from './sca-navigator-types';
+import { buildRigTreeOrder } from '../../rig/rig-hierarchy-ui';
 
 class ScaNavigatorPanel extends Container {
     private sceneRow: Container;
@@ -108,7 +109,7 @@ class ScaNavigatorPanel extends Container {
         return section;
     }
 
-    private createItemRow(item: ScaNavigatorItem, onClick: () => void): Container {
+    private createItemRow(item: ScaNavigatorItem, onClick: () => void, depth = 0): Container {
         const row = new Container({
             class: ['sca-navigator-item', `sca-navigator-item-${item.type}`]
         });
@@ -116,6 +117,9 @@ class ScaNavigatorPanel extends Container {
             class: 'sca-navigator-item-label',
             text: item.label
         });
+        if (depth > 0) {
+            label.style.paddingLeft = `${depth * 16}px`;
+        }
         row.append(label);
         row.dom.dataset.navigatorType = item.type;
         row.dom.dataset.navigatorId = item.id;
@@ -195,7 +199,9 @@ class ScaNavigatorPanel extends Container {
             return;
         }
 
-        nodes.forEach((node) => {
+        const tree = buildRigTreeOrder(nodes);
+        for (const entry of tree) {
+            const { node, depth } = entry;
             const row = this.createItemRow({
                 type: 'rig',
                 id: node.id,
@@ -206,10 +212,10 @@ class ScaNavigatorPanel extends Container {
                     'sca.rig.node.select',
                     selectedId === node.id ? null : node.id
                 );
-            });
+            }, depth);
             this.rigRows.set(node.id, row);
             this.rigList.append(row);
-        });
+        }
     }
 
     private refreshSelection(): void {

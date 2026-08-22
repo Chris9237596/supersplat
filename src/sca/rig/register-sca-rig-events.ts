@@ -7,10 +7,12 @@ import { ScaRig } from '../types/rig';
 
 import { RegionRigApplier } from './region-rig-applier';
 import { chooseRigSyncPath, computeRigTopology } from './region-rig-topology';
+import { logRigTraceSyncPath, registerRigTrace } from './rig-trace';
 import { ScaRigGizmo } from './sca-rig-gizmo';
 import { ScaRigTransformController } from './sca-rig-transform';
 
 const registerScaRigEvents = (events: Events, scene: Scene, canvasContainer: Container): void => {
+    registerRigTrace(events);
     const applier = new RegionRigApplier();
     new ScaRigGizmo(events, scene);
     new ScaRigTransformController(events, scene, canvasContainer);
@@ -27,6 +29,13 @@ const registerScaRigEvents = (events: Events, scene: Scene, canvasContainer: Con
             applier.hasActiveSlots(),
             (rig?.bindings.length ?? 0) > 0
         );
+
+        logRigTraceSyncPath({
+            type: syncPath,
+            reason: 'sca.project.changed',
+            topologyBefore: cachedTopology,
+            topologyAfter: topology
+        });
 
         if (syncPath === 'structural') {
             cachedTopology = topology;

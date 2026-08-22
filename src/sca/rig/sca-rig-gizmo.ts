@@ -1,4 +1,4 @@
-import { Quat, Vec3 } from 'playcanvas';
+import { Vec3 } from 'playcanvas';
 
 import { Events } from '../../events';
 import { IndexRanges } from '../../index-ranges';
@@ -9,8 +9,9 @@ import { ToolOverlay, OverlayWriter } from '../../tool-overlay';
 import { computeRegionAnchorFromIndices } from '../presentation/region-anchor';
 import { findSplatByScaSplatId } from '../regions/splat-identity';
 import {
-    getNodeLocalPivotPosition,
-    resolveSplatForNode
+    getRigNodeHandleWorldTransform,
+    resolveSplatForNode,
+    transformSplatLocalDirectionToWorld
 } from './rig-node-space';
 import { ScaRig, ScaRigNode } from '../types/rig';
 import { ScaRegion } from '../types/region';
@@ -28,7 +29,7 @@ const localPoint = new Vec3();
 const worldPoint = new Vec3();
 const localDir = new Vec3();
 const worldDir = new Vec3();
-const rotation = new Quat();
+const handleEulerScratch = new Vec3();
 
 const computeRegionCentroidWorld = (
     events: Events,
@@ -74,12 +75,6 @@ const computeRegionCentroidWorld = (
 
 const transformLocalPointToWorld = (splat: Splat, local: Vec3, out = new Vec3()): Vec3 => {
     splat.worldTransform.transformPoint(local, out);
-    return out;
-};
-
-const transformLocalDirectionToWorld = (splat: Splat, local: Vec3, out = new Vec3()): Vec3 => {
-    splat.worldTransform.transformVector(local, out);
-    out.normalize();
     return out;
 };
 
@@ -144,8 +139,10 @@ class ScaRigGizmo {
             return;
         }
 
-        getNodeLocalPivotPosition(node, localPoint);
-        transformLocalPointToWorld(splat, localPoint, worldPoint);
+        const handle = getRigNodeHandleWorldTransform(rig, node, splat, {
+            worldPosition: worldPoint,
+            splatLocalEuler: handleEulerScratch
+        });
 
         writer.dot(worldPoint);
 
@@ -157,16 +154,18 @@ class ScaRigGizmo {
 
         for (const [ax, ay, az] of arms) {
             localDir.set(ax, ay, az).mulScalar(CROSSHAIR_ARM * 0.5);
-            rotation.setFromEulerAngles(node.rotation[0], node.rotation[1], node.rotation[2]);
-            rotation.transformVector(localDir, localDir);
-            transformLocalDirectionToWorld(splat, localDir, worldDir).mulScalar(CROSSHAIR_ARM * 0.5);
+            transformSplatLocalDirectionToWorld(
+                splat,
+                handle.splatLocalEuler,
+                localDir,
+                worldDir
+            ).mulScalar(CROSSHAIR_ARM * 0.5);
 
             p0.copy(worldPoint).sub(worldDir);
             p1.copy(worldPoint).add(worldDir);
             writer.segment(p0, p1);
         }
 
-        rotation.setFromEulerAngles(node.rotation[0], node.rotation[1], node.rotation[2]);
         const axisDefs = [
             { local: axisX, scale: AXIS_ARM },
             { local: axisY, scale: AXIS_ARM * 0.85 },
@@ -175,8 +174,12 @@ class ScaRigGizmo {
 
         for (const { local, scale } of axisDefs) {
             localDir.copy(local);
-            rotation.transformVector(localDir, localDir);
-            transformLocalDirectionToWorld(splat, localDir, worldDir).mulScalar(scale);
+            transformSplatLocalDirectionToWorld(
+                splat,
+                handle.splatLocalEuler,
+                localDir,
+                worldDir
+            ).mulScalar(scale);
             p1.copy(worldPoint).add(worldDir);
             writer.segment(worldPoint, p1);
         }

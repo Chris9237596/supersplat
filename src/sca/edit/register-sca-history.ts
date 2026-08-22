@@ -1,5 +1,8 @@
 import { Events } from '../../events';
 
+import {
+    setRigTraceDragFlags
+} from '../rig/rig-trace';
 import { ScaAssetSnapshot, ScaProjectOp } from './sca-edit-ops';
 import { ScaAssetStore } from '../store/sca-asset-store';
 import { HotspotStore } from '../store/hotspot-store';
@@ -49,6 +52,10 @@ class ScaHistoryController {
     private transactionStart: ScaHistorySnapshot | null = null;
     readonly applying = { value: false };
 
+    isTransactionActive(): boolean {
+        return this.transactionStart !== null;
+    }
+
     constructor(
         private events: Events,
         private store: HotspotStore,
@@ -94,11 +101,16 @@ class ScaHistoryController {
     }
 
     beginTransaction() {
-        if (this.applying.value || this.transactionStart) {
+        if (this.applying.value) {
+            return;
+        }
+
+        if (this.transactionStart) {
             return;
         }
 
         this.transactionStart = cloneSnapshot(this.store, this.assetStore);
+        setRigTraceDragFlags({ transactionActive: true });
     }
 
     commitTransaction(mutator?: () => void) {
@@ -109,6 +121,7 @@ class ScaHistoryController {
 
         const before = this.transactionStart ?? cloneSnapshot(this.store, this.assetStore);
         this.transactionStart = null;
+        setRigTraceDragFlags({ transactionActive: false });
 
         if (mutator) {
             mutator();
@@ -139,6 +152,7 @@ class ScaHistoryController {
 
     cancelTransaction() {
         this.transactionStart = null;
+        setRigTraceDragFlags({ transactionActive: false });
     }
 }
 
@@ -163,6 +177,10 @@ const registerScaHistory = (
 
     events.function('sca.history.record', (mutator: () => void) => {
         history.record(mutator);
+    });
+
+    events.function('sca.history.transactionActive', () => {
+        return history.isTransactionActive();
     });
 
     return history;

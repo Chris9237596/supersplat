@@ -6,10 +6,10 @@ import { Scene } from '../../scene';
 import { Splat } from '../../splat';
 
 import { computeRegionAnchorFromIndices } from '../presentation/region-anchor';
-import { ScaRig, ScaRigNode } from '../types/rig';
+import { ScaRig, ScaRigBinding, ScaRigNode } from '../types/rig';
 import { ScaRegion } from '../types/region';
 
-import { buildRigidRigMatrix, isZeroRigTransform } from './rig-transform';
+import { buildEffectiveRigWorldMatrix, collectRigSubtreeNodeIds } from './rig-hierarchy';
 import { findSplatByScaSplatId } from '../regions/splat-identity';
 import {
     logScaRigRestore,
@@ -18,10 +18,12 @@ import {
     restoreRigSlotTransforms,
     SavedGaussianTransform
 } from './region-rig-restore';
+import { logRigTracePaletteWrite, logRigTraceStage, isRigTraceEnabled } from './rig-trace';
 
 type RigSplatSlot = {
     splat: Splat;
     nodeId: string;
+    regionId: string;
     paletteIndex: number;
     saved: SavedGaussianTransform[];
     gaussianIndices: number[];
@@ -64,6 +66,24 @@ const computeRegionPivotLocal = (
     }
 
     return [anchor.x, anchor.y, anchor.z];
+};
+
+const resolveSlotBinding = (rig: ScaRig, slot: RigSplatSlot): ScaRigBinding | null => {
+    return rig.bindings.find((entry) => entry.regionId === slot.regionId) ??
+        rig.bindings.find((entry) => entry.nodeId === slot.nodeId) ??
+        null;
+};
+
+const writeSlotEffectiveMatrix = (
+    rig: ScaRig,
+    slot: RigSplatSlot,
+    node: ScaRigNode,
+    binding: ScaRigBinding | null,
+    target = rigMat
+): Mat4 => {
+    buildEffectiveRigWorldMatrix(rig, node, binding, target);
+    slot.splat.transformPalette.setTransform(slot.paletteIndex, target);
+    return target;
 };
 
 class RegionRigApplier {
@@ -116,16 +136,25 @@ class RegionRigApplier {
             return;
         }
 
+        if (isRigTraceEnabled()) {
+            logRigTraceStage('rig-pose-update-before', {
+                nodeIds: nodeIds ?? null,
+                slotCount: this.slots.length
+            });
+        }
+
         const nodeById = new Map<string, ScaRigNode>(
             rig.nodes.map((node) => [node.id, node])
         );
-        const targetNodes = nodeIds ? new Set(nodeIds) : null;
+        const affectedNodeIds = nodeIds ?
+            new Set(nodeIds.flatMap((nodeId) => collectRigSubtreeNodeIds(rig, nodeId))) :
+            null;
         const indicesBySplat = new Map<Splat, number[]>();
         let affectedGaussians = 0;
         const affectedNodes = new Set<string>();
 
         for (const slot of this.slots) {
-            if (targetNodes && !targetNodes.has(slot.nodeId)) {
+            if (affectedNodeIds && !affectedNodeIds.has(slot.nodeId)) {
                 continue;
             }
 
@@ -134,13 +163,27 @@ class RegionRigApplier {
                 continue;
             }
 
-            if (isZeroRigTransform(node)) {
-                slot.splat.transformPalette.setTransform(slot.paletteIndex, Mat4.IDENTITY);
-            } else {
-                slot.splat.transformPalette.setTransform(
-                    slot.paletteIndex,
-                    buildRigidRigMatrix(node, rigMat)
-                );
+            const binding = resolveSlotBinding(rig, slot);
+            const slotBefore = slot.paletteIndex;
+            writeSlotEffectiveMatrix(rig, slot, node, binding);
+            if (isRigTraceEnabled()) {
+                const paletteMatrix = new Mat4();
+                slot.splat.transformPalette.getTransform(slot.paletteIndex, paletteMatrix);
+                logRigTracePaletteWrite({
+                    regionId: slot.regionId,
+                    nodeId: slot.nodeId,
+                    slotBefore,
+                    slotAfter: slot.paletteIndex,
+                    reason: 'updateNodePoses'
+                });
+                logRigTraceStage('palette-write', {
+                    slotBefore,
+                    slotAfter: slot.paletteIndex
+                }, {
+                    binding,
+                    paletteIndex: slot.paletteIndex,
+                    paletteMatrix
+                });
             }
 
             affectedNodes.add(slot.nodeId);
@@ -226,6 +269,7 @@ class RegionRigApplier {
                 slot = {
                     splat,
                     nodeId: binding.nodeId,
+                    regionId: binding.regionId,
                     paletteIndex,
                     saved: [],
                     gaussianIndices: []
@@ -260,14 +304,7 @@ class RegionRigApplier {
             });
             slot.splat.transformTexture.unlock();
 
-            if (isZeroRigTransform(node)) {
-                splat.transformPalette.setTransform(slot.paletteIndex, Mat4.IDENTITY);
-            } else {
-                splat.transformPalette.setTransform(
-                    slot.paletteIndex,
-                    buildRigidRigMatrix(node, rigMat)
-                );
-            }
+            writeSlotEffectiveMatrix(rig, slot, node, binding);
         }
 
         if (conflictRegions.size > 0) {
@@ -298,5 +335,7 @@ class RegionRigApplier {
 
 export {
     RegionRigApplier,
-    computeRegionPivotLocal
+    computeRegionPivotLocal,
+    resolveSlotBinding,
+    writeSlotEffectiveMatrix
 };

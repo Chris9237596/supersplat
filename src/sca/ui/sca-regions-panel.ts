@@ -27,7 +27,7 @@ import { Events } from '../../events';
 import { ScaRegion, ScaRegionPatch } from '../types/region';
 import { ScaRegionStateContentLayer, isRegionOverlayLayer } from '../types/region-state-content';
 import { ScaProject } from '../types/project';
-import { ScaRigNode } from '../types/rig';
+import { ScaRigBindMode, ScaRigNode } from '../types/rig';
 import { generateStateLayerId } from '../ids/generate-state-layer-id';
 import {
     createDefaultPlaceholderLayer,
@@ -44,8 +44,10 @@ import {
 } from '../region-defaults';
 import { RegionAuthoringPreviewState } from '../regions/region-authoring-preview-state';
 import {
+    buildRigBindModeSelectOptions,
     buildRigBindingSelectOptions,
     logScaRigBindingUi,
+    resolveRigBindModeSelectValue,
     resolveRigBindingSelectValue,
     rigBindingNodeIdFromSelectValue
 } from '../rig/rig-binding-ui';
@@ -130,6 +132,12 @@ class ScaRegionsPanel extends Container {
     private removeSelectionButton: Button;
 
     private rigBindingNodeSelect: SelectInput;
+
+    private rigBindingBindModeSelect: SelectInput;
+
+    private rigBindingRebindButton: Button;
+
+    private pendingBindMode: ScaRigBindMode = 'keep-world';
 
     private authoringPreviewRefs = {
         hover: 0,
@@ -691,6 +699,18 @@ class ScaRegionsPanel extends Container {
             value: resolveRigBindingSelectValue(null, [])
         });
         rigBindingNodeRow.append(this.rigBindingNodeSelect);
+        const rigBindingBindModeRow = new Container({ class: 'sca-hotspot-form-row' });
+        rigBindingBindModeRow.append(new Label({ class: 'sca-hotspot-form-label', text: 'Bind Mode' }));
+        this.rigBindingBindModeSelect = new SelectInput({
+            class: 'sca-hotspot-form-input',
+            options: buildRigBindModeSelectOptions(),
+            value: 'keep-world'
+        });
+        rigBindingBindModeRow.append(this.rigBindingBindModeSelect);
+        this.rigBindingRebindButton = new Button({
+            class: 'sca-hotspot-form-button',
+            text: 'Rebind'
+        });
         const rigBindingModeRow = new Container({ class: 'sca-hotspot-form-row' });
         rigBindingModeRow.append(new Label({ class: 'sca-hotspot-form-label', text: 'Mode' }));
         rigBindingModeRow.append(new Label({ class: 'sca-hotspot-form-label', text: 'Rigid' }));
@@ -703,6 +723,8 @@ class ScaRegionsPanel extends Container {
         });
         rigBindingSection.body.append(rigBindingTitle);
         rigBindingSection.body.append(rigBindingNodeRow);
+        rigBindingSection.body.append(rigBindingBindModeRow);
+        rigBindingSection.body.append(this.rigBindingRebindButton);
         rigBindingSection.body.append(rigBindingModeRow);
 
         this.formContainer.append(formTitle);
@@ -929,7 +951,39 @@ class ScaRegionsPanel extends Container {
             }
 
             const nodeId = rigBindingNodeIdFromSelectValue(this.rigBindingNodeSelect.value);
-            this.events.fire('sca.rig.binding.set', this.selectedId, nodeId);
+            this.events.fire(
+                'sca.rig.binding.set',
+                this.selectedId,
+                nodeId,
+                this.pendingBindMode
+            );
+        });
+
+        this.rigBindingBindModeSelect.on('change', () => {
+            if (this.syncing) {
+                return;
+            }
+
+            this.pendingBindMode = resolveRigBindModeSelectValue(
+                this.rigBindingBindModeSelect.value as ScaRigBindMode
+            );
+        });
+
+        this.rigBindingRebindButton.on('click', () => {
+            if (!this.selectedId || this.syncing) {
+                return;
+            }
+
+            const binding = this.events.invoke('sca.rig.getBinding', this.selectedId) as { nodeId: string } | null;
+            if (!binding) {
+                return;
+            }
+
+            this.events.fire(
+                'sca.rig.binding.rebind',
+                this.selectedId,
+                this.pendingBindMode
+            );
         });
 
 
@@ -1328,25 +1382,34 @@ class ScaRegionsPanel extends Container {
 
     private rebuildRigBindingUi(region: ScaRegion) {
         const nodes = this.events.invoke('sca.rig.node.list') as ScaRigNode[] | undefined;
-        const binding = this.events.invoke('sca.rig.getBinding', region.id) as { nodeId: string } | null;
+        const binding = this.events.invoke('sca.rig.getBinding', region.id) as {
+            nodeId: string;
+            bindMode?: ScaRigBindMode;
+        } | null;
         const options = buildRigBindingSelectOptions(nodes ?? []);
         const currentValue = resolveRigBindingSelectValue(binding?.nodeId, nodes ?? []);
+        this.pendingBindMode = resolveRigBindModeSelectValue(binding?.bindMode);
 
         logScaRigBindingUi({
             region: region.id,
             nodes: nodes?.length ?? 0,
             options,
             currentValue,
+            bindMode: this.pendingBindMode,
             selectOptionCountBefore: this.rigBindingNodeSelect.options.length
         });
 
         this.rigBindingNodeSelect.options = options;
         this.rigBindingNodeSelect.value = currentValue;
+        this.rigBindingBindModeSelect.options = buildRigBindModeSelectOptions();
+        this.rigBindingBindModeSelect.value = this.pendingBindMode;
+        this.rigBindingRebindButton.enabled = !!binding?.nodeId;
 
         logScaRigBindingUi({
             region: region.id,
             selectOptionCountAfter: this.rigBindingNodeSelect.options.length,
-            selectValue: this.rigBindingNodeSelect.value
+            selectValue: this.rigBindingNodeSelect.value,
+            bindMode: this.pendingBindMode
         });
     }
 

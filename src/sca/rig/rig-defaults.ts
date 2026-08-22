@@ -1,7 +1,20 @@
-import { ScaRig, ScaRigBinding, ScaRigNode, ScaRigVec3 } from '../types/rig';
+import {
+    ScaRig,
+    ScaRigBinding,
+    ScaRigBindMode,
+    ScaRigMat4,
+    ScaRigNode,
+    ScaRigPose,
+    ScaRigVec3
+} from '../types/rig';
 import { ScaProject } from '../types/project';
 
+import { identityPose } from './rig-transform';
+import { normalizeRigHierarchy } from './rig-hierarchy';
+
 const ZERO_VEC3: ScaRigVec3 = [0, 0, 0];
+
+const DEFAULT_RIG_BIND_MODE: ScaRigBindMode = 'keep-world';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => (
     !!value && typeof value === 'object' && !Array.isArray(value)
@@ -18,6 +31,28 @@ const normalizeVec3 = (raw: unknown, fallback: ScaRigVec3 = ZERO_VEC3): ScaRigVe
         result[i] = typeof value === 'number' && Number.isFinite(value) ? value : fallback[i];
     }
     return result;
+};
+
+const normalizePose = (raw: unknown, fallback: ScaRigPose = identityPose()): ScaRigPose => {
+    if (!isRecord(raw)) {
+        return {
+            position: [...fallback.position] as ScaRigVec3,
+            rotation: [...fallback.rotation] as ScaRigVec3
+        };
+    }
+
+    return {
+        position: normalizeVec3(raw.position, fallback.position),
+        rotation: normalizeVec3(raw.rotation, fallback.rotation)
+    };
+};
+
+const normalizeBindMode = (raw: unknown): ScaRigBindMode | undefined => {
+    if (raw === 'keep-world' || raw === 'snap') {
+        return raw;
+    }
+
+    return undefined;
 };
 
 const normalizeRigNodeId = (raw: unknown, index: number): string | null => {
@@ -48,13 +83,49 @@ const normalizeRigNode = (raw: unknown, index: number): ScaRigNode | null => {
         raw.name.trim() :
         id;
 
-    return {
+    const position = normalizeVec3(raw.position);
+    const rotation = normalizeVec3(raw.rotation);
+    const pivot = normalizeVec3(raw.pivot);
+
+    let parentId: string | undefined;
+    if (raw.parentId === null || raw.parentId === undefined || raw.parentId === '') {
+        parentId = undefined;
+    } else if (typeof raw.parentId === 'string') {
+        const trimmedParent = raw.parentId.trim();
+        parentId = trimmedParent.length > 0 ? trimmedParent : undefined;
+    }
+
+    const node: ScaRigNode = {
         id,
         name,
-        position: normalizeVec3(raw.position),
-        rotation: normalizeVec3(raw.rotation),
-        pivot: normalizeVec3(raw.pivot)
+        position,
+        rotation,
+        pivot,
+        rest: normalizePose(raw.rest, identityPose())
     };
+
+    if (parentId && parentId !== id) {
+        node.parentId = parentId;
+    }
+
+    return node;
+};
+
+const normalizeBindOffsetMatrix = (raw: unknown): ScaRigMat4 | undefined => {
+    if (!Array.isArray(raw) || raw.length < 16) {
+        return undefined;
+    }
+
+    const result: number[] = [];
+    for (let i = 0; i < 16; i++) {
+        const value = raw[i];
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+            return undefined;
+        }
+        result.push(value);
+    }
+
+    return result as ScaRigMat4;
 };
 
 const normalizeRigBinding = (
@@ -74,8 +145,34 @@ const normalizeRigBinding = (
     }
 
     const mode = raw.mode === 'rigid' ? 'rigid' : 'rigid';
+    const bindMode = normalizeBindMode(raw.bindMode);
+    const bindOffset = isRecord(raw.bindOffset) || Array.isArray(raw.bindOffset) ?
+        normalizePose(raw.bindOffset) :
+        undefined;
+    const bindOffsetMatrix = normalizeBindOffsetMatrix(raw.bindOffsetMatrix);
 
-    return { regionId, nodeId, mode };
+    const binding: ScaRigBinding = { regionId, nodeId, mode };
+    if (bindMode) {
+        binding.bindMode = bindMode;
+    }
+    if (bindOffsetMatrix) {
+        binding.bindOffsetMatrix = bindOffsetMatrix;
+    }
+    if (bindOffset && (bindMode || !isZeroPose(bindOffset))) {
+        binding.bindOffset = bindOffset;
+    }
+
+    return binding;
+};
+
+const isZeroPose = (pose: ScaRigPose): boolean => {
+    return pose.position.every((value) => Math.abs(value) < 1e-8) &&
+        pose.rotation.every((value) => Math.abs(value) < 1e-8);
+};
+
+const finalizeRig = (rig: ScaRig): ScaRig => {
+    normalizeRigHierarchy(rig);
+    return rig;
 };
 
 const normalizeRig = (raw: unknown): ScaRig | undefined => {
@@ -118,11 +215,11 @@ const normalizeRig = (raw: unknown): ScaRig | undefined => {
         }
     }
 
-    return {
+    return finalizeRig({
         version: 1,
         nodes,
         bindings
-    };
+    });
 };
 
 const createDefaultRigNode = (id: string, name?: string): ScaRigNode => ({
@@ -130,7 +227,8 @@ const createDefaultRigNode = (id: string, name?: string): ScaRigNode => ({
     name: name ?? `Rig Node ${id.replace(/^rig_/, '')}`,
     position: [0, 0, 0],
     rotation: [0, 0, 0],
-    pivot: [0, 0, 0]
+    pivot: [0, 0, 0],
+    rest: identityPose()
 });
 
 const ensureProjectRig = (project: ScaProject): ScaRig => {
@@ -138,9 +236,11 @@ const ensureProjectRig = (project: ScaProject): ScaRig => {
 };
 
 export {
+    DEFAULT_RIG_BIND_MODE,
     ZERO_VEC3,
     createDefaultRigNode,
     ensureProjectRig,
+    normalizePose,
     normalizeRig,
     normalizeVec3
 };

@@ -126,6 +126,9 @@ const registerScaViewerInteractionPreview = (
         if (events.invoke('sca.rig.transform.dragging')) {
             return true;
         }
+        if (events.invoke('sca.rig.transform.engaged')) {
+            return true;
+        }
         return false;
     };
 

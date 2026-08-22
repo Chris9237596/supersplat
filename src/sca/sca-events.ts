@@ -14,8 +14,10 @@ import { HotspotStore } from './store/hotspot-store';
 import { mimeTypeForFilename, ScaAssetStore } from './store/sca-asset-store';
 import { createEmptyProject, ScaHotspot, ScaProject, ScaRegion, ScaViewerBackground } from './types/project';
 import { ScaRegionPatch } from './types/region';
-import { ScaRigNode, ScaRigVec3 } from './types/rig';
+import { ScaRigBindMode, ScaRigNode, ScaRigVec3 } from './types/rig';
+import { ScaRigReparentMode } from './rig/rig-hierarchy';
 import { computeRegionPivotLocal } from './rig/region-rig-applier';
+import { logRigTraceSelectionChange, logRigTraceStage } from './rig/rig-trace';
 import { findSplatByScaSplatId } from './regions/splat-identity';
 
 const registerScaEvents = (events: Events): HotspotStore => {
@@ -24,6 +26,7 @@ const registerScaEvents = (events: Events): HotspotStore => {
     const history = registerScaHistory(events, store, assetStore);
 
     const notifyProjectChanged = () => {
+        logRigTraceStage('project.changed', { reason: 'notifyProjectChanged' });
         const rigSelectionChanged = store.pruneInvalidRigSelection();
         events.fire('sca.project.changed', store.getProject());
         if (rigSelectionChanged) {
@@ -132,6 +135,7 @@ const registerScaEvents = (events: Events): HotspotStore => {
     });
 
     events.on('sca.region.select', (id: string | null) => {
+        const previous = store.getSelectedRegionId();
         if (id !== null && id === store.getSelectedRegionId()) {
             store.selectRegion(null);
         } else {
@@ -140,6 +144,12 @@ const registerScaEvents = (events: Events): HotspotStore => {
                 store.selectRigNode(null);
             }
         }
+        logRigTraceSelectionChange({
+            kind: 'region',
+            from: previous,
+            to: store.getSelectedRegionId(),
+            reason: 'sca.region.select'
+        });
         console.log('[SCA] region selected:', store.getSelectedRegionId());
         notifyRegionSelectionChanged();
         notifyRigSelectionChanged();
@@ -183,19 +193,55 @@ const registerScaEvents = (events: Events): HotspotStore => {
     });
 
     events.on('sca.rig.node.select', (id: string | null) => {
+        const previous = store.getSelectedRigNodeId();
         store.selectRigNode(id);
         if (id) {
             store.selectHotspot(null);
             store.selectRegion(null);
             events.fire('tool.deactivate');
         }
+        logRigTraceSelectionChange({
+            kind: 'rig',
+            from: previous,
+            to: store.getSelectedRigNodeId(),
+            reason: 'sca.rig.node.select'
+        });
         console.log('[SCA] rig node selected:', store.getSelectedRigNodeId());
         notifyRigSelectionChanged();
         notifySelectionChanged();
         notifyRegionSelectionChanged();
     });
 
-    events.on('sca.rig.binding.set', (regionId: string, nodeId: string | null) => {
+    events.on('sca.rig.node.resetToRest', (id: string) => {
+        history.record(() => {
+            store.resetRigNodeToRest(id);
+            notifyProjectChanged();
+        });
+    });
+
+    events.on('sca.rig.node.setRestFromCurrent', (id: string) => {
+        history.record(() => {
+            store.setRigNodeRestFromCurrent(id);
+            notifyProjectChanged();
+        });
+    });
+
+    events.on('sca.rig.node.setParent', (
+        id: string,
+        parentId: string | null,
+        mode: ScaRigReparentMode = 'keep-world'
+    ) => {
+        history.record(() => {
+            store.setRigNodeParent(id, parentId, mode);
+            notifyProjectChanged();
+        });
+    });
+
+    events.on('sca.rig.binding.set', (
+        regionId: string,
+        nodeId: string | null,
+        bindMode?: ScaRigBindMode
+    ) => {
         history.record(() => {
             let pivot: ScaRigVec3 | undefined;
             if (nodeId) {
@@ -210,7 +256,14 @@ const registerScaEvents = (events: Events): HotspotStore => {
                 }
             }
 
-            store.setRigBinding(regionId, nodeId, pivot);
+            store.setRigBinding(regionId, nodeId, { pivot, bindMode });
+            notifyProjectChanged();
+        });
+    });
+
+    events.on('sca.rig.binding.rebind', (regionId: string, bindMode: ScaRigBindMode) => {
+        history.record(() => {
+            store.rebindRegion(regionId, bindMode);
             notifyProjectChanged();
         });
     });

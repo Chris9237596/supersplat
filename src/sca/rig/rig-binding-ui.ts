@@ -1,11 +1,35 @@
-import { ScaRigNode } from '../types/rig';
+import { ScaRigBindMode, ScaRigNode } from '../types/rig';
+
+import { DEFAULT_RIG_BIND_MODE } from './rig-defaults';
 
 /** PCUI SelectInput aborts option registration when it hits v === ''. */
 const RIG_BINDING_NONE_VALUE = '__sca_rig_none__';
+const RIG_BIND_MODE_KEEP_WORLD_VALUE = 'keep-world';
+const RIG_BIND_MODE_SNAP_VALUE = 'snap';
 
 type RigBindingSelectOption = {
     v: string;
     t: string;
+};
+
+type RigBindModeSelectOption = {
+    v: ScaRigBindMode;
+    t: string;
+};
+
+const buildRigBindModeSelectOptions = (): RigBindModeSelectOption[] => ([
+    { v: 'keep-world', t: 'Keep World Position' },
+    { v: 'snap', t: 'Snap to Node' }
+]);
+
+const resolveRigBindModeSelectValue = (
+    bindMode: ScaRigBindMode | null | undefined
+): ScaRigBindMode => {
+    if (bindMode === 'snap') {
+        return 'snap';
+    }
+
+    return DEFAULT_RIG_BIND_MODE;
 };
 
 const buildRigBindingSelectOptions = (nodes: ScaRigNode[]): RigBindingSelectOption[] => {
@@ -76,12 +100,18 @@ const logScaRigBindingUi = (payload: Record<string, unknown>): void => {
 };
 
 export {
+    DEFAULT_RIG_BIND_MODE,
+    RIG_BIND_MODE_KEEP_WORLD_VALUE,
+    RIG_BIND_MODE_SNAP_VALUE,
     RIG_BINDING_NONE_VALUE,
+    buildRigBindModeSelectOptions,
     buildRigBindingSelectOptions,
     collectPcuiSelectInputOptionLabels,
     isScaRigBindingUiDebugEnabled,
     logScaRigBindingUi,
+    resolveRigBindModeSelectValue,
     resolveRigBindingSelectValue,
     rigBindingNodeIdFromSelectValue,
+    RigBindModeSelectOption,
     RigBindingSelectOption
 };

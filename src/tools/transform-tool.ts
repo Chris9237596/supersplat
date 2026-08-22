@@ -38,6 +38,13 @@ class TransformTool {
 
         // reattach the gizmo to the pivot
         const reattach = () => {
+            if (events.invoke('sca.rig.getSelected')) {
+                if (gizmo.enabled) {
+                    gizmo.detach();
+                }
+                return;
+            }
+
             if (!active || !events.invoke('selection')) {
                 if (gizmo.enabled) {
                     gizmo.detach();

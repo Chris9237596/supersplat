@@ -2,6 +2,7 @@ import {
     Button,
     Container,
     Label,
+    SelectInput,
     SliderInput,
     TextInput
 } from '@playcanvas/pcui';
@@ -10,6 +11,12 @@ import { Events } from '../../events';
 
 import { generateRigId } from '../ids/generate-rig-id';
 import { createDefaultRigNode } from '../rig/rig-defaults';
+import {
+    buildRigParentSelectOptions,
+    resolveRigParentSelectValue,
+    rigParentIdFromSelectValue
+} from '../rig/rig-hierarchy-ui';
+import { ScaRigReparentMode } from '../rig/rig-hierarchy';
 import { ScaProject } from '../types/project';
 import { ScaRigNode } from '../types/rig';
 import { ScaSectionLayoutManager } from './sca-section-layout-state';
@@ -21,6 +28,11 @@ class ScaRigPanel extends Container {
     private syncing = false;
 
     private nameInput: TextInput | null = null;
+    private moveModeButton: Button | null = null;
+    private rotateModeButton: Button | null = null;
+    private scaleModeButton: Button | null = null;
+    private parentSelect: SelectInput | null = null;
+    private reparentModeSelect: SelectInput | null = null;
     private positionInputs: SliderInput[] = [];
     private rotationInputs: SliderInput[] = [];
 
@@ -62,6 +74,14 @@ class ScaRigPanel extends Container {
         events.on('sca.rig.node.selected', () => {
             this.rebuildList();
             this.refreshSelectedNodeForm();
+        });
+
+        events.on('tool.activated', () => {
+            this.syncTransformModeButtons();
+        });
+
+        events.on('tool.deactivated', () => {
+            this.syncTransformModeButtons();
         });
 
         this.rebuildList();
@@ -109,6 +129,11 @@ class ScaRigPanel extends Container {
         this.formContainer.clear();
         this.mountedNodeId = null;
         this.nameInput = null;
+        this.moveModeButton = null;
+        this.rotateModeButton = null;
+        this.scaleModeButton = null;
+        this.parentSelect = null;
+        this.reparentModeSelect = null;
         this.positionInputs = [];
         this.rotationInputs = [];
     }
@@ -149,6 +174,65 @@ class ScaRigPanel extends Container {
         nameRow.append(this.nameInput);
         this.formContainer.append(nameRow);
 
+        this.formContainer.append(this.createTransformModeRow());
+
+        const hierarchyTitle = new Label({
+            class: ['sca-panel-subsection-label', 'sca-panel-subsection-label-nested'],
+            text: 'HIERARCHY'
+        });
+        this.formContainer.append(hierarchyTitle);
+
+        const parentRow = new Container({ class: 'sca-hotspot-form-row' });
+        parentRow.append(new Label({ class: 'sca-hotspot-form-label', text: 'Parent' }));
+        const project = this.events.invoke('sca.project.get') as ScaProject | null;
+        const rig = project?.rig;
+        this.parentSelect = new SelectInput({
+            class: 'sca-hotspot-form-input',
+            options: rig ? buildRigParentSelectOptions(rig, node.id) : [],
+            value: resolveRigParentSelectValue(node.parentId)
+        });
+        parentRow.append(this.parentSelect);
+        this.formContainer.append(parentRow);
+
+        const reparentModeRow = new Container({ class: 'sca-hotspot-form-row' });
+        reparentModeRow.append(new Label({ class: 'sca-hotspot-form-label', text: 'Reparent Mode' }));
+        this.reparentModeSelect = new SelectInput({
+            class: 'sca-hotspot-form-input',
+            options: [
+                { v: 'keep-world', t: 'Keep World Position' },
+                { v: 'keep-local', t: 'Keep Local Transform' }
+            ],
+            value: 'keep-world'
+        });
+        reparentModeRow.append(this.reparentModeSelect);
+        this.formContainer.append(reparentModeRow);
+
+        this.parentSelect.on('change', () => {
+            if (this.syncing || !this.parentSelect) {
+                return;
+            }
+
+            const selectedNodeId = this.getSelectedNodeId();
+            if (!selectedNodeId) {
+                return;
+            }
+
+            const nodes = this.events.invoke('sca.rig.node.list') as ScaRigNode[];
+            const currentNode = nodes.find((entry) => entry.id === selectedNodeId);
+            if (!currentNode) {
+                return;
+            }
+
+            const nextParentId = rigParentIdFromSelectValue(this.parentSelect.value);
+            const currentParentId = currentNode.parentId ?? null;
+            if (nextParentId === currentParentId) {
+                return;
+            }
+
+            const mode = (this.reparentModeSelect?.value ?? 'keep-world') as ScaRigReparentMode;
+            this.events.fire('sca.rig.node.setParent', selectedNodeId, nextParentId, mode);
+        });
+
         this.formContainer.append(this.createVec3Row(
             'Position',
             this.positionInputs,
@@ -163,6 +247,32 @@ class ScaRigPanel extends Container {
             (values) => this.commitNodePatch({ rotation: values }),
             { step: 1, min: -180, max: 180 }
         ));
+
+        const resetRestButton = new Button({
+            class: 'sca-hotspot-form-button',
+            text: 'Reset to Rest Pose'
+        });
+        resetRestButton.on('click', () => {
+            const selectedNodeId = this.getSelectedNodeId();
+            if (!selectedNodeId) {
+                return;
+            }
+            this.events.fire('sca.rig.node.resetToRest', selectedNodeId);
+        });
+        this.formContainer.append(resetRestButton);
+
+        const setRestButton = new Button({
+            class: 'sca-hotspot-form-button',
+            text: 'Set Current as Rest Pose'
+        });
+        setRestButton.on('click', () => {
+            const selectedNodeId = this.getSelectedNodeId();
+            if (!selectedNodeId) {
+                return;
+            }
+            this.events.fire('sca.rig.node.setRestFromCurrent', selectedNodeId);
+        });
+        this.formContainer.append(setRestButton);
 
         const deleteButton = new Button({
             class: ['sca-hotspot-form-button', 'sca-region-delete-button'],
@@ -184,6 +294,50 @@ class ScaRigPanel extends Container {
             }
             this.commitNodePatch({ name: this.nameInput.value.trim() || node.name });
         });
+
+        this.syncTransformModeButtons();
+    }
+
+    private createTransformModeRow(): Container {
+        const row = new Container({ class: 'sca-rig-transform-modes' });
+
+        this.moveModeButton = new Button({
+            class: ['sca-rig-transform-mode-button'],
+            text: 'Move'
+        });
+        this.rotateModeButton = new Button({
+            class: ['sca-rig-transform-mode-button'],
+            text: 'Rotate'
+        });
+        this.scaleModeButton = new Button({
+            class: ['sca-rig-transform-mode-button', 'sca-rig-transform-mode-button-disabled'],
+            text: 'Scale'
+        });
+        this.scaleModeButton.enabled = false;
+        this.scaleModeButton.dom.title = 'Scale support is not available yet';
+
+        this.moveModeButton.on('click', () => {
+            this.events.fire('tool.move');
+        });
+        this.rotateModeButton.on('click', () => {
+            this.events.fire('tool.rotate');
+        });
+
+        row.append(this.moveModeButton);
+        row.append(this.rotateModeButton);
+        row.append(this.scaleModeButton);
+
+        return row;
+    }
+
+    private syncTransformModeButtons() {
+        if (!this.moveModeButton || !this.rotateModeButton) {
+            return;
+        }
+
+        const activeTool = this.events.invoke('tool.active') as string | null;
+        this.moveModeButton.class.toggle('active', activeTool === 'move');
+        this.rotateModeButton.class.toggle('active', activeTool === 'rotate');
     }
 
     private syncFormValues(node: ScaRigNode) {
@@ -195,6 +349,12 @@ class ScaRigPanel extends Container {
 
         if (this.nameInput) {
             this.nameInput.value = node.name;
+        }
+
+        const project = this.events.invoke('sca.project.get') as ScaProject | null;
+        if (this.parentSelect && project?.rig) {
+            this.parentSelect.options = buildRigParentSelectOptions(project.rig, node.id);
+            this.parentSelect.value = resolveRigParentSelectValue(node.parentId);
         }
 
         for (let axis = 0; axis < 3; axis++) {

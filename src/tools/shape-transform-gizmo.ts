@@ -30,6 +30,8 @@ class ShapeTransformGizmo {
     detach: () => void;
     setMode: (mode: ShapeGizmoMode) => void;
     toggleMode: (mode: Exclude<ShapeGizmoMode, 'none'>) => void;
+    forceEndDrag: () => boolean;
+    resetDragActive: () => void;
 
     private _mode: ShapeGizmoMode = 'translate';
 
@@ -60,6 +62,7 @@ class ShapeTransformGizmo {
         }
 
         const all = Array.from(gizmos.values());
+        let sharedDragActive = false;
 
         all.forEach((gizmo) => {
             gizmo.on('render:update', () => {
@@ -67,17 +70,41 @@ class ShapeTransformGizmo {
             });
 
             gizmo.on('transform:start', () => {
+                if (sharedDragActive) {
+                    return;
+                }
+                sharedDragActive = true;
                 options.onTransformStart();
             });
 
             gizmo.on('transform:move', () => {
+                if (!sharedDragActive) {
+                    return;
+                }
                 options.onTransform(this._mode);
             });
 
             gizmo.on('transform:end', () => {
+                if (!sharedDragActive) {
+                    return;
+                }
+                sharedDragActive = false;
                 options.onTransformEnd();
             });
         });
+
+        const forceEndDrag = () => {
+            if (!sharedDragActive) {
+                return false;
+            }
+            sharedDragActive = false;
+            options.onTransformEnd();
+            return true;
+        };
+
+        const resetDragActive = () => {
+            sharedDragActive = false;
+        };
 
         // translate & rotate follow the editor coordinate space (scale is
         // always local; the engine ignores the assignment)
@@ -140,6 +167,9 @@ class ShapeTransformGizmo {
         this.toggleMode = (mode: Exclude<ShapeGizmoMode, 'none'>) => {
             this.setMode(mode === this._mode ? 'none' : mode);
         };
+
+        this.forceEndDrag = forceEndDrag;
+        this.resetDragActive = resetDragActive;
     }
 }
 

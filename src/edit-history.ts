@@ -1,6 +1,7 @@
 import { CommandQueue } from './command-queue';
 import { EditOp, MultiOp } from './edit-ops';
 import { Events } from './events';
+import { logRigTraceHistoryCursor } from './sca/rig/rig-trace';
 import { Splat } from './splat';
 
 // Check if an operation references a specific splat
@@ -76,9 +77,17 @@ class EditHistory {
     private async _undo() {
         // only advance the cursor after a successful undo so a thrown editOp leaves
         // history in a consistent state for subsequent undo/redo.
+        const oldCursor = this.cursor;
         const editOp = this.history[this.cursor - 1];
         await editOp.undo();
         this.cursor--;
+        logRigTraceHistoryCursor({
+            oldCursor,
+            newCursor: this.cursor,
+            action: 'undo',
+            operation: (editOp as { name?: string }).name ?? editOp.constructor.name,
+            reason: 'edit.undo'
+        });
         this.events.fire('edit.apply', editOp);
         this.fireEvents();
     }
@@ -86,11 +95,19 @@ class EditHistory {
     private async _redo(suppressOp = false) {
         // only advance the cursor after a successful redo so a thrown editOp leaves
         // history in a consistent state for subsequent undo/redo.
+        const oldCursor = this.cursor;
         const editOp = this.history[this.cursor];
         if (!suppressOp) {
             await editOp.do();
         }
         this.cursor++;
+        logRigTraceHistoryCursor({
+            oldCursor,
+            newCursor: this.cursor,
+            action: 'redo',
+            operation: (editOp as { name?: string }).name ?? editOp.constructor.name,
+            reason: suppressOp ? 'edit.redo suppressOp' : 'edit.redo do'
+        });
         this.events.fire('edit.apply', editOp);
         this.fireEvents();
     }
