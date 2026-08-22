@@ -24,6 +24,7 @@ import { registerScaRegionEvents } from './regions/register-sca-region-events';
 import { registerScaRegionCardPreview } from './regions/sca-region-card-preview';
 import { registerScaRegionHighlight } from './regions/sca-region-highlight';
 import { registerScaRegionPulse } from './regions/sca-region-pulse';
+import { registerScaRegionStateOverlay } from './regions/sca-region-state-overlay';
 import { registerScaViewerInteractionPreview } from './regions/sca-viewer-interaction-preview';
 
 
@@ -50,6 +51,7 @@ const registerScaScene = (
     registerScaRegionEvents(events, scene);
     registerScaRegionHighlight(events, scene);
     registerScaRegionPulse(events, scene);
+    registerScaRegionStateOverlay(events, scene);
     registerScaRegionCardPreview(events, scene, canvasContainer);
     registerScaViewerInteractionPreview(events, scene, canvasContainer);
 

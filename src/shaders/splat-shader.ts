@@ -15,6 +15,9 @@ uniform float scaRegionPulseStrength;
 uniform float scaRegionPulseSpeed;
 uniform float scaRegionPulseTime;
 uniform float scaRegionPulseOnce;
+uniform sampler2D scaRegionStateOverlay;
+uniform vec4 scaRegionStateOverlayClr;
+uniform float scaRegionStateOverlayActive;
 
 uniform vec4 selectedClr;
 uniform vec4 lockedClr;
@@ -164,6 +167,13 @@ void main(void) {
                     tint = scaRegionVisitedClr;
                 }
                 color.xyz = mix(color.xyz, tint.xyz, tint.a);
+            }
+        }
+
+        if (scaRegionStateOverlayActive > 0.5) {
+            float overlayMask = texelFetch(scaRegionStateOverlay, splat.uv, 0).r;
+            if (overlayMask > 0.02) {
+                color.xyz = mix(color.xyz, scaRegionStateOverlayClr.xyz, scaRegionStateOverlayClr.a);
             }
         }
 

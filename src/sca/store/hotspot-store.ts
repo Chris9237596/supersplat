@@ -1,6 +1,7 @@
 import { ScaHotspot, ScaNavigationMode, ScaProject, ScaViewerBackground, ScaViewerConfig } from '../types/project';
 import { createEmptyProject } from '../types/project';
 import { ScaRegion, ScaRegionPatch } from '../types/region';
+import { mergeVisualStateContent } from '../region-state-content';
 import {
     createDefaultViewerConfig,
     ensureNavigationValid,
@@ -333,6 +334,13 @@ class HotspotStore {
                         }),
                         ...patch.visual.visited
                     };
+                }
+
+                if (patch.visual?.stateContent !== undefined) {
+                    nextVisual.stateContent = mergeVisualStateContent(
+                        current.visual.stateContent,
+                        patch.visual.stateContent
+                    );
                 }
 
                 return nextVisual;

@@ -1,4 +1,9 @@
 export {
+    parseRegionOverlayColor,
+    resolveFirstEnabledRegionOverlayLayer
+} from './region-state-overlay';
+
+export {
     RgbaColor,
     normalizeHexColor,
     parseRegionActiveColor,

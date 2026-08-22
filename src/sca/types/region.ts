@@ -1,3 +1,5 @@
+import { ScaRegionVisualStateContent } from './region-state-content';
+
 type ScaRegionSource = {
     type: 'gaussian-mask';
     scaSplatId: string;
@@ -38,6 +40,8 @@ type ScaRegionVisual = {
     activeOpacity: number;
     visited?: ScaRegionVisitedVisual;
     pulse?: ScaRegionPulse;
+    /** Optional per-state content layers (style remains in visited/hover/active fields). */
+    stateContent?: ScaRegionVisualStateContent;
 };
 
 type ScaRegionPatch = Omit<Partial<ScaRegion>, 'interaction' | 'visual'> & {
@@ -45,6 +49,7 @@ type ScaRegionPatch = Omit<Partial<ScaRegion>, 'interaction' | 'visual'> & {
     visual?: Partial<ScaRegionVisual> & {
         visited?: Partial<ScaRegionVisitedVisual>;
         pulse?: Partial<ScaRegionPulse>;
+        stateContent?: Partial<ScaRegionVisualStateContent>;
     };
 };
 
@@ -70,3 +75,5 @@ export {
     ScaRegionVisitedVisual,
     ScaRegionVisual
 };
+
+export type { ScaRegionVisualStateContent } from './region-state-content';

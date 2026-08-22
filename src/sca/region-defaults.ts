@@ -1,4 +1,5 @@
 import { generateRegionId } from './ids/generate-region-id';
+import { normalizeVisualStateContent } from './region-state-content';
 import { regionMaskZipPath } from './regions/region-mask-paths';
 import { ScaRegion, ScaRegionPulse, ScaRegionPulseMode, ScaRegionVisitedVisual } from './types/region';
 import { ScaProject } from './types/project';
@@ -9,6 +10,8 @@ const DEFAULT_HOVER_OPACITY = 0.35;
 const DEFAULT_ACTIVE_OPACITY = 0.55;
 const DEFAULT_PULSE_STRENGTH = 0.5;
 const DEFAULT_PULSE_SPEED = 1.0;
+const DEFAULT_REGION_OVERLAY_COLOR = '#00aaff';
+const DEFAULT_REGION_OVERLAY_OPACITY = 0.4;
 
 const normalizeHexColor = (raw: unknown, fallback: string): string => {
     if (typeof raw !== 'string') {
@@ -91,6 +94,13 @@ const normalizeRegionPulseField = (
             stopOnInteraction: record.stopOnInteraction === true
         }
     };
+};
+
+const normalizeRegionVisualStateContentField = (
+    raw: unknown
+): { stateContent?: ReturnType<typeof normalizeVisualStateContent> } => {
+    const stateContent = normalizeVisualStateContent(raw);
+    return stateContent ? { stateContent } : {};
 };
 
 const normalizeRegion = (raw: unknown): ScaRegion | null => {
@@ -186,7 +196,8 @@ const normalizeRegion = (raw: unknown): ScaRegion | null => {
                 visualRecord.visited,
                 normalizeHexColor(visualRecord.activeTint, DEFAULT_ACTIVE_TINT)
             ),
-            ...(normalizeRegionPulseField(visualRecord.pulse, normalizeHexColor(visualRecord.activeTint, DEFAULT_ACTIVE_TINT)))
+            ...(normalizeRegionPulseField(visualRecord.pulse, normalizeHexColor(visualRecord.activeTint, DEFAULT_ACTIVE_TINT))),
+            ...normalizeRegionVisualStateContentField(visualRecord.stateContent)
         }
     };
 };
@@ -255,6 +266,8 @@ export {
     DEFAULT_HOVER_TINT,
     DEFAULT_PULSE_SPEED,
     DEFAULT_PULSE_STRENGTH,
+    DEFAULT_REGION_OVERLAY_COLOR,
+    DEFAULT_REGION_OVERLAY_OPACITY,
     DEFAULT_VISITED_OPACITY,
     normalizeRegion,
     normalizeRegions

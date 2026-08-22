@@ -741,6 +741,12 @@ const applyScaRegionHighlightGlslPatches = (source: string): RegionHighlightShad
                 fragColor.xyz = mix(fragColor.xyz, tint.xyz, tint.a);
             }
         }
+        if (scaRegionStateOverlayActive > 0.5) {
+            float overlayMask = texelFetch(scaRegionStateOverlay, ivec2(int(scaGaussianIndex) % int(scaRegionHighlightTexWidth), int(scaGaussianIndex) / int(scaRegionHighlightTexWidth)), 0).r;
+            if (overlayMask > 0.02) {
+                fragColor.xyz = mix(fragColor.xyz, scaRegionStateOverlayClr.xyz, scaRegionStateOverlayClr.a);
+            }
+        }
         if (scaRegionPulseActive > 0.5) {
             float pulseMask = texelFetch(scaRegionPulse, ivec2(int(scaGaussianIndex) % int(scaRegionHighlightTexWidth), int(scaGaussianIndex) / int(scaRegionHighlightTexWidth)), 0).r;
             if (pulseMask > 0.02) {
@@ -792,6 +798,9 @@ uniform float scaRegionPulseStrength;
 uniform float scaRegionPulseSpeed;
 uniform float scaRegionPulseTime;
 uniform float scaRegionPulseOnce;
+uniform sampler2D scaRegionStateOverlay;
+uniform vec4 scaRegionStateOverlayClr;
+uniform float scaRegionStateOverlayActive;
 flat varying float scaGaussianIndex;
 #endif
 varying mediump vec2 gaussianUV;
@@ -1135,6 +1144,9 @@ const patchViewerBundle = (source: string): string => {
             let scaRegionPulseTexture = null;
             let scaRegionPulseBuffer = null;
             let scaRegionPulseActive = false;
+            let scaRegionStateOverlayTexture = null;
+            let scaRegionStateOverlayBuffer = null;
+            let scaRegionStateOverlayActive = false;
             const scaFindGsplatMaterial = () => {
                 const sceneMaterial = app.scene?.gsplat?.material ?? null;
                 if (sceneMaterial) {
@@ -1297,6 +1309,24 @@ const patchViewerBundle = (source: string): string => {
                     material.setParameter('scaRegionPulseSpeed', 1);
                     material.setParameter('scaRegionPulseTime', 0);
                     material.setParameter('scaRegionPulseOnce', 0);
+                    scaRegionStateOverlayBuffer = new Uint8Array(bufferSize);
+                    scaRegionStateOverlayTexture = new Texture(app.graphicsDevice, {
+                        name: 'scaRegionStateOverlay',
+                        width: layout.width,
+                        height: layout.height,
+                        format: PIXELFORMAT_RGBA8,
+                        mipmaps: false,
+                        minFilter: FILTER_NEAREST,
+                        magFilter: FILTER_NEAREST,
+                        addressU: ADDRESS_CLAMP_TO_EDGE,
+                        addressV: ADDRESS_CLAMP_TO_EDGE
+                    });
+                    const overlayLocked = scaRegionStateOverlayTexture.lock();
+                    overlayLocked.fill(0);
+                    scaRegionStateOverlayTexture.unlock();
+                    material.setParameter('scaRegionStateOverlay', scaRegionStateOverlayTexture);
+                    material.setParameter('scaRegionStateOverlayClr', [0, 0.67, 1, 0.4]);
+                    material.setParameter('scaRegionStateOverlayActive', 0);
                     material.update();
                     app.renderNextFrame = true;
                     console.log('[SCA REGION] highlight texture created', {
@@ -1324,6 +1354,9 @@ const patchViewerBundle = (source: string): string => {
                     scaRegionPulseTexture = null;
                     scaRegionPulseBuffer = null;
                     scaRegionPulseActive = false;
+                    scaRegionStateOverlayTexture = null;
+                    scaRegionStateOverlayBuffer = null;
+                    scaRegionStateOverlayActive = false;
                     return false;
                 }
             };
@@ -1503,6 +1536,44 @@ const patchViewerBundle = (source: string): string => {
             };
             this.clearScaRegionPulse = () => {
                 this.setScaRegionPulse(null, [0, 0, 0, 0], 0.5, 1, 0, false, false);
+            };
+            this.setScaRegionStateOverlay = (bitset, color, active) => {
+                if (!scaRegionStateOverlayTexture || !scaRegionHighlightMaterial || !scaRegionStateOverlayBuffer) {
+                    return { nonZeroMask: 0, enabled: false, uploaded: false, bufferSize: 0 };
+                }
+                let nonZeroMask = 0;
+                scaRegionStateOverlayBuffer.fill(0);
+                const locked = scaRegionStateOverlayTexture.lock();
+                locked.fill(0);
+                if (bitset && active) {
+                    const limit = Math.min(
+                        scaRegionHighlightGaussianCount,
+                        scaRegionStateOverlayBuffer.length
+                    );
+                    for (let i = 0; i < limit; i++) {
+                        if (bitset[i]) {
+                            scaRegionStateOverlayBuffer[i] = 255;
+                            locked[i * 4] = 255;
+                            nonZeroMask++;
+                        }
+                    }
+                }
+                scaRegionStateOverlayTexture.unlock();
+                scaRegionStateOverlayActive = !!active && nonZeroMask > 0;
+                scaRegionHighlightMaterial.setParameter('scaRegionStateOverlayClr', color);
+                scaRegionHighlightMaterial.setParameter('scaRegionStateOverlayActive', scaRegionStateOverlayActive ? 1 : 0);
+                scaRegionHighlightMaterial.update();
+                app.renderNextFrame = true;
+                return {
+                    nonZeroMask,
+                    enabled: scaRegionStateOverlayActive,
+                    uploaded: true,
+                    bufferSize: locked.length,
+                    gaussianCount: scaRegionHighlightGaussianCount
+                };
+            };
+            this.clearScaRegionStateOverlay = () => {
+                this.setScaRegionStateOverlay(null, [0, 0, 0, 0], false);
             };
             this.clearScaRegionHighlight = () => {
                 this.setScaRegionHighlight(null, [0, 0, 0, 0], false);

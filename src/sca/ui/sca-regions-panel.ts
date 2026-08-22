@@ -25,8 +25,22 @@ import { Events } from '../../events';
 
 
 import { ScaRegion, ScaRegionPatch } from '../types/region';
-
-import { DEFAULT_ACTIVE_TINT, DEFAULT_HOVER_TINT, DEFAULT_PULSE_SPEED, DEFAULT_PULSE_STRENGTH, DEFAULT_VISITED_OPACITY } from '../region-defaults';
+import { ScaRegionStateContentLayer, isRegionOverlayLayer } from '../types/region-state-content';
+import { ScaProject } from '../types/project';
+import { generateStateLayerId } from '../ids/generate-state-layer-id';
+import {
+    createDefaultPlaceholderLayer,
+    createDefaultRegionOverlayLayer
+} from '../region-state-content';
+import {
+    DEFAULT_ACTIVE_TINT,
+    DEFAULT_HOVER_TINT,
+    DEFAULT_PULSE_SPEED,
+    DEFAULT_PULSE_STRENGTH,
+    DEFAULT_REGION_OVERLAY_COLOR,
+    DEFAULT_REGION_OVERLAY_OPACITY,
+    DEFAULT_VISITED_OPACITY
+} from '../region-defaults';
 import { RegionAuthoringPreviewState } from '../regions/region-authoring-preview-state';
 import { CollapsibleSection } from './components/collapsible-section';
 import { createRegionTintControls } from './region-tint-controls';
@@ -75,6 +89,14 @@ class ScaRegionsPanel extends Container {
     private visitedTintControls: ReturnType<typeof createRegionTintControls>;
 
     private visitedStrengthInput: SliderInput;
+
+    private visitedStateContentContainer: Container;
+
+    private visitedStateContentList: Container;
+
+    private addPlaceholderLayerButton: Button;
+
+    private addRegionOverlayButton: Button;
 
     private pulseEnabledInput: BooleanInput;
 
@@ -382,6 +404,33 @@ class ScaRegionsPanel extends Container {
         visitedStrengthRow.append(visitedStrengthLabel);
         visitedStrengthRow.append(this.visitedStrengthInput);
 
+        const visitedStateContentTitle = new Label({
+            class: ['sca-panel-subsection-label', 'sca-panel-subsection-label-nested'],
+            text: 'STATE CONTENT (Experimental)'
+        });
+
+        this.visitedStateContentList = new Container({
+            class: 'sca-region-state-content-list'
+        });
+
+        this.addPlaceholderLayerButton = new Button({
+            class: 'sca-hotspot-form-button',
+            text: '+ Add Placeholder Layer'
+        });
+
+        this.addRegionOverlayButton = new Button({
+            class: 'sca-hotspot-form-button',
+            text: '+ Add Region Overlay'
+        });
+
+        this.visitedStateContentContainer = new Container({
+            class: 'sca-region-state-content-section'
+        });
+        this.visitedStateContentContainer.append(visitedStateContentTitle);
+        this.visitedStateContentContainer.append(this.visitedStateContentList);
+        this.visitedStateContentContainer.append(this.addRegionOverlayButton);
+        this.visitedStateContentContainer.append(this.addPlaceholderLayerButton);
+
 
 
         const pulseEnabledRow = new Container({ class: 'sca-hotspot-form-row' });
@@ -593,6 +642,7 @@ class ScaRegionsPanel extends Container {
         visualSection.body.append(visitedEnabledRow);
         visualSection.body.append(this.visitedTintControls.row);
         visualSection.body.append(visitedStrengthRow);
+        visualSection.body.append(this.visitedStateContentContainer);
 
         const pulseSection = new CollapsibleSection({
             sectionId: 'regionPulse',
@@ -829,6 +879,16 @@ class ScaRegionsPanel extends Container {
 
 
 
+        this.addPlaceholderLayerButton.on('click', () => {
+            this.addVisitedPlaceholderLayer();
+        });
+
+        this.addRegionOverlayButton.on('click', () => {
+            this.addVisitedRegionOverlayLayer();
+        });
+
+
+
         this.pulseEnabledInput.on('change', () => {
             this.commitPulsePatch({ enabled: this.pulseEnabledInput.value });
         });
@@ -994,6 +1054,214 @@ class ScaRegionsPanel extends Container {
 
         this.events.fire('sca.region.update', this.selectedId, patch);
 
+    }
+
+    private getVisitedStateContentLayers(region: ScaRegion): ScaRegionStateContentLayer[] {
+        return region.visual.stateContent?.visited?.layers ?
+            [...region.visual.stateContent.visited.layers] :
+            [];
+    }
+
+    private commitVisitedStateContentLayers(layers: ScaRegionStateContentLayer[]) {
+        this.commitPatch({
+            visual: {
+                stateContent: {
+                    visited: { layers }
+                }
+            }
+        });
+    }
+
+    private addVisitedPlaceholderLayer() {
+        if (!this.selectedId) {
+            return;
+        }
+
+        const project = this.events.invoke('sca.project.get') as ScaProject | null;
+        if (!project) {
+            return;
+        }
+
+        const region = this.events.invoke('sca.region.get', this.selectedId) as ScaRegion | null;
+        if (!region) {
+            return;
+        }
+
+        const layers = this.getVisitedStateContentLayers(region);
+        const layerNumber = layers.length + 1;
+        layers.push(createDefaultPlaceholderLayer(
+            generateStateLayerId(project),
+            `Placeholder Layer ${layerNumber}`
+        ));
+        this.commitVisitedStateContentLayers(layers);
+    }
+
+    private addVisitedRegionOverlayLayer() {
+        if (!this.selectedId) {
+            return;
+        }
+
+        const project = this.events.invoke('sca.project.get') as ScaProject | null;
+        if (!project) {
+            return;
+        }
+
+        const region = this.events.invoke('sca.region.get', this.selectedId) as ScaRegion | null;
+        if (!region) {
+            return;
+        }
+
+        const layers = this.getVisitedStateContentLayers(region);
+        const overlayCount = layers.filter((entry) => entry.type === 'region-overlay').length + 1;
+        layers.push(createDefaultRegionOverlayLayer(
+            generateStateLayerId(project),
+            `Region Overlay ${overlayCount}`
+        ));
+        this.commitVisitedStateContentLayers(layers);
+    }
+
+    private rebuildVisitedStateContentUi(region: ScaRegion) {
+        this.visitedStateContentList.clear();
+
+        const layers = this.getVisitedStateContentLayers(region);
+        for (const layer of layers) {
+            const layerBlock = new Container({
+                class: ['sca-region-state-content-layer', `sca-region-state-content-layer-${layer.type}`]
+            });
+
+            const row = new Container({ class: ['sca-hotspot-form-row', 'sca-region-state-content-row'] });
+
+            const nameInput = new TextInput({
+                class: 'sca-hotspot-form-input',
+                value: layer.name ?? layer.id
+            });
+
+            const enabledInput = new BooleanInput({
+                class: 'sca-hotspot-form-toggle',
+                type: 'toggle',
+                value: layer.enabled
+            });
+
+            const deleteButton = new Button({
+                class: ['sca-hotspot-form-button', 'sca-region-state-content-delete'],
+                text: 'Delete'
+            });
+
+            const layerId = layer.id;
+
+            nameInput.on('change', () => {
+                const currentRegion = this.events.invoke('sca.region.get', this.selectedId) as ScaRegion | null;
+                if (!currentRegion) {
+                    return;
+                }
+
+                const nextLayers = this.getVisitedStateContentLayers(currentRegion).map((entry) => (
+                    entry.id === layerId ?
+                        { ...entry, name: nameInput.value.trim() || entry.id } :
+                        entry
+                ));
+                this.commitVisitedStateContentLayers(nextLayers);
+            });
+
+            enabledInput.on('change', () => {
+                const currentRegion = this.events.invoke('sca.region.get', this.selectedId) as ScaRegion | null;
+                if (!currentRegion) {
+                    return;
+                }
+
+                const nextLayers = this.getVisitedStateContentLayers(currentRegion).map((entry) => (
+                    entry.id === layerId ?
+                        { ...entry, enabled: enabledInput.value } :
+                        entry
+                ));
+                this.commitVisitedStateContentLayers(nextLayers);
+            });
+
+            deleteButton.on('click', () => {
+                const currentRegion = this.events.invoke('sca.region.get', this.selectedId) as ScaRegion | null;
+                if (!currentRegion) {
+                    return;
+                }
+
+                const nextLayers = this.getVisitedStateContentLayers(currentRegion)
+                    .filter((entry) => entry.id !== layerId);
+                this.commitVisitedStateContentLayers(nextLayers);
+            });
+
+            row.append(nameInput);
+            row.append(enabledInput);
+            row.append(deleteButton);
+            layerBlock.append(row);
+
+            if (isRegionOverlayLayer(layer)) {
+                const overlayTintControls = createRegionTintControls(
+                    'Overlay color',
+                    layer.color ?? DEFAULT_REGION_OVERLAY_COLOR
+                );
+                overlayTintControls.setValue(layer.color ?? DEFAULT_REGION_OVERLAY_COLOR);
+
+                const overlayOpacityRow = new Container({ class: 'sca-hotspot-form-row' });
+                const overlayOpacityLabel = new Label({
+                    class: 'sca-hotspot-form-label',
+                    text: 'Overlay opacity'
+                });
+                const overlayOpacityInput = new SliderInput({
+                    class: 'sca-hotspot-form-slider',
+                    min: 0,
+                    max: 1,
+                    step: 0.01,
+                    precision: 2,
+                    value: layer.opacity ?? DEFAULT_REGION_OVERLAY_OPACITY
+                });
+                overlayOpacityRow.append(overlayOpacityLabel);
+                overlayOpacityRow.append(overlayOpacityInput);
+
+                const updateOverlayLayer = (patch: { color?: string; opacity?: number }) => {
+                    const currentRegion = this.events.invoke('sca.region.get', this.selectedId) as ScaRegion | null;
+                    if (!currentRegion) {
+                        return;
+                    }
+
+                    const nextLayers = this.getVisitedStateContentLayers(currentRegion).map((entry) => {
+                        if (entry.id !== layerId || !isRegionOverlayLayer(entry)) {
+                            return entry;
+                        }
+
+                        return {
+                            ...entry,
+                            ...(patch.color !== undefined ? { color: patch.color } : {}),
+                            ...(patch.opacity !== undefined ? { opacity: patch.opacity } : {})
+                        };
+                    });
+                    this.commitVisitedStateContentLayers(nextLayers);
+                };
+
+                overlayTintControls.bind(this.events, (color) => {
+                    updateOverlayLayer({ color });
+                }, {
+                    onPreviewStart: () => this.beginAuthoringPreview('visited'),
+                    onPreviewEnd: () => this.endAuthoringPreview('visited')
+                });
+
+                overlayOpacityInput.on('change', () => {
+                    updateOverlayLayer({ opacity: overlayOpacityInput.value });
+                });
+                overlayOpacityInput.dom.addEventListener('pointerdown', () => {
+                    this.beginAuthoringPreview('visited');
+                });
+                overlayOpacityInput.dom.addEventListener('pointerup', () => {
+                    this.endAuthoringPreview('visited');
+                });
+                overlayOpacityInput.dom.addEventListener('blur', () => {
+                    this.endAuthoringPreview('visited');
+                });
+
+                layerBlock.append(overlayTintControls.row);
+                layerBlock.append(overlayOpacityRow);
+            }
+
+            this.visitedStateContentList.append(layerBlock);
+        }
     }
 
     private commitPulsePatch(pulsePatch: {
@@ -1168,6 +1436,7 @@ class ScaRegionsPanel extends Container {
         this.visitedEnabledInput.value = visited?.enabled === true;
         this.visitedTintControls.setValue(visited?.color ?? region.visual.activeTint ?? DEFAULT_ACTIVE_TINT);
         this.visitedStrengthInput.value = visited?.opacity ?? DEFAULT_VISITED_OPACITY;
+        this.rebuildVisitedStateContentUi(region);
 
         const pulse = region.visual.pulse;
         this.pulseEnabledInput.value = pulse?.enabled === true;

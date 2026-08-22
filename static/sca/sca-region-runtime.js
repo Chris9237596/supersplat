@@ -920,6 +920,55 @@
 
     }
 
+    const syncRegionStateOverlay = (visitedRegionIds, selectedMaskEntry, hoverMaskEntry) => {
+      if (typeof viewer.setScaRegionStateOverlay !== 'function') {
+        return
+      }
+
+      const resolveOverlayLayer = window.SCA3D?.resolveFirstEnabledRegionOverlayLayer
+      const parseOverlayColor = window.SCA3D?.parseRegionOverlayColor
+      if (typeof resolveOverlayLayer !== 'function' || typeof parseOverlayColor !== 'function') {
+        viewer.clearScaRegionStateOverlay?.()
+        return
+      }
+
+      let overlayBitset = null
+      let overlayTint = null
+
+      for (const entry of ctx.lookup.entries) {
+        if (!visitedRegionIds.has(entry.regionId)) {
+          continue
+        }
+
+        const overlayLayer = resolveOverlayLayer(entry.region)
+        if (!overlayLayer || !entry.bitset) {
+          continue
+        }
+
+        if (!overlayBitset) {
+          overlayBitset = new Uint8Array(entry.bitset.length)
+          overlayTint = parseOverlayColor(overlayLayer)
+        }
+
+        for (let i = 0; i < overlayBitset.length; i++) {
+          if (entry.bitset[i] && !selectedMaskEntry?.bitset?.[i] && !hoverMaskEntry?.bitset?.[i]) {
+            overlayBitset[i] = 1
+          }
+        }
+      }
+
+      if (!overlayBitset || !overlayTint) {
+        viewer.clearScaRegionStateOverlay?.()
+        return
+      }
+
+      viewer.setScaRegionStateOverlay(
+        overlayBitset,
+        [overlayTint.r, overlayTint.g, overlayTint.b, overlayTint.a],
+        true
+      )
+    }
+
     const syncRegionPresentation = (source) => {
 
       const buildState = window.SCA3D?.buildRegionPresentationState
@@ -1067,6 +1116,12 @@
           )
 
         }
+
+        syncRegionStateOverlay(
+          visitedRegionIds,
+          selectedMaskEntry,
+          hoverMaskEntry
+        )
 
         logVisitedPresentationDebug(
           presentationState,

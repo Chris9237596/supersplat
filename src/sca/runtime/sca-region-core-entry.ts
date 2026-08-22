@@ -23,7 +23,9 @@ import {
     resolveRegionPulse,
     resolveRegionPulsePreview,
     shouldPlayAuthoredRegionPulse,
-    shouldStopPulseOnRegionInteraction
+    shouldStopPulseOnRegionInteraction,
+    resolveFirstEnabledRegionOverlayLayer,
+    parseRegionOverlayColor
 } from '../presentation';
 import { ScaRegion } from '../types/region';
 
@@ -66,6 +68,8 @@ Object.assign(scaGlobal.SCA3D, {
     resolveRegionPulsePreview,
     shouldPlayAuthoredRegionPulse,
     shouldStopPulseOnRegionInteraction,
+    resolveFirstEnabledRegionOverlayLayer,
+    parseRegionOverlayColor,
     computeRegionAnchorFromBitset,
     computeRegionAnchorFromIndices,
     createCentersAccessorFromFloat32,
