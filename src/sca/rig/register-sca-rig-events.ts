@@ -8,6 +8,7 @@ import { ScaRig } from '../types/rig';
 import { RegionRigApplier } from './region-rig-applier';
 import { chooseRigSyncPath, computeRigTopology } from './region-rig-topology';
 import { logRigTraceSyncPath, registerRigTrace } from './rig-trace';
+import { ScaRigAnimationController } from './sca-rig-animation-controller';
 import { ScaRigGizmo } from './sca-rig-gizmo';
 import { ScaRigTransformController } from './sca-rig-transform';
 
@@ -16,6 +17,7 @@ const registerScaRigEvents = (events: Events, scene: Scene, canvasContainer: Con
     const applier = new RegionRigApplier();
     new ScaRigGizmo(events, scene);
     new ScaRigTransformController(events, scene, canvasContainer);
+    new ScaRigAnimationController(events, scene, applier);
 
     let cachedTopology = '';
 

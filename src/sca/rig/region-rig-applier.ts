@@ -10,7 +10,7 @@ import { ScaRig, ScaRigBinding, ScaRigNode } from '../types/rig';
 import { ScaRegion } from '../types/region';
 
 import { buildEffectiveRigWorldMatrixFromPose, collectRigSubtreeNodeIds } from './rig-hierarchy';
-import { evaluateRigPose, ScaRigEvaluatedPose } from './rig-pose';
+import { evaluateFinalRigPose, ScaRigEvaluatedPose } from './rig-pose';
 import { findSplatByScaSplatId } from '../regions/splat-identity';
 import {
     logScaRigRestore,
@@ -148,7 +148,7 @@ class RegionRigApplier {
         const nodeById = new Map<string, ScaRigNode>(
             rig.nodes.map((node) => [node.id, node])
         );
-        const pose = evaluateRigPose(rig);
+        const pose = evaluateFinalRigPose(rig);
         const affectedNodeIds = nodeIds ?
             new Set(nodeIds.flatMap((nodeId) => collectRigSubtreeNodeIds(rig, nodeId))) :
             null;
@@ -234,7 +234,7 @@ class RegionRigApplier {
         const nodeById = new Map<string, ScaRigNode>(
             rig.nodes.map((node) => [node.id, node])
         );
-        const pose = evaluateRigPose(rig);
+        const pose = evaluateFinalRigPose(rig);
 
         const bindings = [...rig.bindings].sort((left, right) => (
             left.regionId.localeCompare(right.regionId)

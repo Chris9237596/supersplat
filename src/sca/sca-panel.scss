@@ -270,6 +270,29 @@
         margin-top: 8px;
     }
 
+    .sca-rig-animation-test {
+        margin: 8px 0 4px;
+
+        .sca-rig-animation-info,
+        .sca-rig-animation-time {
+            margin: 4px 0;
+            font-size: 11px;
+            color: $text-darkest;
+            white-space: pre-line;
+        }
+
+        .sca-rig-animation-controls {
+            display: flex;
+            flex-direction: row;
+            gap: 0;
+            margin-top: 4px;
+
+            .sca-rig-transform-mode-button {
+                flex: 1 1 0;
+            }
+        }
+    }
+
     .sca-rig-transform-modes {
         display: flex;
         flex-direction: row;

@@ -2,7 +2,7 @@ import { Mat4, Quat, Vec3 } from 'playcanvas';
 
 import { ScaRig, ScaRigBinding, ScaRigNode, ScaRigVec3 } from '../types/rig';
 
-import { evaluateRigPose, requireEvaluatedNodePose, ScaRigEvaluatedPose } from './rig-pose';
+import { evaluateFinalRigPose, requireEvaluatedNodePose, ScaRigEvaluatedPose } from './rig-pose';
 import { buildRigidRigMatrixFromPose, bindOffsetToMatrix, matrixToArray, matrixToPose } from './rig-transform';
 
 type ScaRigReparentMode = 'keep-world' | 'keep-local';
@@ -170,7 +170,7 @@ const buildParentWorldMatrixFromPose = (
 };
 
 const buildParentWorldMatrix = (rig: ScaRig, node: ScaRigNode, target = new Mat4()): Mat4 => {
-    return buildParentWorldMatrixFromPose(rig, evaluateRigPose(rig), node, target);
+    return buildParentWorldMatrixFromPose(rig, evaluateFinalRigPose(rig), node, target);
 };
 
 const buildNodeWorldMatrixFromPose = (
@@ -186,7 +186,7 @@ const buildNodeWorldMatrixFromPose = (
 };
 
 const buildNodeWorldMatrix = (rig: ScaRig, node: ScaRigNode, target = new Mat4()): Mat4 => {
-    return buildNodeWorldMatrixFromPose(rig, evaluateRigPose(rig), node, target);
+    return buildNodeWorldMatrixFromPose(rig, evaluateFinalRigPose(rig), node, target);
 };
 
 const isWorldMatrixIdentity = (matrix: Mat4): boolean => {
@@ -216,7 +216,7 @@ const getNodeHandleWorldPositionFromPose = (
 };
 
 const getNodeHandleWorldPosition = (rig: ScaRig, node: ScaRigNode, out = vecA): Vec3 => {
-    return getNodeHandleWorldPositionFromPose(rig, evaluateRigPose(rig), node, out);
+    return getNodeHandleWorldPositionFromPose(rig, evaluateFinalRigPose(rig), node, out);
 };
 
 const getNodeHandleWorldEulerFromPose = (
@@ -231,7 +231,7 @@ const getNodeHandleWorldEulerFromPose = (
 };
 
 const getNodeHandleWorldEuler = (rig: ScaRig, node: ScaRigNode, out = eulerA): Vec3 => {
-    return getNodeHandleWorldEulerFromPose(rig, evaluateRigPose(rig), node, out);
+    return getNodeHandleWorldEulerFromPose(rig, evaluateFinalRigPose(rig), node, out);
 };
 
 const localTransformFromWorldMatrix = (
@@ -239,7 +239,7 @@ const localTransformFromWorldMatrix = (
     node: ScaRigNode,
     worldMatrix: Mat4
 ): Pick<ScaRigNode, 'position' | 'rotation'> => {
-    const pose = evaluateRigPose(rig);
+    const pose = evaluateFinalRigPose(rig);
     buildParentWorldMatrixFromPose(rig, pose, node, matParentWorld);
     matLocal.copy(matParentWorld).invert().mul(worldMatrix);
     return localPoseFromRigidMatrix(node, matLocal);
@@ -251,7 +251,7 @@ const localTransformFromWorldHandle = (
     handleWorld: Vec3,
     handleWorldEuler: ScaRigVec3
 ): Pick<ScaRigNode, 'position' | 'rotation'> => {
-    const pose = evaluateRigPose(rig);
+    const pose = evaluateFinalRigPose(rig);
     buildParentWorldMatrixFromPose(rig, pose, node, matParentWorld);
     matLocal.copy(matParentWorld).invert();
     matLocal.transformPoint(handleWorld, vecA);
@@ -300,7 +300,7 @@ const computeReparentLocalKeepWorld = (
     node: ScaRigNode,
     newParentId: string | null
 ): Pick<ScaRigNode, 'position' | 'rotation'> => {
-    const pose = evaluateRigPose(rig);
+    const pose = evaluateFinalRigPose(rig);
     buildNodeWorldMatrixFromPose(rig, pose, node, matC);
 
     const tempNode: ScaRigNode = {
@@ -320,7 +320,7 @@ const promoteDirectChildrenOnDelete = (
     rig: ScaRig,
     deletedNodeId: string
 ): void => {
-    const pose = evaluateRigPose(rig);
+    const pose = evaluateFinalRigPose(rig);
     const children = getRigChildren(rig, deletedNodeId);
     for (const child of children) {
         buildNodeWorldMatrixFromPose(rig, pose, child, matC);
@@ -364,7 +364,7 @@ const buildEffectiveRigWorldMatrix = (
     binding: ScaRigBinding | null | undefined,
     target = new Mat4()
 ): Mat4 => {
-    return buildEffectiveRigWorldMatrixFromPose(rig, evaluateRigPose(rig), node, binding, target);
+    return buildEffectiveRigWorldMatrixFromPose(rig, evaluateFinalRigPose(rig), node, binding, target);
 };
 
 const computeKeepWorldBindOffsetMatrixFromPose = (
@@ -382,7 +382,7 @@ const computeKeepWorldBindOffsetMatrix = (
     node: ScaRigNode,
     target = new Mat4()
 ): Mat4 => {
-    return computeKeepWorldBindOffsetMatrixFromPose(rig, evaluateRigPose(rig), node, target);
+    return computeKeepWorldBindOffsetMatrixFromPose(rig, evaluateFinalRigPose(rig), node, target);
 };
 
 const computeKeepWorldBindOffset = (rig: ScaRig, node: ScaRigNode) => {

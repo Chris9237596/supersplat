@@ -544,7 +544,6 @@ class HotspotStore {
         regionId: string,
         nodeId: string | null,
         options?: {
-            pivot?: ScaRigVec3;
             bindMode?: ScaRigBindMode;
         }
     ): void {
@@ -555,10 +554,6 @@ class HotspotStore {
             const node = rig.nodes.find((entry) => entry.id === nodeId);
             if (!node) {
                 throw new Error(`[SCA] unknown rig node id: ${nodeId}`);
-            }
-
-            if (options?.pivot && node.pivot.every((value) => Math.abs(value) < 1e-8)) {
-                node.pivot = [...options.pivot] as ScaRigVec3;
             }
 
             const bindMode = options?.bindMode ?? DEFAULT_RIG_BIND_MODE;

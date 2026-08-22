@@ -37,7 +37,12 @@ import {
 } from '../src/sca/rig/rig-hierarchy';
 import { collectRigHierarchyMarkerSegments } from '../src/sca/rig/rig-node-markers';
 import { pickRigNodeIdAtScreen } from '../src/sca/rig/rig-node-pick';
-import { evaluateRigPose } from '../src/sca/rig/rig-pose';
+import { clipTargetNodeExists, createTestAnimationClip, sampleTrackRotation } from '../src/sca/rig/rig-animation';
+import {
+    evaluateFinalRigPose,
+    evaluateRigPose,
+    setRigAnimationPlaybackState
+} from '../src/sca/rig/rig-pose';
 import { writeSlotEffectiveMatrix } from '../src/sca/rig/region-rig-applier';
 import {
     buildRigBindingSelectOptions,
@@ -141,12 +146,12 @@ const runStoreTests = () => {
     const store = new HotspotStore(sampleProject());
     const node = createDefaultRigNode(generateRigId(store.getProject()), 'Rig Node 1');
     store.addRigNode(node);
-    store.setRigBinding('region_01', node.id, { pivot: [1, 2, 3] });
+    store.setRigBinding('region_01', node.id, { bindMode: 'keep-world' });
 
     let project = store.getProject();
     assert.equal(project.rig?.nodes.length, 1);
     assert.equal(project.rig?.bindings.length, 1);
-    assert.deepEqual(project.rig?.nodes[0].pivot, [1, 2, 3]);
+    assert.deepEqual(project.rig?.nodes[0].pivot, [0, 0, 0]);
 
     store.updateRigNode(node.id, { position: [0.25, 0, 0] });
     project = store.getProject();
@@ -345,7 +350,7 @@ const runUndoRedoTests = async () => {
     const before = store.getProject();
     const node = createDefaultRigNode('rig_01');
     store.addRigNode(node);
-    store.setRigBinding('region_01', node.id, { pivot: [0, 0, 0] });
+    store.setRigBinding('region_01', node.id);
     store.selectRigNode(node.id);
     const after = store.getProject();
 
@@ -477,7 +482,7 @@ const runRestoreFlowTests = async () => {
     const store = new HotspotStore(sampleProject());
     const node = createDefaultRigNode('rig_01');
     store.addRigNode(node);
-    store.setRigBinding('region_01', node.id, { pivot: [0, 0, 0] });
+    store.setRigBinding('region_01', node.id);
 
     store.updateRigNode(node.id, { position: [3, 0, 0], rotation: [0, 90, 0] });
     const transformed = structuredClone(store.getProject());
@@ -769,6 +774,149 @@ const runBindOffsetPersistenceTests = () => {
     assert.deepEqual(roundTrip.rig?.nodes[0].rest, identityPose());
 
     console.log('[sca-rig] bind offset persistence PASS');
+};
+
+type NodeAnchorSnapshot = {
+    position: [number, number, number];
+    rotation: [number, number, number];
+    pivot: [number, number, number];
+    rest: ReturnType<typeof identityPose>;
+};
+
+const snapshotNodeAnchor = (node: {
+    position: [number, number, number];
+    rotation: [number, number, number];
+    pivot: [number, number, number];
+    rest: ReturnType<typeof identityPose>;
+}): NodeAnchorSnapshot => ({
+    position: [...node.position],
+    rotation: [...node.rotation],
+    pivot: [...node.pivot],
+    rest: structuredClone(node.rest)
+});
+
+const assertNodeAnchorUnchanged = (
+    before: NodeAnchorSnapshot,
+    after: NodeAnchorSnapshot,
+    label: string
+) => {
+    assert.deepEqual(after.position, before.position, `${label}: position changed`);
+    assert.deepEqual(after.rotation, before.rotation, `${label}: rotation changed`);
+    assert.deepEqual(after.pivot, before.pivot, `${label}: pivot changed`);
+    assert.deepEqual(after.rest, before.rest, `${label}: rest changed`);
+};
+
+const runBindPreserveNodeAnchorTests = async () => {
+    const node = createDefaultRigNode('rig_01');
+    node.position = [1.25, -0.5, 0.75];
+    node.rotation = [15, -30, 45];
+    node.pivot = [0.2, 0.1, -0.05];
+
+    const beforeAnchor = snapshotNodeAnchor(node);
+    const rigBeforeBind = { version: 1 as const, nodes: [structuredClone(node)], bindings: [] as [] };
+    const handleBefore = nodeWorldMatrixToHelperHandle(rigBeforeBind, rigBeforeBind.nodes[0], new Mat4());
+
+    const store = new HotspotStore(sampleProject());
+    store.addRigNode(node);
+    store.setRigBinding('region_01', node.id, { bindMode: 'keep-world' });
+
+    const project = store.getProject();
+    const boundNode = project.rig!.nodes[0];
+    assertNodeAnchorUnchanged(beforeAnchor, snapshotNodeAnchor(boundNode), 'keep-world bind');
+
+    const rigAfterBind = project.rig!;
+    const handleAfter = nodeWorldMatrixToHelperHandle(rigAfterBind, boundNode, new Mat4());
+    assert.ok(matricesNearEqual(handleBefore, handleAfter, 1e-6), 'rig marker must not move on bind');
+
+    const binding = store.getRigBindingForRegion('region_01')!;
+    const effective = buildEffectiveRigWorldMatrix(rigAfterBind, boundNode, binding, new Mat4());
+    const identity = new Mat4();
+    for (let i = 0; i < 16; i++) {
+        assert.ok(Math.abs(effective.data[i] - identity.data[i]) < 1e-4, `keep-world no visual jump index ${i}`);
+    }
+
+    const destNode = createDefaultRigNode('rig_02');
+    destNode.position = [-0.5, 2, 0.3];
+    destNode.rotation = [0, 90, 0];
+    destNode.pivot = [0.5, 0, 0];
+    const destBefore = snapshotNodeAnchor(destNode);
+    store.addRigNode(destNode);
+    store.setRigBinding('region_01', destNode.id, { bindMode: 'keep-world' });
+    const destAfter = snapshotNodeAnchor(store.getProject().rig!.nodes.find((entry) => entry.id === 'rig_02')!);
+    assertNodeAnchorUnchanged(destBefore, destAfter, 'rebind destination node');
+
+    const snapBefore = snapshotNodeAnchor(destNode);
+    store.rebindRegion('region_01', 'snap');
+    const snapAfter = snapshotNodeAnchor(store.getProject().rig!.nodes.find((entry) => entry.id === 'rig_02')!);
+    assertNodeAnchorUnchanged(snapBefore, snapAfter, 'snap rebind');
+
+    const root = createDefaultRigNode('rig_root');
+    root.position = [1, 0, 0];
+    root.rotation = [0, 0, 10];
+    root.pivot = [0.1, 0, 0];
+
+    const child = createDefaultRigNode('rig_child');
+    child.parentId = 'rig_root';
+    child.position = [0.5, 0.2, -0.1];
+    child.rotation = [20, 0, 0];
+    child.pivot = [0.15, 0.05, 0];
+
+    const hierarchyStore = new HotspotStore(sampleProject());
+    hierarchyStore.addRigNode(root);
+    hierarchyStore.addRigNode(child);
+    const hierarchyBefore = structuredClone(hierarchyStore.getProject().rig!.nodes);
+    hierarchyStore.setRigBinding('region_01', child.id, { bindMode: 'keep-world' });
+    const hierarchyAfter = hierarchyStore.getProject().rig!.nodes;
+    for (const beforeNode of hierarchyBefore) {
+        const afterNode = hierarchyAfter.find((entry) => entry.id === beforeNode.id)!;
+        assertNodeAnchorUnchanged(
+            snapshotNodeAnchor(beforeNode),
+            snapshotNodeAnchor(afterNode),
+            `hierarchy node ${beforeNode.id}`
+        );
+    }
+
+    const undoStore = new HotspotStore(sampleProject());
+    const undoNode = createDefaultRigNode(generateRigId(undoStore.getProject()), 'Undo Node');
+    undoNode.position = [0.8, -0.2, 1.1];
+    undoNode.rotation = [-10, 45, 5];
+    undoNode.pivot = [0.3, -0.1, 0.2];
+    undoStore.addRigNode(undoNode);
+    const anchorAtCreate = snapshotNodeAnchor(undoNode);
+
+    const beforeProject = undoStore.getProject();
+    undoStore.setRigBinding('region_01', undoNode.id, { bindMode: 'keep-world' });
+    const afterProject = undoStore.getProject();
+    assertNodeAnchorUnchanged(anchorAtCreate, snapshotNodeAnchor(afterProject.rig!.nodes[0]), 'bind');
+
+    const events = new Events();
+    const assetStore = new ScaAssetStore();
+    const applying = { value: false };
+    const bindOp = new ScaProjectOp(
+        events,
+        undoStore,
+        assetStore,
+        beforeProject,
+        afterProject,
+        null,
+        null,
+        null,
+        null,
+        null,
+        undoNode.id,
+        [],
+        [],
+        applying
+    );
+
+    await bindOp.undo();
+    assert.equal(undoStore.getProject().rig?.bindings.length ?? 0, 0);
+    assertNodeAnchorUnchanged(anchorAtCreate, snapshotNodeAnchor(undoStore.getProject().rig!.nodes[0]), 'undo bind');
+
+    await bindOp.do();
+    assertNodeAnchorUnchanged(anchorAtCreate, snapshotNodeAnchor(undoStore.getProject().rig!.nodes[0]), 'redo bind');
+
+    console.log('[sca-rig] bind preserve node anchor PASS');
 };
 
 const matricesNearEqual = (left: Mat4, right: Mat4, epsilon = 1e-4): boolean => {
@@ -1328,6 +1476,8 @@ const buildNodeWorldMatrixDirect = (
 };
 
 const runPoseEvaluationTests = () => {
+    setRigAnimationPlaybackState(null);
+
     const root = createDefaultRigNode('rig_root', 'Root');
     root.position = [1, 0.5, -0.25];
     root.rotation = [5, -15, 10];
@@ -1503,6 +1653,149 @@ const runRigNodeMarkerTests = () => {
     assert.deepEqual(store.getProject().rig?.nodes.find((entry) => entry.id === arm.id)?.position, arm.rest.position);
 
     console.log('[sca-rig] rig node markers PASS');
+};
+
+const runRigAnimationTests = () => {
+    const node = createDefaultRigNode('rig_01');
+    node.rotation = [0, 0, 0];
+    node.pivot = [0.5, 0, 0];
+
+    const rig = { version: 1 as const, nodes: [node], bindings: [] as [] };
+    const authoredRotation = [...node.rotation] as [number, number, number];
+
+    const clip = createTestAnimationClip(node.id, node.rotation);
+    assert.deepEqual(node.rotation, authoredRotation, 'create clip does not mutate authored rotation');
+    assert.equal(clip.tracks[0].keyframes[0].rotation[2], 0);
+    assert.equal(clip.tracks[0].keyframes[1].rotation[2], 30);
+
+    setRigAnimationPlaybackState({
+        clip,
+        playing: false,
+        influenceActive: true,
+        currentTime: 0
+    });
+    let evaluated = evaluateFinalRigPose(rig).nodes.get(node.id)!;
+    assert.deepEqual(evaluated.rotation, authoredRotation, 't=0 matches authored');
+
+    setRigAnimationPlaybackState({
+        clip,
+        playing: false,
+        influenceActive: true,
+        currentTime: 1
+    });
+    evaluated = evaluateFinalRigPose(rig).nodes.get(node.id)!;
+    assert.ok(Math.abs(evaluated.rotation[2] - 30) < 1e-3, 't=1 reaches target rotation');
+
+    const midRotation = sampleTrackRotation(clip.tracks[0], 0.5);
+    assert.ok(Math.abs(midRotation[2] - 15) < 2, 't=0.5 is halfway between keyframes');
+
+    setRigAnimationPlaybackState({
+        clip,
+        playing: false,
+        influenceActive: true,
+        currentTime: 0.5
+    });
+    evaluated = evaluateFinalRigPose(rig).nodes.get(node.id)!;
+    assert.deepEqual(evaluated.rotation, midRotation);
+
+    const matAuthored = new Mat4();
+    buildNodeWorldMatrixDirect(rig, node, matAuthored);
+    setRigAnimationPlaybackState({
+        clip,
+        playing: false,
+        influenceActive: true,
+        currentTime: 0.5
+    });
+    const matAnimated = new Mat4();
+    buildNodeWorldMatrixFromPose(rig, evaluateFinalRigPose(rig), node, matAnimated);
+    assert.ok(!matricesNearEqual(matAuthored, matAnimated, 1e-3), 'world matrix changes during animation');
+
+    setRigAnimationPlaybackState({
+        clip,
+        playing: false,
+        influenceActive: false,
+        currentTime: 0
+    });
+    evaluated = evaluateFinalRigPose(rig).nodes.get(node.id)!;
+    assert.deepEqual(evaluated.rotation, authoredRotation, 'reset returns authored pose');
+    assert.deepEqual(node.rotation, authoredRotation, 'authored rotation unchanged after evaluation');
+
+    const { root, arm } = buildSampleHierarchy();
+    arm.parentId = root.id;
+    arm.rotation = [0, 0, 0];
+    root.rotation = [0, 0, 0];
+    const hierarchyRig = { version: 1 as const, nodes: [root, arm], bindings: [] as [] };
+    const parentClip = createTestAnimationClip(root.id, root.rotation);
+    setRigAnimationPlaybackState(null);
+    const childBefore = new Mat4();
+    buildNodeWorldMatrixDirect(hierarchyRig, arm, childBefore);
+    setRigAnimationPlaybackState({
+        clip: parentClip,
+        playing: false,
+        influenceActive: true,
+        currentTime: 1
+    });
+    const childAfter = new Mat4();
+    buildNodeWorldMatrixFromPose(hierarchyRig, evaluateFinalRigPose(hierarchyRig), arm, childAfter);
+    assert.ok(!matricesNearEqual(childBefore, childAfter, 1e-3), 'animated parent affects child world matrix');
+
+    const legacyBinding = {
+        regionId: 'region_legacy',
+        nodeId: node.id,
+        mode: 'rigid' as const
+    };
+    const keepOffset = createKeepWorldBindOffset(rig, node);
+    const keepBinding = {
+        regionId: 'region_keep',
+        nodeId: node.id,
+        mode: 'rigid' as const,
+        bindMode: 'keep-world' as const,
+        bindOffset: keepOffset.bindOffset,
+        bindOffsetMatrix: keepOffset.bindOffsetMatrix
+    };
+    setRigAnimationPlaybackState({
+        clip,
+        playing: false,
+        influenceActive: true,
+        currentTime: 1
+    });
+    const legacyAuthored = new Mat4();
+    const legacyAnimated = new Mat4();
+    const keepAuthored = new Mat4();
+    const keepAnimated = new Mat4();
+    setRigAnimationPlaybackState(null);
+    buildEffectiveRigWorldMatrix(rig, node, legacyBinding, legacyAuthored);
+    buildEffectiveRigWorldMatrix(rig, node, keepBinding, keepAuthored);
+    setRigAnimationPlaybackState({
+        clip,
+        playing: false,
+        influenceActive: true,
+        currentTime: 1
+    });
+    buildEffectiveRigWorldMatrixFromPose(rig, evaluateFinalRigPose(rig), node, legacyBinding, legacyAnimated);
+    buildEffectiveRigWorldMatrixFromPose(rig, evaluateFinalRigPose(rig), node, keepBinding, keepAnimated);
+    assert.ok(!matricesNearEqual(legacyAuthored, legacyAnimated, 1e-3));
+    assert.ok(!matricesNearEqual(keepAuthored, keepAnimated, 1e-3));
+
+    assert.ok(!clipTargetNodeExists({ ...rig, nodes: [] }, clip), 'deleted target invalidates clip');
+
+    const events = new Events();
+    const store = new HotspotStore(sampleProject());
+    const assetStore = new ScaAssetStore();
+    let editAddCount = 0;
+    events.on('edit.add', () => {
+        editAddCount++;
+    });
+    registerScaHistory(events, store, assetStore);
+    events.fire('sca.rig.animation.createTest');
+    events.fire('sca.rig.animation.play');
+    events.fire('sca.rig.animation.stop');
+    events.fire('sca.rig.animation.reset');
+    assert.equal(editAddCount, 0, 'playback creates no history entries');
+
+    setRigAnimationPlaybackState(null);
+
+    console.log('[sca-rig] rig animation PASS');
 };
 
 const runZeroMoveHandleStabilityTests = () => {
@@ -1939,6 +2232,7 @@ async function main() {
     runRestPoseTests();
     runBindModeTests();
     runBindOffsetPersistenceTests();
+    await runBindPreserveNodeAnchorTests();
     runHierarchyTests();
     runHierarchyUndoTests();
     runHandleAlignmentTests();
@@ -1950,6 +2244,7 @@ async function main() {
     runScaleDeferredTests();
     runPoseEvaluationTests();
     runRigNodeMarkerTests();
+    runRigAnimationTests();
     runZeroMoveHandleStabilityTests();
     runBindingEffectiveConsistencyTests();
     await runScaProjectOpNoOpTests();
@@ -1979,6 +2274,7 @@ async function main() {
     console.log('Rest pose controls: PASS');
     console.log('Bind mode keep-world/snap: PASS');
     console.log('Bind offset persistence: PASS');
+    console.log('Bind preserve node anchor: PASS');
     console.log('Hierarchy parent/world/reparent/delete: PASS');
     console.log('Hierarchy undo/redo: PASS');
     console.log('Handle/gizmo alignment: PASS');
@@ -1990,6 +2286,7 @@ async function main() {
     console.log('Scale deferred (rigid-only): PASS');
     console.log('Pose evaluation: PASS');
     console.log('Rig node markers: PASS');
+    console.log('Rig animation: PASS');
     console.log('Zero-move handle stability: PASS');
     console.log('Binding effective consistency: PASS');
     console.log('ScaProjectOp no-op apply: PASS');

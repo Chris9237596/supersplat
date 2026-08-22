@@ -16,9 +16,7 @@ import { createEmptyProject, ScaHotspot, ScaProject, ScaRegion, ScaViewerBackgro
 import { ScaRegionPatch } from './types/region';
 import { ScaRigBindMode, ScaRigNode, ScaRigVec3 } from './types/rig';
 import { ScaRigReparentMode } from './rig/rig-hierarchy';
-import { computeRegionPivotLocal } from './rig/region-rig-applier';
 import { logRigTraceSelectionChange, logRigTraceStage } from './rig/rig-trace';
-import { findSplatByScaSplatId } from './regions/splat-identity';
 
 const registerScaEvents = (events: Events): HotspotStore => {
     const store = new HotspotStore(createEmptyProject());
@@ -243,20 +241,7 @@ const registerScaEvents = (events: Events): HotspotStore => {
         bindMode?: ScaRigBindMode
     ) => {
         history.record(() => {
-            let pivot: ScaRigVec3 | undefined;
-            if (nodeId) {
-                const region = store.getRegions().find((entry) => entry.id === regionId) ?? null;
-                const splats = events.invoke('scene.splats') as Splat[] | undefined;
-                const scene = splats?.[0]?.scene;
-                if (region && scene) {
-                    const splat = findSplatByScaSplatId(scene, region.source.scaSplatId);
-                    if (splat) {
-                        pivot = computeRegionPivotLocal(events, region, splat) ?? undefined;
-                    }
-                }
-            }
-
-            store.setRigBinding(regionId, nodeId, { pivot, bindMode });
+            store.setRigBinding(regionId, nodeId, { bindMode });
             notifyProjectChanged();
         });
     });

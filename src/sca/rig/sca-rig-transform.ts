@@ -147,6 +147,8 @@ class ScaRigTransformController {
             lowerBoundScale: this.entity.getLocalScale(),
 
             onTransformStart: () => {
+                this.events.fire('sca.rig.animation.reset');
+
                 if (!this.dragState.beginDrag()) {
                     return;
                 }
@@ -215,6 +217,14 @@ class ScaRigTransformController {
 
             this.sync();
 
+        });
+
+        events.on('sca.rig.animation.updated', () => {
+            if (this.dragState.isDragging()) {
+                return;
+            }
+            this.syncHelperFromProject();
+            this.scene.forceRender = true;
         });
 
 

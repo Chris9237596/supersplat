@@ -1,5 +1,7 @@
 import { ScaRig, ScaRigVec3 } from '../types/rig';
 
+import { applyAnimationToPose } from './rig-animation';
+import { ScaRigAnimationPlaybackState } from './rig-animation-types';
 import { cloneVec3 } from './rig-transform';
 
 /** Transient evaluated pose for one rig node (not persisted). */
@@ -13,6 +15,16 @@ type ScaRigEvaluatedPose = {
     nodes: Map<string, ScaRigNodePose>;
 };
 
+let animationPlaybackState: ScaRigAnimationPlaybackState | null = null;
+
+const setRigAnimationPlaybackState = (state: ScaRigAnimationPlaybackState | null) => {
+    animationPlaybackState = state;
+};
+
+const getRigAnimationPlaybackState = (): ScaRigAnimationPlaybackState | null => {
+    return animationPlaybackState;
+};
+
 const evaluateRigPose = (rig: ScaRig): ScaRigEvaluatedPose => {
     const nodes = new Map<string, ScaRigNodePose>();
 
@@ -24,6 +36,15 @@ const evaluateRigPose = (rig: ScaRig): ScaRigEvaluatedPose => {
     }
 
     return { nodes };
+};
+
+const evaluateFinalRigPose = (rig: ScaRig): ScaRigEvaluatedPose => {
+    const basePose = evaluateRigPose(rig);
+    if (!animationPlaybackState) {
+        return basePose;
+    }
+
+    return applyAnimationToPose(basePose, rig, animationPlaybackState);
 };
 
 const getEvaluatedNodePose = (
@@ -46,7 +67,10 @@ const requireEvaluatedNodePose = (
 export {
     ScaRigEvaluatedPose,
     ScaRigNodePose,
+    evaluateFinalRigPose,
     evaluateRigPose,
     getEvaluatedNodePose,
-    requireEvaluatedNodePose
+    getRigAnimationPlaybackState,
+    requireEvaluatedNodePose,
+    setRigAnimationPlaybackState
 };
