@@ -15,6 +15,7 @@ class HotspotStore {
     private project: ScaProject;
     private selectedHotspotId: string | null = null;
     private selectedRegionId: string | null = null;
+    private selectedRigNodeId: string | null = null;
 
     constructor(project: ScaProject = createEmptyProject()) {
         this.project = structuredClone(project);
@@ -270,6 +271,32 @@ class HotspotStore {
         this.selectedRegionId = id;
     }
 
+    getSelectedRigNodeId(): string | null {
+        return this.selectedRigNodeId;
+    }
+
+    selectRigNode(id: string | null): void {
+        if (id !== null && !this.project.rig?.nodes.some((node) => node.id === id)) {
+            return;
+        }
+
+        this.selectedRigNodeId = id;
+    }
+
+    pruneInvalidRigSelection(): boolean {
+        const previous = this.selectedRigNodeId;
+        if (!previous) {
+            return false;
+        }
+
+        if (!this.project.rig?.nodes.some((node) => node.id === previous)) {
+            this.selectedRigNodeId = null;
+            return true;
+        }
+
+        return false;
+    }
+
     addRegion(region: ScaRegion): void {
         if (this.project.regions.some((entry) => entry.id === region.id)) {
             throw new Error(`[SCA] duplicate region id: ${region.id}`);
@@ -410,6 +437,10 @@ class HotspotStore {
         rig.nodes.splice(index, 1);
         rig.bindings = rig.bindings.filter((binding) => binding.nodeId !== id);
         this.project.rig = rig.nodes.length > 0 || rig.bindings.length > 0 ? rig : undefined;
+
+        if (this.selectedRigNodeId === id) {
+            this.selectedRigNodeId = null;
+        }
     }
 
     getRigBindingForRegion(regionId: string) {
@@ -465,6 +496,11 @@ class HotspotStore {
         if (this.selectedRegionId &&
             !this.project.regions.some((region) => region.id === this.selectedRegionId)) {
             this.selectedRegionId = null;
+        }
+
+        if (this.selectedRigNodeId &&
+            !this.project.rig?.nodes.some((node) => node.id === this.selectedRigNodeId)) {
+            this.selectedRigNodeId = null;
         }
     }
 

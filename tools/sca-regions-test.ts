@@ -292,6 +292,8 @@ const runHistoryTests = async () => {
         null,
         null,
         region.id,
+        null,
+        null,
         emptyAssets,
         emptyAssets,
         applying

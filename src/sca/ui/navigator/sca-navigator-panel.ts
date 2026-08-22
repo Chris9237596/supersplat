@@ -4,6 +4,7 @@ import { Events } from '../../../events';
 
 import { ScaHotspot } from '../../types/project';
 import { ScaRegion } from '../../types/region';
+import { ScaRigNode } from '../../types/rig';
 
 import { navigatorLabelForName, ScaNavigatorItem } from './sca-navigator-types';
 
@@ -14,9 +15,13 @@ class ScaNavigatorPanel extends Container {
 
     private regionsList: Container;
 
+    private rigList: Container;
+
     private hotspotRows = new Map<string, Container>();
 
     private regionRows = new Map<string, Container>();
+
+    private rigRows = new Map<string, Container>();
 
     constructor(private events: Events, args = {}) {
         args = {
@@ -49,6 +54,7 @@ class ScaNavigatorPanel extends Container {
         }, () => {
             this.events.fire('sca.hotspot.select', null);
             this.events.fire('sca.region.select', null);
+            this.events.fire('sca.rig.node.select', null);
         });
         sceneSection.append(this.sceneRow);
 
@@ -60,9 +66,14 @@ class ScaNavigatorPanel extends Container {
         this.regionsList = new Container({ class: 'sca-navigator-items' });
         regionsSection.append(this.regionsList);
 
+        const rigSection = this.createSection('RIG');
+        this.rigList = new Container({ class: 'sca-navigator-items' });
+        rigSection.append(this.rigList);
+
         body.append(sceneSection);
         body.append(hotspotsSection);
         body.append(regionsSection);
+        body.append(rigSection);
 
         this.append(header);
         this.append(body);
@@ -77,6 +88,10 @@ class ScaNavigatorPanel extends Container {
         });
 
         this.events.on('sca.region.selected', () => {
+            this.refreshSelection();
+        });
+
+        this.events.on('sca.rig.node.selected', () => {
             this.refreshSelection();
         });
 
@@ -111,9 +126,11 @@ class ScaNavigatorPanel extends Container {
     private renderLists(): void {
         const hotspots = this.events.invoke('sca.hotspot.list') as ScaHotspot[] | undefined;
         const regions = this.events.invoke('sca.region.list') as ScaRegion[] | undefined;
+        const rigNodes = this.events.invoke('sca.rig.node.list') as ScaRigNode[] | undefined;
 
         this.renderHotspotList(hotspots ?? []);
         this.renderRegionList(regions ?? []);
+        this.renderRigList(rigNodes ?? []);
     }
 
     private renderHotspotList(hotspots: ScaHotspot[]): void {
@@ -166,10 +183,40 @@ class ScaNavigatorPanel extends Container {
         });
     }
 
+    private renderRigList(nodes: ScaRigNode[]): void {
+        this.rigList.clear();
+        this.rigRows.clear();
+
+        if (nodes.length === 0) {
+            this.rigList.append(new Label({
+                class: 'sca-navigator-empty',
+                text: 'No rig nodes'
+            }));
+            return;
+        }
+
+        nodes.forEach((node) => {
+            const row = this.createItemRow({
+                type: 'rig',
+                id: node.id,
+                label: navigatorLabelForName(node.name, node.id)
+            }, () => {
+                const selectedId = this.events.invoke('sca.rig.getSelected') as string | null;
+                this.events.fire(
+                    'sca.rig.node.select',
+                    selectedId === node.id ? null : node.id
+                );
+            });
+            this.rigRows.set(node.id, row);
+            this.rigList.append(row);
+        });
+    }
+
     private refreshSelection(): void {
         const selectedHotspotId = this.events.invoke('sca.hotspot.getSelected') as string | null | undefined;
         const selectedRegionId = this.events.invoke('sca.region.getSelected') as string | null | undefined;
-        const sceneSelected = !selectedHotspotId && !selectedRegionId;
+        const selectedRigNodeId = this.events.invoke('sca.rig.getSelected') as string | null | undefined;
+        const sceneSelected = !selectedHotspotId && !selectedRegionId && !selectedRigNodeId;
 
         this.sceneRow.class.toggle('selected', sceneSelected);
 
@@ -179,6 +226,10 @@ class ScaNavigatorPanel extends Container {
 
         this.regionRows.forEach((row, id) => {
             row.class.toggle('selected', id === selectedRegionId);
+        });
+
+        this.rigRows.forEach((row, id) => {
+            row.class.toggle('selected', id === selectedRigNodeId);
         });
     }
 }

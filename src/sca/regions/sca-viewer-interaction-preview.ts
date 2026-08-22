@@ -123,6 +123,9 @@ const registerScaViewerInteractionPreview = (
         if (events.invoke('sca.viewer.preview.active')) {
             return true;
         }
+        if (events.invoke('sca.rig.transform.dragging')) {
+            return true;
+        }
         return false;
     };
 

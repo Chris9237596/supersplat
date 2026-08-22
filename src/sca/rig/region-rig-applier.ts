@@ -1,6 +1,5 @@
 import { Mat4 } from 'playcanvas';
 
-import { ElementType } from '../../element';
 import { Events } from '../../events';
 import { IndexRanges } from '../../index-ranges';
 import { Scene } from '../../scene';
@@ -12,11 +11,13 @@ import { ScaRegion } from '../types/region';
 
 import { buildRigidRigMatrix, isZeroRigTransform } from './rig-transform';
 import { findSplatByScaSplatId } from '../regions/splat-identity';
-
-type SavedGaussianTransform = {
-    gaussianIndex: number;
-    transformIndex: number;
-};
+import {
+    logScaRigRestore,
+    logScaRigUpdate,
+    mergeGaussianIndicesBySplat,
+    restoreRigSlotTransforms,
+    SavedGaussianTransform
+} from './region-rig-restore';
 
 type RigSplatSlot = {
     splat: Splat;
@@ -68,23 +69,118 @@ const computeRegionPivotLocal = (
 class RegionRigApplier {
     private slots: RigSplatSlot[] = [];
 
-    clear() {
-        for (const slot of this.slots) {
-            const indices = slot.splat.transformTexture.lock() as Uint16Array;
-            for (const saved of slot.saved) {
-                indices[saved.gaussianIndex] = saved.transformIndex;
-            }
-            slot.splat.transformTexture.unlock();
-            slot.splat.transformPalette.setTransform(slot.paletteIndex, Mat4.IDENTITY);
-        }
+    hasActiveSlots(): boolean {
+        return this.slots.length > 0;
+    }
 
+    clear() {
+        restoreRigSlotTransforms(this.slots);
         this.slots = [];
     }
 
+    private async restoreAll(scene: Scene): Promise<number> {
+        if (this.slots.length === 0) {
+            return 0;
+        }
+
+        const restore = restoreRigSlotTransforms(this.slots);
+        this.slots = [];
+
+        if (restore.restoredGaussianCount === 0) {
+            return 0;
+        }
+
+        logScaRigRestore({
+            restoredGaussians: restore.restoredGaussianCount,
+            removedNodes: restore.removedNodeIds,
+            previousRigAssigned: restore.restoredGaussianCount,
+            newRigAssigned: 0,
+            freedPaletteEntries: restore.freedPaletteCount
+        });
+
+        for (const [splat, indices] of restore.restoredBySplat) {
+            await splat.updateSortCentersForIndices(indices);
+        }
+
+        scene.forceRender = true;
+        return restore.restoredGaussianCount;
+    }
+
+    async updateNodePoses(
+        events: Events,
+        scene: Scene,
+        rig: ScaRig | undefined,
+        nodeIds?: string[]
+    ): Promise<void> {
+        if (!rig || this.slots.length === 0) {
+            return;
+        }
+
+        const nodeById = new Map<string, ScaRigNode>(
+            rig.nodes.map((node) => [node.id, node])
+        );
+        const targetNodes = nodeIds ? new Set(nodeIds) : null;
+        const indicesBySplat = new Map<Splat, number[]>();
+        let affectedGaussians = 0;
+        const affectedNodes = new Set<string>();
+
+        for (const slot of this.slots) {
+            if (targetNodes && !targetNodes.has(slot.nodeId)) {
+                continue;
+            }
+
+            const node = nodeById.get(slot.nodeId);
+            if (!node) {
+                continue;
+            }
+
+            if (isZeroRigTransform(node)) {
+                slot.splat.transformPalette.setTransform(slot.paletteIndex, Mat4.IDENTITY);
+            } else {
+                slot.splat.transformPalette.setTransform(
+                    slot.paletteIndex,
+                    buildRigidRigMatrix(node, rigMat)
+                );
+            }
+
+            affectedNodes.add(slot.nodeId);
+            affectedGaussians += slot.gaussianIndices.length;
+
+            let indices = indicesBySplat.get(slot.splat);
+            if (!indices) {
+                indices = [];
+                indicesBySplat.set(slot.splat, indices);
+            }
+            indices.push(...slot.gaussianIndices);
+        }
+
+        for (const [splat, indices] of indicesBySplat) {
+            await splat.updateSortCentersForIndices(indices);
+        }
+
+        if (affectedGaussians > 0) {
+            logScaRigUpdate({
+                type: 'pose',
+                nodes: [...affectedNodes],
+                affectedGaussians,
+                paletteRebuilt: false
+            });
+            scene.forceRender = true;
+        }
+    }
+
     async apply(events: Events, scene: Scene, rig: ScaRig | undefined) {
-        this.clear();
+        const restored = await this.restoreAll(scene);
 
         if (!rig || rig.nodes.length === 0 || rig.bindings.length === 0) {
+            if (restored > 0) {
+                logScaRigUpdate({
+                    type: 'structural',
+                    restored,
+                    reapplied: 0,
+                    paletteRebuilt: true
+                });
+            }
             scene.forceRender = true;
             return;
         }
@@ -180,19 +276,21 @@ class RegionRigApplier {
             );
         }
 
-        const splatsToUpdate = new Set<Splat>();
-        for (const slot of this.slots) {
-            if (slot.gaussianIndices.length > 0) {
-                splatsToUpdate.add(slot.splat);
-            }
+        const indicesBySplat = mergeGaussianIndicesBySplat(this.slots);
+        let newRigAssigned = 0;
+
+        for (const [splat, indices] of indicesBySplat) {
+            newRigAssigned += indices.length;
+            await splat.updateSortCentersForIndices(indices);
         }
 
-        for (const splat of splatsToUpdate) {
-            const slot = this.slots.find((entry) => entry.splat === splat);
-            if (slot) {
-                await splat.updateSortCentersForIndices(slot.gaussianIndices);
-            }
-        }
+        logScaRigUpdate({
+            type: 'structural',
+            restored,
+            reapplied: newRigAssigned,
+            paletteRebuilt: true,
+            activeBindings: rig.bindings.length
+        });
 
         scene.forceRender = true;
     }

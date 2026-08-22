@@ -316,6 +316,8 @@ const runUndoRedoTests = async () => {
         null,
         null,
         'region_01',
+        null,
+        null,
         emptyAssets,
         emptyAssets,
         applying

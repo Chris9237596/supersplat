@@ -53,7 +53,7 @@ const registerScaScene = (
     registerScaRegionHighlight(events, scene);
     registerScaRegionPulse(events, scene);
     registerScaRegionStateOverlay(events, scene);
-    registerScaRigEvents(events, scene);
+    registerScaRigEvents(events, scene, canvasContainer);
     registerScaRegionCardPreview(events, scene, canvasContainer);
     registerScaViewerInteractionPreview(events, scene, canvasContainer);
 

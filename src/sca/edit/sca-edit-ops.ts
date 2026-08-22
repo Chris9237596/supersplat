@@ -24,6 +24,8 @@ class ScaProjectOp implements EditOp {
         private afterSelection: string | null,
         private beforeRegionSelection: string | null,
         private afterRegionSelection: string | null,
+        private beforeRigSelection: string | null,
+        private afterRigSelection: string | null,
         private beforeAssets: ScaAssetSnapshot[],
         private afterAssets: ScaAssetSnapshot[],
         private applying: { value: boolean }
@@ -45,6 +47,7 @@ class ScaProjectOp implements EditOp {
         project: ScaProject,
         selection: string | null,
         regionSelection: string | null,
+        rigSelection: string | null,
         assets: ScaAssetSnapshot[]
     ) {
         this.applying.value = true;
@@ -52,18 +55,32 @@ class ScaProjectOp implements EditOp {
         this.applyAssets(assets);
         this.store.selectHotspot(selection);
         this.store.selectRegion(regionSelection);
+        this.store.selectRigNode(rigSelection);
         this.events.fire('sca.project.changed', this.store.getProject());
         this.events.fire('sca.hotspot.selected', this.store.getSelectedHotspotId());
         this.events.fire('sca.region.selected', this.store.getSelectedRegionId());
+        this.events.fire('sca.rig.node.selected', this.store.getSelectedRigNodeId());
         this.applying.value = false;
     }
 
     do() {
-        this.apply(this.after, this.afterSelection, this.afterRegionSelection, this.afterAssets);
+        this.apply(
+            this.after,
+            this.afterSelection,
+            this.afterRegionSelection,
+            this.afterRigSelection,
+            this.afterAssets
+        );
     }
 
     undo() {
-        this.apply(this.before, this.beforeSelection, this.beforeRegionSelection, this.beforeAssets);
+        this.apply(
+            this.before,
+            this.beforeSelection,
+            this.beforeRegionSelection,
+            this.beforeRigSelection,
+            this.beforeAssets
+        );
     }
 }
 

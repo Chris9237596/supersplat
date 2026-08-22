@@ -27,6 +27,7 @@ import { Events } from '../../events';
 import { ScaRegion, ScaRegionPatch } from '../types/region';
 import { ScaRegionStateContentLayer, isRegionOverlayLayer } from '../types/region-state-content';
 import { ScaProject } from '../types/project';
+import { ScaRigNode } from '../types/rig';
 import { generateStateLayerId } from '../ids/generate-state-layer-id';
 import {
     createDefaultPlaceholderLayer,
@@ -42,6 +43,12 @@ import {
     DEFAULT_VISITED_OPACITY
 } from '../region-defaults';
 import { RegionAuthoringPreviewState } from '../regions/region-authoring-preview-state';
+import {
+    buildRigBindingSelectOptions,
+    logScaRigBindingUi,
+    resolveRigBindingSelectValue,
+    rigBindingNodeIdFromSelectValue
+} from '../rig/rig-binding-ui';
 import { CollapsibleSection } from './components/collapsible-section';
 import { createRegionTintControls } from './region-tint-controls';
 import { ScaSectionLayoutManager } from './sca-section-layout-state';
@@ -680,8 +687,8 @@ class ScaRegionsPanel extends Container {
         rigBindingNodeRow.append(new Label({ class: 'sca-hotspot-form-label', text: 'Node' }));
         this.rigBindingNodeSelect = new SelectInput({
             class: 'sca-hotspot-form-input',
-            options: [{ v: '', t: 'None' }],
-            value: ''
+            options: buildRigBindingSelectOptions([]),
+            value: resolveRigBindingSelectValue(null, [])
         });
         rigBindingNodeRow.append(this.rigBindingNodeSelect);
         const rigBindingModeRow = new Container({ class: 'sca-hotspot-form-row' });
@@ -921,7 +928,7 @@ class ScaRegionsPanel extends Container {
                 return;
             }
 
-            const nodeId = this.rigBindingNodeSelect.value || null;
+            const nodeId = rigBindingNodeIdFromSelectValue(this.rigBindingNodeSelect.value);
             this.events.fire('sca.rig.binding.set', this.selectedId, nodeId);
         });
 
@@ -1043,6 +1050,8 @@ class ScaRegionsPanel extends Container {
             this.updateSelectGaussiansButton(this.selectedId);
 
             this.updateReplaceWithSelectionButton(this.selectedId);
+
+            this.refreshRigBindingUi();
 
         });
 
@@ -1302,18 +1311,43 @@ class ScaRegionsPanel extends Container {
         }
     }
 
-    private rebuildRigBindingUi(region: ScaRegion) {
-        const project = this.events.invoke('sca.project.get') as ScaProject | null;
-        const nodes = project?.rig?.nodes ?? [];
-        const binding = project?.rig?.bindings.find((entry) => entry.regionId === region.id);
-
-        const options = [{ v: '', t: 'None' }];
-        for (const node of nodes) {
-            options.push({ v: node.id, t: node.name });
+    private refreshRigBindingUi() {
+        if (!this.selectedId) {
+            return;
         }
 
+        const region = this.events.invoke('sca.region.get', this.selectedId) as ScaRegion | null;
+        if (!region) {
+            return;
+        }
+
+        this.syncing = true;
+        this.rebuildRigBindingUi(region);
+        this.syncing = false;
+    }
+
+    private rebuildRigBindingUi(region: ScaRegion) {
+        const nodes = this.events.invoke('sca.rig.node.list') as ScaRigNode[] | undefined;
+        const binding = this.events.invoke('sca.rig.getBinding', region.id) as { nodeId: string } | null;
+        const options = buildRigBindingSelectOptions(nodes ?? []);
+        const currentValue = resolveRigBindingSelectValue(binding?.nodeId, nodes ?? []);
+
+        logScaRigBindingUi({
+            region: region.id,
+            nodes: nodes?.length ?? 0,
+            options,
+            currentValue,
+            selectOptionCountBefore: this.rigBindingNodeSelect.options.length
+        });
+
         this.rigBindingNodeSelect.options = options;
-        this.rigBindingNodeSelect.value = binding?.nodeId ?? '';
+        this.rigBindingNodeSelect.value = currentValue;
+
+        logScaRigBindingUi({
+            region: region.id,
+            selectOptionCountAfter: this.rigBindingNodeSelect.options.length,
+            selectValue: this.rigBindingNodeSelect.value
+        });
     }
 
     private commitPulsePatch(pulsePatch: {

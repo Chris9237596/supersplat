@@ -24,11 +24,19 @@ const registerScaEvents = (events: Events): HotspotStore => {
     const history = registerScaHistory(events, store, assetStore);
 
     const notifyProjectChanged = () => {
+        const rigSelectionChanged = store.pruneInvalidRigSelection();
         events.fire('sca.project.changed', store.getProject());
+        if (rigSelectionChanged) {
+            notifyRigSelectionChanged();
+        }
     };
 
     const notifySelectionChanged = () => {
         events.fire('sca.hotspot.selected', store.getSelectedHotspotId());
+    };
+
+    const notifyRigSelectionChanged = () => {
+        events.fire('sca.rig.node.selected', store.getSelectedRigNodeId());
     };
 
     events.function('sca.project.get', () => {
@@ -60,9 +68,13 @@ const registerScaEvents = (events: Events): HotspotStore => {
             store.selectHotspot(null);
         } else {
             store.selectHotspot(id);
+            if (id) {
+                store.selectRigNode(null);
+            }
         }
         console.log('[SCA] hotspot selected:', store.getSelectedHotspotId());
         notifySelectionChanged();
+        notifyRigSelectionChanged();
     });
 
     events.on('sca.hotspot.create', () => {
@@ -70,8 +82,10 @@ const registerScaEvents = (events: Events): HotspotStore => {
             const hotspot = createDefaultHotspot(store.getProject());
             store.addHotspot(hotspot);
             store.selectHotspot(hotspot.id);
+            store.selectRigNode(null);
             notifyProjectChanged();
             notifySelectionChanged();
+            notifyRigSelectionChanged();
         });
     });
 
@@ -122,9 +136,13 @@ const registerScaEvents = (events: Events): HotspotStore => {
             store.selectRegion(null);
         } else {
             store.selectRegion(id);
+            if (id) {
+                store.selectRigNode(null);
+            }
         }
         console.log('[SCA] region selected:', store.getSelectedRegionId());
         notifyRegionSelectionChanged();
+        notifyRigSelectionChanged();
     });
 
     events.on('sca.region.update', (id: string, patch: ScaRegionPatch) => {
@@ -152,7 +170,29 @@ const registerScaEvents = (events: Events): HotspotStore => {
         history.record(() => {
             store.deleteRigNode(id);
             notifyProjectChanged();
+            notifyRigSelectionChanged();
         });
+    });
+
+    events.function('sca.rig.getSelected', () => {
+        return store.getSelectedRigNodeId();
+    });
+
+    events.function('sca.rig.node.list', () => {
+        return store.getRig()?.nodes ?? [];
+    });
+
+    events.on('sca.rig.node.select', (id: string | null) => {
+        store.selectRigNode(id);
+        if (id) {
+            store.selectHotspot(null);
+            store.selectRegion(null);
+            events.fire('tool.deactivate');
+        }
+        console.log('[SCA] rig node selected:', store.getSelectedRigNodeId());
+        notifyRigSelectionChanged();
+        notifySelectionChanged();
+        notifyRegionSelectionChanged();
     });
 
     events.on('sca.rig.binding.set', (regionId: string, nodeId: string | null) => {
@@ -188,6 +228,7 @@ const registerScaEvents = (events: Events): HotspotStore => {
         notifyProjectChanged();
         notifySelectionChanged();
         notifyRegionSelectionChanged();
+        notifyRigSelectionChanged();
     });
 
     registerScaFocusEvents(events);

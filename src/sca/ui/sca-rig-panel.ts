@@ -17,7 +17,6 @@ import { ScaSectionLayoutManager } from './sca-section-layout-state';
 class ScaRigPanel extends Container {
     private listContainer: Container;
     private formContainer: Container;
-    private selectedNodeId: string | null = null;
     private mountedNodeId: string | null = null;
     private syncing = false;
 
@@ -52,7 +51,7 @@ class ScaRigPanel extends Container {
 
             const id = generateRigId(project);
             this.events.fire('sca.rig.node.add', createDefaultRigNode(id));
-            this.setSelectedNodeId(id);
+            this.events.fire('sca.rig.node.select', id);
         });
 
         events.on('sca.project.changed', () => {
@@ -60,18 +59,16 @@ class ScaRigPanel extends Container {
             this.refreshSelectedNodeForm();
         });
 
+        events.on('sca.rig.node.selected', () => {
+            this.rebuildList();
+            this.refreshSelectedNodeForm();
+        });
+
         this.rebuildList();
     }
 
-    private setSelectedNodeId(nodeId: string | null) {
-        if (this.selectedNodeId === nodeId) {
-            return;
-        }
-
-        this.selectedNodeId = nodeId;
-        this.events.fire('sca.rig.node.selected', nodeId);
-        this.rebuildList();
-        this.refreshSelectedNodeForm(true);
+    private getSelectedNodeId(): string | null {
+        return this.events.invoke('sca.rig.getSelected') as string | null;
     }
 
     private rebuildList() {
@@ -79,6 +76,7 @@ class ScaRigPanel extends Container {
 
         const project = this.events.invoke('sca.project.get') as ScaProject | null;
         const nodes = project?.rig?.nodes ?? [];
+        const selectedNodeId = this.getSelectedNodeId();
 
         if (nodes.length === 0) {
             this.listContainer.append(new Label({
@@ -90,14 +88,18 @@ class ScaRigPanel extends Container {
 
         for (const node of nodes) {
             const row = new Container({
-                class: ['sca-hotspot-list-item', ...(this.selectedNodeId === node.id ? ['selected'] : [])]
+                class: ['sca-hotspot-list-item', ...(selectedNodeId === node.id ? ['selected'] : [])]
             });
             row.append(new Label({
                 class: 'sca-hotspot-list-item-name',
                 text: node.name
             }));
             row.on('click', () => {
-                this.setSelectedNodeId(node.id);
+                const selectedId = this.events.invoke('sca.rig.getSelected') as string | null;
+                this.events.fire(
+                    'sca.rig.node.select',
+                    selectedId === node.id ? null : node.id
+                );
             });
             this.listContainer.append(row);
         }
@@ -112,20 +114,21 @@ class ScaRigPanel extends Container {
     }
 
     private refreshSelectedNodeForm(forceRemount = false) {
-        if (!this.selectedNodeId) {
+        const selectedNodeId = this.getSelectedNodeId();
+        if (!selectedNodeId) {
             this.clearForm();
             return;
         }
 
-        const project = this.events.invoke('sca.project.get') as ScaProject | null;
-        const node = project?.rig?.nodes.find((entry) => entry.id === this.selectedNodeId);
+        const nodes = this.events.invoke('sca.rig.node.list') as ScaRigNode[];
+        const node = nodes.find((entry) => entry.id === selectedNodeId) ?? null;
         if (!node) {
-            this.setSelectedNodeId(null);
+            this.events.fire('sca.rig.node.select', null);
             this.clearForm();
             return;
         }
 
-        if (forceRemount || this.mountedNodeId !== this.selectedNodeId) {
+        if (forceRemount || this.mountedNodeId !== selectedNodeId) {
             this.mountForm(node);
             return;
         }
@@ -166,12 +169,12 @@ class ScaRigPanel extends Container {
             text: 'Delete Rig Node'
         });
         deleteButton.on('click', () => {
-            if (!this.selectedNodeId) {
+            const selectedNodeId = this.getSelectedNodeId();
+            if (!selectedNodeId) {
                 return;
             }
-            const nodeId = this.selectedNodeId;
-            this.setSelectedNodeId(null);
-            this.events.fire('sca.rig.node.delete', nodeId);
+            this.events.fire('sca.rig.node.select', null);
+            this.events.fire('sca.rig.node.delete', selectedNodeId);
         });
         this.formContainer.append(deleteButton);
 
@@ -277,11 +280,12 @@ class ScaRigPanel extends Container {
     }
 
     private commitNodePatch(patch: Partial<ScaRigNode>) {
-        if (!this.selectedNodeId || this.syncing) {
+        const selectedNodeId = this.getSelectedNodeId();
+        if (!selectedNodeId || this.syncing) {
             return;
         }
 
-        this.events.fire('sca.rig.node.update', this.selectedNodeId, patch);
+        this.events.fire('sca.rig.node.update', selectedNodeId, patch);
     }
 }
 

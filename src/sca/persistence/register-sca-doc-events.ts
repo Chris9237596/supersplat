@@ -29,14 +29,20 @@ const registerScaDocEvents = (
         events.fire('sca.region.selected', store.getSelectedRegionId());
     };
 
+    const notifyRigSelectionChanged = () => {
+        events.fire('sca.rig.node.selected', store.getSelectedRigNodeId());
+    };
+
     const resetScaProject = () => {
         store.loadProject(createEmptyProject());
         assetStore.clear();
         store.selectHotspot(null);
         store.selectRegion(null);
+        store.selectRigNode(null);
         notifyProjectChanged();
         notifySelectionChanged();
         notifyRegionSelectionChanged();
+        notifyRigSelectionChanged();
     };
 
     events.on('scene.clear', () => {

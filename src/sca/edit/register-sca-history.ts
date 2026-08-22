@@ -9,6 +9,7 @@ type ScaHistorySnapshot = {
     project: ScaProject;
     selection: string | null;
     regionSelection: string | null;
+    rigSelection: string | null;
     assets: ScaAssetSnapshot[];
 };
 
@@ -24,6 +25,7 @@ const cloneSnapshot = (store: HotspotStore, assetStore: ScaAssetStore): ScaHisto
     project: store.getProject(),
     selection: store.getSelectedHotspotId(),
     regionSelection: store.getSelectedRegionId(),
+    rigSelection: store.getSelectedRigNodeId(),
     assets: cloneAssets(assetStore)
 });
 
@@ -38,6 +40,7 @@ const serializeAssets = (assets: ScaAssetSnapshot[]): string => {
 const snapshotsEqual = (left: ScaHistorySnapshot, right: ScaHistorySnapshot): boolean => {
     return left.selection === right.selection &&
         left.regionSelection === right.regionSelection &&
+        left.rigSelection === right.rigSelection &&
         JSON.stringify(left.project) === JSON.stringify(right.project) &&
         serializeAssets(left.assets) === serializeAssets(right.assets);
 };
@@ -82,6 +85,8 @@ class ScaHistoryController {
             after.selection,
             before.regionSelection,
             after.regionSelection,
+            before.rigSelection,
+            after.rigSelection,
             before.assets,
             after.assets,
             this.applying
@@ -124,6 +129,8 @@ class ScaHistoryController {
             after.selection,
             before.regionSelection,
             after.regionSelection,
+            before.rigSelection,
+            after.rigSelection,
             before.assets,
             after.assets,
             this.applying

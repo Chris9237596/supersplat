@@ -1,7 +1,6 @@
 import { Quat, Vec3 } from 'playcanvas';
 
 import { Events } from '../../events';
-import { ElementType } from '../../element';
 import { IndexRanges } from '../../index-ranges';
 import { Scene } from '../../scene';
 import { Splat } from '../../splat';
@@ -9,6 +8,10 @@ import { ToolOverlay, OverlayWriter } from '../../tool-overlay';
 
 import { computeRegionAnchorFromIndices } from '../presentation/region-anchor';
 import { findSplatByScaSplatId } from '../regions/splat-identity';
+import {
+    getNodeLocalPivotPosition,
+    resolveSplatForNode
+} from './rig-node-space';
 import { ScaRig, ScaRigNode } from '../types/rig';
 import { ScaRegion } from '../types/region';
 
@@ -134,36 +137,14 @@ class ScaRigGizmo {
         this.scene.forceRender = true;
     }
 
-    private resolveSplatForNode(node: ScaRigNode, rig: ScaRig): Splat | null {
-        const bindings = rig.bindings.filter((binding) => binding.nodeId === node.id);
-        for (const binding of bindings) {
-            const region = this.events.invoke('sca.region.get', binding.regionId) as ScaRegion | null;
-            if (!region) {
-                continue;
-            }
-
-            const splat = findSplatByScaSplatId(this.scene, region.source.scaSplatId);
-            if (splat) {
-                return splat;
-            }
-        }
-
-        const splats = this.scene.getElementsByType(ElementType.splat) as Splat[];
-        return splats[0] ?? null;
-    }
-
     private drawNode(writer: OverlayWriter, node: ScaRigNode, rig: ScaRig) {
         const bindings = rig.bindings.filter((binding) => binding.nodeId === node.id);
-        const splat = this.resolveSplatForNode(node, rig);
+        const splat = resolveSplatForNode(this.events, this.scene, node, rig);
         if (!splat) {
             return;
         }
 
-        localPoint.set(
-            node.pivot[0] + node.position[0],
-            node.pivot[1] + node.position[1],
-            node.pivot[2] + node.position[2]
-        );
+        getNodeLocalPivotPosition(node, localPoint);
         transformLocalPointToWorld(splat, localPoint, worldPoint);
 
         writer.dot(worldPoint);
