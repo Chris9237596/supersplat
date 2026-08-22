@@ -7,7 +7,7 @@ import { HotspotStore } from '../store/hotspot-store';
 import { ScaAssetStore } from '../store/sca-asset-store';
 import { ScaRegion } from '../types/region';
 
-import { logEditorRegionHover } from '../debug/editor-region-preview-debug';
+import { logEditorRegionClick, logEditorRegionHover } from '../debug/editor-region-preview-debug';
 import {
     createEditorPickerAdapter,
     EditorPickerBackend
@@ -15,8 +15,20 @@ import {
 import { ScaRegionInteractionCore } from '../interaction/sca-region-core';
 import { createStorageRegionMaskLookup } from '../interaction/sca-storage-mask-lookup';
 
+import {
+    getViewportCanvas,
+    isPointerOnViewportCanvas
+} from './editor-viewport-pointer';
+
 const CLICK_TOLERANCE_PX = 4;
 const HOVER_THROTTLE_MS = 32;
+
+type ViewportClickContext = {
+    downInsideCanvas: boolean;
+    upInsideCanvas: boolean;
+    wasDrag: boolean;
+    target: 'canvas' | 'ui';
+};
 
 const logAuthoringPick = (
     backend: EditorPickerBackend,
@@ -39,12 +51,21 @@ const registerScaViewerInteractionPreview = (
     let enabled = false;
     let pointerDownX = 0;
     let pointerDownY = 0;
+    let pointerDownOnViewport = false;
     let pointerActive = false;
     let pickInFlight = false;
     let pendingHoverPick: { clientX: number; clientY: number } | null = null;
     let lastHoverLog = '';
     let lastHoverAt = 0;
     let interactionCore: ScaRegionInteractionCore | null = null;
+
+    const viewportCanvas = (): HTMLCanvasElement | null =>
+        getViewportCanvas(canvasContainer.dom);
+
+    const resetPointerState = () => {
+        pointerActive = false;
+        pointerDownOnViewport = false;
+    };
 
     const getInteractionCore = (): ScaRegionInteractionCore => {
         if (interactionCore) {
@@ -79,6 +100,7 @@ const registerScaViewerInteractionPreview = (
         enabled = !!value;
         lastHoverLog = '';
         pendingHoverPick = null;
+        resetPointerState();
         if (enabled) {
             console.log('[SCA AUTHORING PREVIEW] enabled — storage-index region pick (Centers or Rings).');
         } else {
@@ -104,10 +126,19 @@ const registerScaViewerInteractionPreview = (
         return false;
     };
 
+    const flushPendingHoverPick = () => {
+        const pending = pendingHoverPick;
+        pendingHoverPick = null;
+        if (pending) {
+            void runPick(pending.clientX, pending.clientY, 'hover');
+        }
+    };
+
     const runPick = async (
         clientX: number,
         clientY: number,
-        kind: 'click' | 'hover'
+        kind: 'click' | 'hover',
+        clickContext?: ViewportClickContext
     ): Promise<void> => {
         if (pickInFlight) {
             if (kind === 'hover') {
@@ -118,6 +149,13 @@ const registerScaViewerInteractionPreview = (
 
         const rect = canvasContainer.dom.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) {
+            if (clickContext) {
+                logEditorRegionClick({
+                    ...clickContext,
+                    resolvedRegionId: null,
+                    action: 'ignore'
+                });
+            }
             return;
         }
 
@@ -126,12 +164,25 @@ const registerScaViewerInteractionPreview = (
         if (nx < 0 || nx > 1 || ny < 0 || ny > 1) {
             if (kind === 'hover') {
                 getInteractionCore().setHoveredRegion(null);
+            } else if (clickContext) {
+                logEditorRegionClick({
+                    ...clickContext,
+                    resolvedRegionId: null,
+                    action: 'ignore'
+                });
             }
             return;
         }
 
         const picker = createEditorPickerAdapter(events, scene);
         if (!picker.isAvailable()) {
+            if (clickContext) {
+                logEditorRegionClick({
+                    ...clickContext,
+                    resolvedRegionId: null,
+                    action: 'ignore'
+                });
+            }
             return;
         }
 
@@ -145,6 +196,24 @@ const registerScaViewerInteractionPreview = (
             if (kind === 'click') {
                 const regionHit = core.resolveClickableRegionHit(gaussianIndex, scaSplatId);
                 const regionId = regionHit?.regionId ?? null;
+                const selectedId = events.invoke('sca.region.getSelected') as string | null;
+
+                if (clickContext) {
+                    let action: 'select' | 'deselect' | 'ignore' = 'ignore';
+                    if (regionId === null) {
+                        action = selectedId ? 'deselect' : 'ignore';
+                    } else if (regionId === selectedId) {
+                        action = 'deselect';
+                    } else {
+                        action = 'select';
+                    }
+
+                    logEditorRegionClick({
+                        ...clickContext,
+                        resolvedRegionId: regionId,
+                        action
+                    });
+                }
 
                 core.activateRegion(regionId, 'click');
                 logAuthoringPick(picker.backendId, gaussianIndex, regionId);
@@ -162,11 +231,7 @@ const registerScaViewerInteractionPreview = (
             }
         } finally {
             pickInFlight = false;
-            const pending = pendingHoverPick;
-            pendingHoverPick = null;
-            if (pending) {
-                void runPick(pending.clientX, pending.clientY, 'hover');
-            }
+            flushPendingHoverPick();
         }
     };
 
@@ -174,29 +239,66 @@ const registerScaViewerInteractionPreview = (
         if (isInteractionBlocked() || event.button !== 0 || event.pointerType !== 'mouse') {
             return;
         }
+
+        const canvas = viewportCanvas();
+        if (!isPointerOnViewportCanvas(event, canvas)) {
+            resetPointerState();
+            return;
+        }
+
+        pointerDownOnViewport = true;
         pointerActive = true;
         pointerDownX = event.clientX;
         pointerDownY = event.clientY;
     };
 
     const pointerup = (event: PointerEvent) => {
+        const canvas = viewportCanvas();
+        const upInsideCanvas = isPointerOnViewportCanvas(event, canvas);
+        const downInsideCanvas = pointerDownOnViewport;
+        const wasDrag = pointerActive &&
+            Math.hypot(event.clientX - pointerDownX, event.clientY - pointerDownY) > CLICK_TOLERANCE_PX;
+        const target: 'canvas' | 'ui' = upInsideCanvas ? 'canvas' : 'ui';
+
         if (!pointerActive || event.button !== 0) {
-            pointerActive = false;
+            resetPointerState();
             return;
         }
+
         pointerActive = false;
+        const hadViewportPointerDown = pointerDownOnViewport;
+        pointerDownOnViewport = false;
 
         if (isInteractionBlocked()) {
+            logEditorRegionClick({
+                downInsideCanvas,
+                upInsideCanvas,
+                wasDrag,
+                target,
+                resolvedRegionId: null,
+                action: 'ignore'
+            });
             return;
         }
 
-        const dx = event.clientX - pointerDownX;
-        const dy = event.clientY - pointerDownY;
-        if (Math.hypot(dx, dy) > CLICK_TOLERANCE_PX) {
+        if (!hadViewportPointerDown || !upInsideCanvas || wasDrag) {
+            logEditorRegionClick({
+                downInsideCanvas,
+                upInsideCanvas,
+                wasDrag,
+                target,
+                resolvedRegionId: null,
+                action: 'ignore'
+            });
             return;
         }
 
-        void runPick(event.clientX, event.clientY, 'click');
+        void runPick(event.clientX, event.clientY, 'click', {
+            downInsideCanvas,
+            upInsideCanvas,
+            wasDrag,
+            target
+        });
     };
 
     const pointermove = (event: PointerEvent) => {
@@ -206,6 +308,10 @@ const registerScaViewerInteractionPreview = (
             } else if (isInteractionBlocked()) {
                 getInteractionCore().setHoveredRegion(null);
             }
+            return;
+        }
+
+        if (!isPointerOnViewportCanvas(event, viewportCanvas())) {
             return;
         }
 
@@ -222,13 +328,19 @@ const registerScaViewerInteractionPreview = (
         if (!enabled) {
             return;
         }
+        resetPointerState();
         getInteractionCore().setHoveredRegion(null);
+    };
+
+    const pointercancel = () => {
+        resetPointerState();
     };
 
     canvasContainer.dom.addEventListener('pointerdown', pointerdown, true);
     canvasContainer.dom.addEventListener('pointerup', pointerup, true);
     canvasContainer.dom.addEventListener('pointermove', pointermove, true);
     canvasContainer.dom.addEventListener('pointerleave', pointerleave, true);
+    canvasContainer.dom.addEventListener('pointercancel', pointercancel, true);
 };
 
 export {

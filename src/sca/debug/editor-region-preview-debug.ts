@@ -20,21 +20,6 @@ const isEditorRegionPreviewDebugEnabled = (
         !!debug.editorHighlight;
 };
 
-const logEditorRegionHover = (
-    previewEnabled: boolean,
-    regionId: string | null
-): void => {
-    if (!isEditorRegionPreviewDebugEnabled('hover')) {
-        return;
-    }
-
-    console.log(
-        '[SCA EDITOR HOVER]\n' +
-        `previewEnabled=${previewEnabled}\n` +
-        `regionId=${regionId ?? 'null'}`
-    );
-};
-
 const logEditorRegionHighlight = (payload: {
     selectedRegionId: string | null;
     hoverRegionId: string | null;
@@ -68,8 +53,49 @@ const logEditorRegionHighlight = (payload: {
     console.log(lines.join('\n'));
 };
 
+const logEditorRegionHover = (
+    previewEnabled: boolean,
+    regionId: string | null
+): void => {
+    if (!isEditorRegionPreviewDebugEnabled('hover')) {
+        return;
+    }
+
+    console.log(
+        '[SCA EDITOR HOVER]\n' +
+        `previewEnabled=${previewEnabled}\n` +
+        `regionId=${regionId ?? 'null'}`
+    );
+};
+
+type EditorRegionClickAction = 'select' | 'deselect' | 'ignore';
+
+const logEditorRegionClick = (payload: {
+    downInsideCanvas: boolean;
+    upInsideCanvas: boolean;
+    wasDrag: boolean;
+    target: 'canvas' | 'ui';
+    resolvedRegionId: string | null;
+    action: EditorRegionClickAction;
+}): void => {
+    if (!isEditorRegionPreviewDebugEnabled('hover')) {
+        return;
+    }
+
+    console.log(
+        '[SCA EDITOR CLICK]\n' +
+        `downInsideCanvas=${payload.downInsideCanvas}\n` +
+        `upInsideCanvas=${payload.upInsideCanvas}\n` +
+        `wasDrag=${payload.wasDrag}\n` +
+        `target=${payload.target}\n` +
+        `resolvedRegionId=${payload.resolvedRegionId ?? 'null'}\n` +
+        `action=${payload.action}`
+    );
+};
+
 export {
     isEditorRegionPreviewDebugEnabled,
+    logEditorRegionClick,
     logEditorRegionHighlight,
     logEditorRegionHover
 };
