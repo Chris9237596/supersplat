@@ -506,17 +506,7 @@
         return
       }
 
-      window.SCA3D.activateRegion?.(target.data)
-      window.SCA3D.state.selectedRegionId = target.id
-      window.SCA3D.hotspotOverlay?.setSelected(null)
-
-      if (target.data.interaction?.showCard === false) {
-        window.SCA3D.regionOverlay?.hide()
-        return
-      }
-
-      window.SCA3D.regionOverlay?.setActiveRegion(target.id, null)
-      console.log(`[SCA REGION CARD] show ${target.id} (navigation)`)
+      window.SCA3D.selectRegion?.(target.id, 'navigation')
     }
 
     const goTo = (index) => {

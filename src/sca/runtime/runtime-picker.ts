@@ -61,6 +61,18 @@ class RuntimePickerWithDebugCompare implements RuntimePickerAdapter {
     }
 }
 
+const attachSyncPick = (
+    adapter: RuntimePickerAdapter,
+    centersPicker: RuntimeCentersPicker
+): RuntimePickerAdapter => {
+    if (typeof adapter.pickSyncDetailed === 'function') {
+        return adapter;
+    }
+    return Object.assign(adapter, {
+        pickSyncDetailed: (nx: number, ny: number) => centersPicker.pickSyncDetailed(nx, ny)
+    });
+};
+
 const installRuntimePicker = (host: RuntimePickHost): RuntimePickerAdapter => {
     const centersPicker = new RuntimeCentersPicker(host);
     const webgpuPicker = new RuntimeWebGpuPicker(host);
@@ -68,9 +80,9 @@ const installRuntimePicker = (host: RuntimePickHost): RuntimePickerAdapter => {
     if (webgpuPicker.isAvailable()) {
         console.log('[SCA PICK] backend=webgpu');
         if (centersPicker.isAvailable() && isDebugCompareEnabled()) {
-            return new RuntimePickerWithDebugCompare(webgpuPicker, centersPicker);
+            return attachSyncPick(new RuntimePickerWithDebugCompare(webgpuPicker, centersPicker), centersPicker);
         }
-        return webgpuPicker;
+        return attachSyncPick(webgpuPicker, centersPicker);
     }
 
     console.log('[SCA PICK] backend=centers');

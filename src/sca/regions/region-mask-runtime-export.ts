@@ -88,9 +88,10 @@ const remapRegionMasksForRuntimeExport = (
     splats: Splat[],
     serializeSettings: SerializeSettings,
     regions: ScaRegion[],
-    maskBytesByRegionId: Map<string, Uint8Array>
+    maskBytesByRegionId: Map<string, Uint8Array>,
+    exportMapOverride?: ExportGaussianMap | null
 ): { exportMap: ExportGaussianMap; runtimeMasks: Map<string, Uint8Array> } => {
-    const exportMap = buildExportGaussianMap(splats, serializeSettings);
+    const exportMap = exportMapOverride ?? buildExportGaussianMap(splats, serializeSettings);
     if (!exportMap) {
         throw new Error('[SCA] runtime export: no gaussians pass export filter');
     }

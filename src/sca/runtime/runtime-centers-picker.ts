@@ -118,24 +118,28 @@ class RuntimeCentersPicker implements RuntimePickerAdapter {
     }
 
     pickDetailed(nx: number, ny: number): Promise<RuntimePickDetailedResult | null> {
+        return Promise.resolve(this.pickSyncDetailed(nx, ny));
+    }
+
+    pickSyncDetailed(nx: number, ny: number): RuntimePickDetailedResult | null {
         const { graphicsDevice } = this.host;
         const width = Math.floor(graphicsDevice.width);
         const height = Math.floor(graphicsDevice.height);
         if (width <= 0 || height <= 0) {
-            return Promise.resolve(null);
+            return null;
         }
 
         const gaussianIndex = this.pickSync(nx, ny);
         const screenX = Math.min(width - 1, Math.max(0, Math.floor(nx * width)));
         const screenY = Math.min(height - 1, Math.max(0, Math.floor(ny * height)));
 
-        return Promise.resolve({
+        return {
             gaussianIndex,
             screenX,
             screenY,
             width,
             height
-        });
+        };
     }
 
     private ensureCentersCached(): void {

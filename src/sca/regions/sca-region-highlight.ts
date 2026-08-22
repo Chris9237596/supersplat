@@ -2,8 +2,15 @@ import { Color } from 'playcanvas';
 
 import { ElementType } from '../../element';
 import { Events } from '../../events';
+import { IndexRanges } from '../../index-ranges';
 import { Scene } from '../../scene';
 import { Splat } from '../../splat';
+
+import {
+    computeRegionAnchorFromIndices,
+    resolveRegionVisual
+} from '../presentation';
+import { ScaRegion } from '../types/region';
 
 import { findSplatByScaSplatId } from './splat-identity';
 
@@ -23,12 +30,9 @@ const registerScaRegionHighlight = (events: Events, scene: Scene): void => {
             return;
         }
 
-        const region = events.invoke('sca.region.get', regionId) as {
-            source: { scaSplatId: string };
-            visual: { activeTint: string; activeOpacity: number };
-        } | null;
-
-        if (!region) {
+        const region = events.invoke('sca.region.get', regionId) as ScaRegion | null;
+        const visual = resolveRegionVisual(region, 'selected');
+        if (!region || !visual) {
             return;
         }
 
@@ -38,18 +42,18 @@ const registerScaRegionHighlight = (events: Events, scene: Scene): void => {
             return;
         }
 
-        const ranges = events.invoke('sca.region.getMask', regionId);
+        const ranges = events.invoke('sca.region.getMask', regionId) as IndexRanges | null;
         if (!ranges) {
             console.warn(`[SCA] region highlight: mask not found for ${regionId}`);
             return;
         }
 
-        const tint = new Color(1, 0.4, 0, region.visual.activeOpacity);
-        if (!tint.fromString(region.visual.activeTint)) {
-            tint.set(1, 0.4, 0, region.visual.activeOpacity);
-        } else {
-            tint.a = region.visual.activeOpacity;
-        }
+        const tint = new Color(
+            visual.tint.r,
+            visual.tint.g,
+            visual.tint.b,
+            visual.tint.a
+        );
 
         splat.setScaRegionHighlight(ranges, tint);
         scene.forceRender = true;

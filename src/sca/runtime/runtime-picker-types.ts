@@ -55,6 +55,7 @@ interface RuntimePickerAdapter {
     isAvailable(): boolean;
     pick(nx: number, ny: number): Promise<number | null>;
     pickDetailed(nx: number, ny: number): Promise<RuntimePickDetailedResult | null>;
+    pickSyncDetailed?(nx: number, ny: number): RuntimePickDetailedResult | null;
     dumpPickTarget?(): Promise<Record<string, unknown>>;
 }
 

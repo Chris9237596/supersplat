@@ -16,27 +16,77 @@
 
 
 
-  function parseHexColor(hex) {
+  function isRegionClickable(region) {
 
-    const normalized = typeof hex === 'string' ? hex.trim().toLowerCase() : ''
+    const fn = window.SCA3D?.isClickableRegion
 
-    if (!/^#[0-9a-f]{6}$/.test(normalized)) {
+    if (typeof fn === 'function') {
 
-      return { r: 1, g: 0.4, b: 0, a: 0.5 }
+      return fn(region)
 
     }
 
+    return region?.enabled !== false && region?.interaction?.clickable !== false
+
+  }
 
 
-    return {
 
-      r: parseInt(normalized.slice(1, 3), 16) / 255,
+  function computeRegionAnchor3D(bitset, viewer) {
 
-      g: parseInt(normalized.slice(3, 5), 16) / 255,
+    const centers = window.SCA3D?.state?.runtimeCenters
 
-      b: parseInt(normalized.slice(5, 7), 16) / 255,
+    const gaussianCount = window.SCA3D?.state?.runtimeGaussianCount ?? 0
 
-      a: 0.5,
+    const compute = window.SCA3D?.computeRegionAnchorFromBitset
+
+    const createAccessor = window.SCA3D?.createCentersAccessorFromFloat32
+
+    if (!centers || !gaussianCount || typeof compute !== 'function' || typeof createAccessor !== 'function') {
+
+      return null
+
+    }
+
+    const accessor = createAccessor(centers, gaussianCount)
+
+    const transformWorld = createRuntimeWorldTransform(viewer)
+
+    return compute(bitset, accessor, transformWorld ?? undefined)
+
+  }
+
+
+
+  function createRuntimeWorldTransform(viewer) {
+
+    const comp = viewer?.global?.app?.root?.findComponents?.('gsplat')?.[0]
+
+    const entity = comp?.entity
+
+    if (!entity?.getWorldTransform) {
+
+      return null
+
+    }
+
+    const mat = entity.getWorldTransform().data
+
+    if (!mat || mat.length < 16) {
+
+      return null
+
+    }
+
+    return (x, y, z) => {
+
+      const wx = mat[0] * x + mat[4] * y + mat[8] * z + mat[12]
+
+      const wy = mat[1] * x + mat[5] * y + mat[9] * z + mat[13]
+
+      const wz = mat[2] * x + mat[6] * y + mat[10] * z + mat[14]
+
+      return [wx, wy, wz]
 
     }
 
@@ -44,9 +94,118 @@
 
 
 
-  function isClickableRegion(region) {
+  function countBitsetMembers(bitset) {
 
-    return region?.enabled !== false && region?.interaction?.clickable !== false
+    if (!bitset) {
+
+      return 0
+
+    }
+
+    let count = 0
+
+    for (let i = 0; i < bitset.length; i++) {
+
+      if (bitset[i]) {
+
+        count++
+
+      }
+
+    }
+
+    return count
+
+  }
+
+
+
+  function describeMaskRepresentation(bitset) {
+
+    if (!bitset) {
+
+      return 'null'
+
+    }
+
+    const typeName = bitset.constructor?.name ?? 'unknown'
+
+    if (bitset instanceof Uint8Array) {
+
+      return `Uint8Array dense length=${bitset.length}`
+
+    }
+
+    if (bitset instanceof Uint32Array) {
+
+      return `Uint32Array compressed length=${bitset.length} words`
+
+    }
+
+    return `${typeName} length=${bitset.length}`
+
+  }
+
+
+
+  function scanBitsetIndexRange(bitset) {
+
+    let minIndex = -1
+
+    let maxIndex = -1
+
+    /** @type {number[]} */
+    const samples = []
+
+    if (!bitset) {
+
+      return { minIndex, maxIndex, samples }
+
+    }
+
+    for (let i = 0; i < bitset.length; i++) {
+
+      if (bitset[i]) {
+
+        if (minIndex < 0) {
+
+          minIndex = i
+
+        }
+
+        maxIndex = i
+
+        if (samples.length < 5) {
+
+          samples.push(i)
+
+        }
+
+      }
+
+    }
+
+    return { minIndex, maxIndex, samples }
+
+  }
+
+
+
+  function rgbaToHex(tint) {
+
+    if (!tint) {
+
+      return 'none'
+
+    }
+
+    const channel = (value) => Math.round(Math.max(0, Math.min(1, value)) * 255)
+
+      .toString(16)
+
+      .padStart(2, '0')
+
+    return `#${channel(tint.r)}${channel(tint.g)}${channel(tint.b)}`
 
   }
 
@@ -190,6 +349,18 @@
 
 
 
+  function cacheRuntimeCenters(viewer) {
+
+    const comp = viewer?.global?.app?.root?.findComponents?.('gsplat')?.[0]
+
+    const resource = comp?.resource ?? comp?.instance?.resource
+
+    return resource?.centers ?? null
+
+  }
+
+
+
   function initRegionHighlight(viewer, gaussianCount) {
 
     const diag = {
@@ -242,7 +413,11 @@
 
         setMaskFromBitset(bitset, color, active) {
 
-          viewer.setScaRegionHighlight?.(
+          const members = countBitsetMembers(bitset)
+
+          const { minIndex, maxIndex, samples } = scanBitsetIndexRange(bitset)
+
+          const result = viewer.setScaRegionHighlight?.(
 
             bitset,
 
@@ -250,7 +425,25 @@
 
             active
 
-          )
+          ) ?? { nonZeroMask: 0, enabled: false, uploaded: false, bufferSize: 0, gaussianCount: 0 }
+
+          return {
+
+            members,
+
+            minIndex,
+
+            maxIndex,
+
+            samples,
+
+            maskRepresentation: describeMaskRepresentation(bitset),
+
+            sourceBytes: bitset?.byteLength ?? 0,
+
+            ...result,
+
+          }
 
         },
 
@@ -315,6 +508,10 @@
 
     let lastClickCoords = null
 
+    let lastPointerOffsetX = 0
+
+    let lastPointerOffsetY = 0
+
     const defaultScaSplatId = window.SCA3D?.state?.defaultScaSplatId ?? 'splat_01'
 
     const createRuntimeRegionInteraction = window.SCA3D?.createRuntimeRegionInteraction
@@ -327,24 +524,25 @@
         onHoverChange: () => {},
         onSelectionChange: (regionId) => {
           if (!regionId) {
-            if (activeRegionId) {
-              console.log(`[SCA REGION CARD] hide ${activeRegionId}`)
-            }
-            applyActiveVisual(null)
+            activeRegionId = null
             hoverRegionId = null
             updateHoverCursor(null)
-            applyHoverVisual(null)
+            logRegionTransition('cleared')
+            syncRegionPresentation('deselect')
             return
           }
 
           const entry = ctx.lookup.entries.find((item) => item.regionId === regionId)
-          if (!entry || !isClickableRegion(entry.region)) {
+          if (!entry || !isRegionClickable(entry.region)) {
             return
           }
 
-          applyActiveVisual(entry, lastClickCoords)
+          activeRegionId = regionId
+          window.SCA3D.hotspotOverlay?.setSelected?.(null)
+          logRegionTransition('clicked', regionId)
           window.SCA3D.activateRegion?.(entry.region)
           window.SCA3D.handleRegionClick?.(entry.region)
+          syncRegionPresentation('click')
         },
       }) :
       null
@@ -431,73 +629,63 @@
 
 
 
-    const applyHoverVisual = (regionEntry) => {
+    const applyResolvedRegionVisual = (regionEntry, visualState) => {
 
       if (!ctx.highlight) {
 
-        return
+        return null
 
       }
-
-
 
       if (!regionEntry) {
 
-        if (activeRegionId) {
-
-          const active = ctx.lookup.entries.find((entry) => entry.regionId === activeRegionId)
-
-          if (active) {
-
-            const visual = active.region.visual ?? {}
-
-            const color = parseHexColor(visual.activeTint)
-
-            color.a = visual.activeOpacity ?? 0.55
-
-            ctx.highlight.setMaskFromBitset(active.bitset, color, true)
-
-            return
-
-          }
-
-        }
-
-
-
         ctx.highlight.clear()
 
-        return
+        return null
 
       }
 
+      const resolve = window.SCA3D?.resolveRegionVisual
 
+      const visual = typeof resolve === 'function' ?
 
-      const visual = regionEntry.region.visual ?? {}
+        resolve(regionEntry.region, visualState) :
 
-      const color = parseHexColor(visual.hoverTint)
+        null
 
-      color.a = visual.hoverOpacity ?? 0.35
+      if (!visual) {
 
-      ctx.highlight.setMaskFromBitset(regionEntry.bitset, color, true)
+        ctx.highlight.clear()
+
+        return null
+
+      }
+
+      ctx.highlight.setMaskFromBitset(regionEntry.bitset, visual.tint, true)
+
+      return visual
 
     }
 
 
 
-    const applyActiveVisual = (regionEntry, screenPoint) => {
+    let lastVisualDiag = ''
 
-      if (!regionEntry) {
+    let lastHighlightDiag = ''
 
-        ctx.highlight?.clear()
+    let lastAnchorDiag = ''
 
-        window.SCA3D.regionOverlay?.hide()
+    const syncRegionPresentation = (source) => {
 
-        window.SCA3D.state.selectedRegionId = null
+      const buildState = window.SCA3D?.buildRegionPresentationState
 
-        activeRegionId = null
+      const getActive = window.SCA3D?.getActivePresentationEntry
 
-        logRegionTransition('cleared')
+      const getHover = window.SCA3D?.getHoverPresentationEntry
+
+      const buildCard = window.SCA3D?.buildRegionCardModel
+
+      if (typeof buildState !== 'function' || typeof getActive !== 'function' || typeof getHover !== 'function') {
 
         return
 
@@ -505,25 +693,203 @@
 
 
 
-      const visual = regionEntry.region.visual ?? {}
+      const regions = ctx.lookup.entries.map((entry) => entry.region)
 
-      const color = parseHexColor(visual.activeTint)
+      const anchorByRegionId = new Map()
 
-      color.a = visual.activeOpacity ?? 0.55
+      for (const entry of ctx.lookup.entries) {
 
-      ctx.highlight?.setMaskFromBitset(regionEntry.bitset, color, true)
+        anchorByRegionId.set(entry.regionId, computeRegionAnchor3D(entry.bitset, viewer))
+
+      }
 
 
 
-      window.SCA3D.state.selectedRegionId = regionEntry.regionId
+      const presentationState = buildState(regions, hoverRegionId, activeRegionId, anchorByRegionId)
 
-      activeRegionId = regionEntry.regionId
+      window.SCA3D.state = window.SCA3D.state || {}
 
-      window.SCA3D.regionOverlay?.setActiveRegion(regionEntry.regionId, screenPoint ?? null)
+      window.SCA3D.state.regionPresentation = presentationState
 
-      logRegionTransition('clicked', regionEntry.regionId)
+      window.SCA3D.state.hoverRegionId = hoverRegionId
 
-      console.log(`[SCA REGION CARD] show ${regionEntry.regionId}`)
+      window.SCA3D.state.selectedRegionId = activeRegionId
+
+
+
+      const activeEntry = getActive(presentationState)
+
+      const hoverEntry = getHover(presentationState)
+
+
+
+      if (ctx.highlight) {
+
+        const visualEntry = activeEntry?.tint ? activeEntry : hoverEntry
+
+        const visualState = activeEntry?.tint ? 'selected' : (hoverEntry?.tint ? 'hover' : 'normal')
+
+        const visualKey = `${visualEntry?.regionId ?? 'none'}:${visualState}:${visualEntry?.tint?.a ?? ''}`
+
+        let highlightStats = null
+
+        if (activeEntry?.tint) {
+
+          const entry = ctx.lookup.entries.find((item) => item.regionId === activeEntry.regionId)
+
+          if (entry) {
+
+            highlightStats = ctx.highlight.setMaskFromBitset(entry.bitset, activeEntry.tint, true)
+
+          }
+
+        } else if (hoverEntry?.tint) {
+
+          const entry = ctx.lookup.entries.find((item) => item.regionId === hoverEntry.regionId)
+
+          if (entry) {
+
+            highlightStats = ctx.highlight.setMaskFromBitset(entry.bitset, hoverEntry.tint, true)
+
+          }
+
+        } else {
+
+          ctx.highlight.clear()
+
+        }
+
+        const highlightKey = `${visualEntry?.regionId ?? 'none'}:${visualState}:${highlightStats?.nonZeroMask ?? 0}`
+
+        if (highlightKey !== lastHighlightDiag && visualEntry?.regionId && visualEntry?.tint && highlightStats) {
+
+          lastHighlightDiag = highlightKey
+
+          console.log([
+
+            '[SCA REGION HIGHLIGHT]',
+
+            `regionId=${visualEntry.regionId}`,
+
+            `members=${highlightStats.members}`,
+
+            `gaussianCount=${highlightStats.gaussianCount ?? ctx.lookup.gaussianCount}`,
+
+            `maskRepresentation=${highlightStats.maskRepresentation}`,
+
+            `sourceBytes=${highlightStats.sourceBytes}`,
+
+            `nonZeroMask=${highlightStats.nonZeroMask}`,
+
+            `bufferSize=${highlightStats.bufferSize ?? 0}`,
+
+            `minIndex=${highlightStats.minIndex}`,
+
+            `maxIndex=${highlightStats.maxIndex}`,
+
+            `enabled=${highlightStats.enabled}`,
+
+            `tint=${rgbaToHex(visualEntry.tint)}`,
+
+            `opacity=${visualEntry.tint.a}`,
+
+            `sampleIndices=${highlightStats.samples.join(',')}`,
+
+          ].join('\n'))
+
+        } else if (visualState === 'normal' && lastHighlightDiag !== 'normal') {
+
+          lastHighlightDiag = 'normal'
+
+        }
+
+        if (visualKey !== lastVisualDiag && visualEntry?.regionId && visualEntry?.tint) {
+
+          lastVisualDiag = visualKey
+
+          console.log([
+
+            '[SCA REGION VISUAL]',
+
+            `regionId=${visualEntry.regionId}`,
+
+            `state=${visualState}`,
+
+            `tint=${rgbaToHex(visualEntry.tint)}`,
+
+            `opacity=${visualEntry.tint.a}`,
+
+          ].join('\n'))
+
+        } else if (visualState === 'normal' && lastVisualDiag !== 'normal') {
+
+          lastVisualDiag = 'normal'
+
+        }
+
+      }
+
+
+
+      if (activeEntry?.regionId) {
+
+        const entry = ctx.lookup.entries.find((item) => item.regionId === activeEntry.regionId)
+
+        const anchor3D = activeEntry.anchor3D
+
+        const anchorKey = `${activeEntry.regionId}:${anchor3D ?
+
+          `${anchor3D.x.toFixed(3)},${anchor3D.y.toFixed(3)},${anchor3D.z.toFixed(3)}` :
+
+          'null'}`
+
+        if (anchorKey !== lastAnchorDiag) {
+
+          lastAnchorDiag = anchorKey
+
+          console.log([
+
+            '[SCA REGION ANCHOR]',
+
+            `regionId=${activeEntry.regionId}`,
+
+            `members=${entry ? countBitsetMembers(entry.bitset) : 0}`,
+
+            anchor3D ?
+
+              `anchor3D={x:${anchor3D.x.toFixed(3)},y:${anchor3D.y.toFixed(3)},z:${anchor3D.z.toFixed(3)}}` :
+
+              'anchor3D=null',
+
+          ].join('\n'))
+
+        }
+
+      } else if (lastAnchorDiag !== 'none') {
+
+        lastAnchorDiag = 'none'
+
+      }
+
+
+
+      const cardModel = typeof buildCard === 'function' ? buildCard(activeEntry) : null
+
+      window.SCA3D.regionOverlay?.applyPresentation?.(cardModel)
+
+
+
+      if (activeEntry?.regionId) {
+
+        const suffix = source ? ` (${source})` : ''
+
+        console.log(`[SCA REGION CARD] show ${activeEntry.regionId}${suffix}`)
+
+      } else if (source === 'deselect' && activeRegionId === null) {
+
+        console.log('[SCA REGION CARD] hide')
+
+      }
 
     }
 
@@ -560,7 +926,7 @@
 
     const updateHoverCursor = (regionEntry) => {
 
-      if (regionEntry && isClickableRegion(regionEntry.region)) {
+      if (regionEntry && isRegionClickable(regionEntry.region)) {
 
         cursor.set('pointer', `region ${regionEntry.regionId}`)
 
@@ -649,15 +1015,7 @@
 
 
 
-      if (activeRegionId) {
-
-        return
-
-      }
-
-
-
-      applyHoverVisual(regionEntry)
+      syncRegionPresentation()
 
     }
 
@@ -681,7 +1039,173 @@
 
       downY = event.clientY
 
+      lastPointerOffsetX = event.offsetX
+
+      lastPointerOffsetY = event.offsetY
+
     })
+
+
+
+    const markNativeClickSuppressed = (pointerId, offsetX, offsetY, regionId) => {
+
+      window.SCA3D.state = window.SCA3D.state || {}
+
+      window.SCA3D.state.pointerConsumptions = window.SCA3D.state.pointerConsumptions || {}
+
+      window.SCA3D.state.pointerConsumptions[pointerId] = {
+
+        offsetX,
+
+        offsetY,
+
+        regionId,
+
+        at: performance.now(),
+
+        suppress: true,
+
+      }
+
+      window.SCA3D.state.nativeClickSuppression = {
+
+        offsetX,
+
+        offsetY,
+
+        regionId,
+
+        pointerId,
+
+        at: performance.now(),
+
+      }
+
+    }
+
+
+
+    const trySuppressNativeClickSync = (event) => {
+
+      if (isUiTarget(event.target) || event.button !== 0 || dragStarted) {
+
+        return
+
+      }
+
+
+
+      const picker = window.SCA3D?.runtimePicker
+
+      if (!picker || typeof picker.pickSyncDetailed !== 'function') {
+
+        console.log('[SCA CLICK FLOW]', 'capture-pointerup', 'suppressionSet=false', 'reason=picker-unavailable')
+
+        return
+
+      }
+
+
+
+      const width = canvas.clientWidth
+
+      const height = canvas.clientHeight
+
+      if (width <= 0 || height <= 0) {
+
+        return
+
+      }
+
+
+
+      const offsetX = lastPointerOffsetX
+
+      const offsetY = lastPointerOffsetY
+
+      const pick = picker.pickSyncDetailed(offsetX / width, offsetY / height)
+
+      const gaussianIndex = pick?.gaussianIndex ?? null
+
+      if (gaussianIndex === null) {
+
+        console.log('[SCA CLICK FLOW]', 'capture-pointerup', 'suppressionSet=false', 'reason=no-gaussian-hit')
+
+        return
+
+      }
+
+
+
+      let regionId = null
+
+      if (regionCore) {
+
+        const hit = regionCore.resolveClickableRegionHit(
+
+          gaussianIndex,
+
+          pick?.scaSplatId ?? defaultScaSplatId
+
+        )
+
+        if (hit) {
+
+          const entry = ctx.lookup.entries.find((item) => item.regionId === hit.regionId)
+
+          if (entry && isRegionClickable(entry.region)) {
+
+            regionId = hit.regionId
+
+          }
+
+        }
+
+      } else {
+
+        const regionEntry = window.SCA3D.regionMask.resolveRegionAtGaussian(ctx.lookup, gaussianIndex)
+
+        if (regionEntry && isRegionClickable(regionEntry.region)) {
+
+          regionId = regionEntry.regionId
+
+        }
+
+      }
+
+
+
+      if (!regionId) {
+
+        console.log('[SCA CLICK FLOW]', 'capture-pointerup', 'suppressionSet=false', 'reason=no-region-hit')
+
+        return
+
+      }
+
+
+
+      markNativeClickSuppressed(event.pointerId, offsetX, offsetY, regionId)
+
+      console.log([
+
+        '[SCA CLICK FLOW]',
+
+        'capture-pointerup',
+
+        `regionId=${regionId}`,
+
+        'suppressionSet=true',
+
+        `offset={x:${offsetX},y:${offsetY}}`,
+
+      ].join('\n'))
+
+    }
+
+
+
+    canvas.addEventListener('pointerup', trySuppressNativeClickSync, true)
 
 
 
@@ -695,11 +1219,9 @@
 
             hoverRegionId = null
 
-            if (!activeRegionId) {
+            window.SCA3D.state.hoverRegionId = null
 
-              applyHoverVisual(null)
-
-            }
+            syncRegionPresentation()
 
           }
 
@@ -741,13 +1263,11 @@
 
       hoverRegionId = null
 
+      window.SCA3D.state.hoverRegionId = null
+
       cursor.set('navigation')
 
-      if (!activeRegionId) {
-
-        applyHoverVisual(null)
-
-      }
+      syncRegionPresentation()
 
     })
 
@@ -793,29 +1313,31 @@
       }
 
       if (regionCore) {
-        regionCore.activateRegion(regionEntry?.regionId ?? null, 'click')
+        if (regionEntry?.regionId && isRegionClickable(regionEntry.region)) {
+          window.SCA3D.state = window.SCA3D.state || {}
+          window.SCA3D.state.regionClickConsumed = true
+          regionCore.activateRegion(regionEntry.regionId, 'click')
+        }
         return
       }
 
       if (!regionEntry) {
-        if (activeRegionId) {
-          console.log(`[SCA REGION CARD] hide ${activeRegionId}`)
-        }
-        applyActiveVisual(null)
+        activeRegionId = null
         hoverRegionId = null
         updateHoverCursor(null)
-        applyHoverVisual(null)
+        syncRegionPresentation('deselect')
         return
       }
 
-      if (!isClickableRegion(regionEntry.region)) {
+      if (!isRegionClickable(regionEntry.region)) {
         return
       }
 
+      activeRegionId = regionEntry.regionId
       hoverRegionId = regionEntry.regionId
-      applyActiveVisual(regionEntry, lastClickCoords)
       window.SCA3D.activateRegion?.(regionEntry.region)
       window.SCA3D.handleRegionClick?.(regionEntry.region)
+      syncRegionPresentation('click')
 
     })
 
@@ -823,13 +1345,95 @@
 
     if (activeRegionId) {
 
-      const active = ctx.lookup.entries.find((entry) => entry.regionId === activeRegionId)
+      syncRegionPresentation()
 
-      if (active) {
+    }
 
-        applyActiveVisual(active, null)
+
+
+    window.SCA3D.selectRegion = (regionId, source = 'navigation') => {
+
+      if (regionCore) {
+
+        regionCore.activateRegion(regionId, source)
+
+        return
 
       }
+
+      if (!regionId) {
+
+        activeRegionId = null
+
+        hoverRegionId = null
+
+        syncRegionPresentation('deselect')
+
+        return
+
+      }
+
+      const entry = ctx.lookup.entries.find((item) => item.regionId === regionId)
+
+      if (!entry || !isRegionClickable(entry.region)) {
+
+        return
+
+      }
+
+      activeRegionId = regionId
+
+      window.SCA3D.hotspotOverlay?.setSelected?.(null)
+
+      window.SCA3D.activateRegion?.(entry.region)
+
+      window.SCA3D.handleRegionClick?.(entry.region)
+
+      syncRegionPresentation(source)
+
+    }
+
+
+
+    window.SCA3D.shouldSuppressViewerClickFocus = (offsetX, offsetY) => {
+
+      const consumptions = window.SCA3D?.state?.pointerConsumptions
+
+      if (!consumptions) {
+
+        return false
+
+      }
+
+      const now = performance.now()
+
+      for (const entry of Object.values(consumptions)) {
+
+        if (!entry?.suppress || now - entry.at > 750) {
+
+          continue
+
+        }
+
+        if (offsetX === undefined || offsetY === undefined) {
+
+          return true
+
+        }
+
+        const dx = offsetX - entry.offsetX
+
+        const dy = offsetY - entry.offsetY
+
+        if ((dx * dx + dy * dy) <= 256) {
+
+          return true
+
+        }
+
+      }
+
+      return false
 
     }
 
@@ -920,6 +1524,10 @@
 
 
     window.SCA3D.state.regionLookup = lookup
+
+    window.SCA3D.state.runtimeCenters = cacheRuntimeCenters(viewer)
+
+    window.SCA3D.state.runtimeGaussianCount = gaussianCount
 
 
 

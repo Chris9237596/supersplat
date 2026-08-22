@@ -914,6 +914,16 @@ const resolveSogCreateDevice = async (
     return createGpuDevice;
 };
 
+const resolveSogCompressionBackendLabel = async (
+    mode: SogCompressionMode = DEFAULT_SOG_COMPRESSION_MODE
+): Promise<'cpu' | 'webgpu'> => {
+    if (mode === 'force-cpu') {
+        return 'cpu';
+    }
+    const adapter = await probeWebGpuAdapter();
+    return adapter ? 'webgpu' : 'cpu';
+};
+
 const resolveWriteSourceCreateDevice = async (
     outputFormat: OutputFormat,
     events?: Events,
@@ -1131,5 +1141,6 @@ export {
     ViewerExportSettings,
     WebGPUUnavailableError,
     SogCompressionMode,
-    DEFAULT_SOG_COMPRESSION_MODE
+    DEFAULT_SOG_COMPRESSION_MODE,
+    resolveSogCompressionBackendLabel
 };

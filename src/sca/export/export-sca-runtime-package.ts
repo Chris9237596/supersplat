@@ -11,11 +11,11 @@ import { Splat } from '../../splat';
 import {
     defaultPostEffectSettings,
     ExperienceSettings,
+    ExportGaussianMap,
     SerializeSettings,
     SogCompressionMode,
     DEFAULT_SOG_COMPRESSION_MODE,
-    WebGPUUnavailableError,
-    writeSplatFile
+    WebGPUUnavailableError
 } from '../../splat-serialize';
 import { stringifyProjectJson } from '../serialize/project-json';
 import { ScaProject } from '../types/project';
@@ -26,6 +26,7 @@ import { ScaAssetStore } from '../store/sca-asset-store';
 import { hotspotsToAnnotations } from './hotspot-to-annotation';
 import { patchViewerBundle } from './patch-viewer-bundle';
 import { applySpikeSplatIndexPickPatch } from './spike-splat-index-pick-patch';
+import { writeViewerExportWithCachedSog } from './sog-export-cache';
 import { ensureScaSplatId } from '../regions/splat-identity';
 import { regionMaskStorePath } from '../regions/region-mask-paths';
 import { remapRegionMasksForRuntimeExport } from '../regions/region-mask-runtime-export';
@@ -171,6 +172,7 @@ const patchIndexHtml = (html: string): string => {
         '        <script src="./region-mask-runtime.js"></script>\n' +
         '        <script src="./sca-picker.js"></script>\n' +
         '        <script src="./sca-region-core.js"></script>\n' +
+        '        <script src="./sca-annotation-projector.js"></script>\n' +
         '        <script src="./sca-hotspot-overlay.js"></script>\n' +
         '        <script src="./sca-region-overlay.js"></script>\n' +
         '        <script src="./sca-region-runtime.js"></script>\n' +
@@ -190,6 +192,7 @@ const patchPreviewHtml = (
     regionMaskJs: string,
     pickerJs: string,
     regionCoreJs: string,
+    annotationProjectorJs: string,
     overlayJs: string,
     regionOverlayJs: string,
     regionRuntimeJs: string,
@@ -209,6 +212,7 @@ const patchPreviewHtml = (
         `<script>\n${regionMaskJs}\n</script>\n` +
         `<script>\n${pickerJs}\n</script>\n` +
         `<script>\n${regionCoreJs}\n</script>\n` +
+        `<script>\n${annotationProjectorJs}\n</script>\n` +
         `<script>\n${overlayJs}\n</script>\n` +
         `<script>\n${regionOverlayJs}\n</script>\n` +
         `<script>\n${regionRuntimeJs}\n</script>\n` +
@@ -264,7 +268,8 @@ const writeRegionMaskAssets = (
     splats: Splat[],
     serializeSettings: SerializeSettings,
     assetStore: ScaAssetStore | undefined,
-    embeddedAssets: Record<string, string>
+    embeddedAssets: Record<string, string>,
+    exportMapOverride?: ExportGaussianMap | null
 ): number => {
     if (!assetStore) {
         return 0;
@@ -296,7 +301,8 @@ const writeRegionMaskAssets = (
         splats,
         serializeSettings,
         enabledRegions,
-        sourceMaskBytes
+        sourceMaskBytes,
+        exportMapOverride
     );
 
     for (const region of enabledRegions) {
@@ -380,6 +386,7 @@ const fetchScaRuntimeAssets = async () => {
         regionMaskJs,
         pickerJs,
         regionCoreJs,
+        annotationProjectorJs,
         overlayJs,
         regionOverlayJs,
         regionRuntimeJs,
@@ -392,6 +399,7 @@ const fetchScaRuntimeAssets = async () => {
         fetchRuntimeAsset('region-mask-runtime.js'),
         fetchRuntimeAsset('sca-picker.js'),
         fetchRuntimeAsset('sca-region-core.js'),
+        fetchRuntimeAsset('sca-annotation-projector.js'),
         fetchRuntimeAsset('sca-hotspot-overlay.js'),
         fetchRuntimeAsset('sca-region-overlay.js'),
         fetchRuntimeAsset('sca-region-runtime.js'),
@@ -406,6 +414,7 @@ const fetchScaRuntimeAssets = async () => {
         regionMaskJs,
         pickerJs,
         regionCoreJs,
+        annotationProjectorJs: annotationProjectorJs,
         overlayJs,
         regionOverlayJs,
         regionRuntimeJs,
@@ -463,10 +472,17 @@ const buildRuntimeViewerPreviewHtml = async (
     try {
         const previewMemFs = new MemoryFileSystem();
 
-        await writeSplatFile(splats, serializeSettings, 'html-bundle', PREVIEW_FILENAME, {
-            viewerSettingsJson: experienceSettings,
-            iterations: 10
-        }, previewMemFs, events, sogCompressionMode);
+        const exportMap = await writeViewerExportWithCachedSog({
+            splats,
+            serializeSettings,
+            sogCompressionMode,
+            iterations: 10,
+            outputFormat: 'html-bundle',
+            filename: PREVIEW_FILENAME,
+            experienceSettings,
+            events,
+            memFs: previewMemFs
+        });
 
         patchExportedViewerAssets(previewMemFs, useGaussianPickSpike);
 
@@ -486,7 +502,8 @@ const buildRuntimeViewerPreviewHtml = async (
             splats,
             serializeSettings,
             assetStore,
-            embeddedAssets
+            embeddedAssets,
+            exportMap
         );
         const exportProject = buildRuntimeExportProject(
             project,
@@ -504,6 +521,7 @@ const buildRuntimeViewerPreviewHtml = async (
             runtimeAssets.regionMaskJs,
             runtimeAssets.pickerJs,
             runtimeAssets.regionCoreJs,
+            runtimeAssets.annotationProjectorJs,
             runtimeAssets.overlayJs,
             runtimeAssets.regionOverlayJs,
             runtimeAssets.regionRuntimeJs,
@@ -567,10 +585,17 @@ const exportScaRuntimePackage = async (
     try {
         const memFs = new MemoryFileSystem();
 
-        await writeSplatFile(splats, serializeSettings, 'html', 'index.html', {
-            viewerSettingsJson: experienceSettings,
-            iterations: 10
-        }, memFs, events, sogCompressionMode);
+        const exportMap = await writeViewerExportWithCachedSog({
+            splats,
+            serializeSettings,
+            sogCompressionMode,
+            iterations: 10,
+            outputFormat: 'html',
+            filename: 'index.html',
+            experienceSettings,
+            events,
+            memFs
+        });
 
         patchExportedViewerAssets(memFs, useGaussianPickSpike);
 
@@ -591,6 +616,7 @@ const exportScaRuntimePackage = async (
             regionMaskJs,
             pickerJs,
             regionCoreJs,
+            annotationProjectorJs,
             overlayJs,
             regionOverlayJs,
             regionRuntimeJs,
@@ -604,6 +630,7 @@ const exportScaRuntimePackage = async (
         memFs.results.set('region-mask-runtime.js', encoder.encode(regionMaskJs));
         memFs.results.set('sca-picker.js', encoder.encode(pickerJs));
         memFs.results.set('sca-region-core.js', encoder.encode(regionCoreJs));
+        memFs.results.set('sca-annotation-projector.js', encoder.encode(annotationProjectorJs));
         memFs.results.set('sca-hotspot-overlay.js', encoder.encode(overlayJs));
         memFs.results.set('sca-region-overlay.js', encoder.encode(regionOverlayJs));
         memFs.results.set('sca-region-runtime.js', encoder.encode(regionRuntimeJs));
@@ -618,7 +645,8 @@ const exportScaRuntimePackage = async (
             splats,
             serializeSettings,
             assetStore,
-            embeddedAssets
+            embeddedAssets,
+            exportMap
         );
         const exportProject = buildRuntimeExportProject(
             project,

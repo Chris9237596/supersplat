@@ -50,16 +50,7 @@
     })
   }
 
-  /**
-   * @param {object} viewer
-   */
-  function findViewerCamera(viewer) {
-    const app = viewer?.global?.app
-    if (!app?.root?.findByName) {
-      return null
-    }
-    return app.root.findByName('camera')?.camera ?? null
-  }
+  const annotationProjector = () => window.SCA3D?.annotationProjector
 
   /**
    * @param {HTMLElement} overlay
@@ -254,21 +245,15 @@
     }
 
     const updateScreenPositions = () => {
-      const camera = findViewerCamera(viewer)
-      if (!camera || views.size === 0) {
+      const projector = annotationProjector()
+      if (!projector || views.size === 0) {
         return
       }
 
-      const canvas = document.getElementById('application-canvas')
-      const width = canvas?.clientWidth ?? overlay.clientWidth
-      const height = canvas?.clientHeight ?? overlay.clientHeight
+      const { width, height } = projector.getAnnotationCanvasSize()
       if (width <= 0 || height <= 0) {
         return
       }
-
-      const cameraEntity = camera.entity
-      const cameraPos = cameraEntity.getPosition()
-      const cameraFwd = cameraEntity.forward
 
       for (const hotspot of exportable) {
         const view = views.get(hotspot.id)
@@ -277,23 +262,15 @@
         }
 
         const [wx, wy, wz] = hotspot.position
-        const dx = wx - cameraPos.x
-        const dy = wy - cameraPos.y
-        const dz = wz - cameraPos.z
-        const dot = dx * cameraFwd.x + dy * cameraFwd.y + dz * cameraFwd.z
-
-        if (dot <= 0) {
-          view.screenVisible = false
+        const projected = projector.projectAnchor3D(viewer, { x: wx, y: wy, z: wz })
+        view.screenVisible = projected.visible
+        if (!projected.visible) {
           applyVisibility(view)
           continue
         }
 
-        const world = cameraPos.clone()
-        world.set(wx, wy, wz)
-        const screenPos = camera.worldToScreen(world)
-        view.screenX = Math.round(screenPos.x)
-        view.screenY = Math.round(screenPos.y)
-        view.screenVisible = true
+        view.screenX = projected.screenX
+        view.screenY = projected.screenY
         view.anchor.style.transform = `translate(${view.screenX}px, ${view.screenY}px)`
         applyVisibility(view)
         layoutCard(view, width, height)

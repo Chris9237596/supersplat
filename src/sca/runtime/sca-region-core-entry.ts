@@ -3,6 +3,22 @@ import {
     isClickableRegion,
     resolveRegion
 } from '../interaction/sca-region-core';
+import {
+    applyRegionCardLayout,
+    buildRegionCardModel,
+    buildRegionPresentationEntry,
+    buildRegionPresentationState,
+    computeRegionAnchorFromBitset,
+    computeRegionAnchorFromIndices,
+    createCentersAccessorFromFloat32,
+    getActivePresentationEntry,
+    getHoverPresentationEntry,
+    layoutRegionCard,
+    parseRegionActiveColor,
+    parseRegionHexColor,
+    parseRegionHoverColor,
+    resolveRegionVisual
+} from '../presentation';
 import { ScaRegion } from '../types/region';
 
 import {
@@ -27,17 +43,29 @@ const createRuntimeRegionInteraction = (
 };
 
 const scaGlobal = window as typeof window & {
-    SCA3D?: {
-        createRuntimeRegionInteraction?: typeof createRuntimeRegionInteraction;
-        isClickableRegion?: typeof isClickableRegion;
-        resolveRuntimeRegion?: typeof resolveRegion;
-    };
+    SCA3D?: Record<string, unknown>;
 };
 
 scaGlobal.SCA3D = scaGlobal.SCA3D || {};
-scaGlobal.SCA3D.createRuntimeRegionInteraction = createRuntimeRegionInteraction;
-scaGlobal.SCA3D.isClickableRegion = isClickableRegion;
-scaGlobal.SCA3D.resolveRuntimeRegion = resolveRegion;
+Object.assign(scaGlobal.SCA3D, {
+    createRuntimeRegionInteraction,
+    isClickableRegion,
+    resolveRuntimeRegion: resolveRegion,
+    parseRegionHexColor,
+    parseRegionHoverColor,
+    parseRegionActiveColor,
+    resolveRegionVisual,
+    computeRegionAnchorFromBitset,
+    computeRegionAnchorFromIndices,
+    createCentersAccessorFromFloat32,
+    buildRegionPresentationState,
+    buildRegionPresentationEntry,
+    getActivePresentationEntry,
+    getHoverPresentationEntry,
+    buildRegionCardModel,
+    layoutRegionCard,
+    applyRegionCardLayout
+});
 
 export {
     createRuntimeRegionInteraction

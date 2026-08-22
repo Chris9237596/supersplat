@@ -1,14 +1,12 @@
 /**
 
- * Region info card overlay — reuses Hotspot card CSS (no numbered marker).
+ * Region info card overlay — shared presentation model + Hotspot card CSS.
 
  */
 
 ;(function () {
 
-  const TOOLTIP_MARGIN = 8
-
-  const TOOLTIP_ARROW_OFFSET = 25
+  const annotationProjector = () => window.SCA3D?.annotationProjector
 
 
 
@@ -52,9 +50,7 @@
 
       regionId: null,
 
-      screenX: 0,
-
-      screenY: 0,
+      anchor3D: null,
 
       showCard: true,
 
@@ -74,7 +70,7 @@
 
    */
 
-  function layoutRegionCard(view, viewportWidth, viewportHeight) {
+  function layoutRegionCardView(view, viewportWidth, viewportHeight) {
 
     if (!view.showCard || !view.regionId) {
 
@@ -90,51 +86,39 @@
 
 
 
-    // Measure after visible so offsetWidth/Height are non-zero.
+    const layoutFn = window.SCA3D?.layoutRegionCard
 
-    const tooltipWidth = view.card.offsetWidth || 1
+    const applyLayoutFn = window.SCA3D?.applyRegionCardLayout
 
-    const tooltipHeight = view.card.offsetHeight || 1
+    if (typeof layoutFn !== 'function' || typeof applyLayoutFn !== 'function') {
 
+      view.card.classList.add('is-hidden')
 
-
-    let left = view.screenX + TOOLTIP_ARROW_OFFSET
-
-    let top = view.screenY - tooltipHeight / 2
-
-    let flipped = false
-
-
-
-    if (left + tooltipWidth > viewportWidth - TOOLTIP_MARGIN) {
-
-      left = view.screenX - TOOLTIP_ARROW_OFFSET - tooltipWidth
-
-      flipped = true
+      return
 
     }
 
 
 
-    left = Math.max(TOOLTIP_MARGIN, Math.min(left, viewportWidth - tooltipWidth - TOOLTIP_MARGIN))
+    const layout = layoutFn({
 
-    top = Math.max(TOOLTIP_MARGIN, Math.min(top, viewportHeight - tooltipHeight - TOOLTIP_MARGIN))
+      screenX: view.screenX,
+
+      screenY: view.screenY,
+
+      cardWidth: view.card.offsetWidth || 1,
+
+      cardHeight: view.card.offsetHeight || 1,
+
+      viewportWidth,
+
+      viewportHeight,
+
+    })
 
 
 
-    const arrowY = Math.max(16, Math.min(view.screenY - top, tooltipHeight - 16))
-
-    view.card.style.setProperty('--arrow-top', `${arrowY}px`)
-
-    view.card.classList.toggle('arrow-right', !flipped)
-
-    view.card.classList.toggle('arrow-left', flipped)
-
-    view.card.style.transform = 'none'
-
-    view.card.style.left = `${Math.round(left)}px`
-
-    view.card.style.top = `${Math.round(top)}px`
+    applyLayoutFn(view.card, layout)
 
   }
 
@@ -182,21 +166,197 @@
 
 
 
+    let lastCardDiag = ''
+
+    const projectAnchorToScreen = () => {
+
+      if (!view.regionId || !view.showCard || !view.anchor3D) {
+
+        return false
+
+      }
+
+
+
+      const projector = annotationProjector()
+
+      if (!projector) {
+
+        view.card.classList.add('is-hidden')
+
+        return false
+
+      }
+
+
+
+      const projected = projector.projectAnchor3D(viewer, view.anchor3D)
+
+      if (!projected.visible) {
+
+        view.card.classList.add('is-hidden')
+
+        return false
+
+      }
+
+
+
+      view.screenX = projected.screenX
+
+      view.screenY = projected.screenY
+
+
+
+      const cardKey = `${view.regionId}:${view.screenX},${view.screenY}`
+
+      if (cardKey !== lastCardDiag) {
+
+        lastCardDiag = cardKey
+
+        console.log([
+
+          '[SCA REGION CARD]',
+
+          `regionId=${view.regionId}`,
+
+          `screen={x:${view.screenX},y:${view.screenY}}`,
+
+          'anchorValid=true',
+
+        ].join('\n'))
+
+      }
+
+
+
+      view.card.classList.remove('is-hidden')
+
+      return true
+
+    }
+
+
+
+    const relayout = () => {
+
+      if (!view.regionId || !view.showCard) {
+
+        view.card.classList.add('is-hidden')
+
+        return
+
+      }
+
+
+
+      if (view.anchor3D && !projectAnchorToScreen()) {
+
+        return
+
+      }
+
+
+
+      const canvas = document.getElementById('application-canvas')
+
+      const viewportWidth = canvas?.clientWidth ?? window.innerWidth
+
+      const viewportHeight = canvas?.clientHeight ?? window.innerHeight
+
+      if (!Number.isFinite(view.screenX) || !Number.isFinite(view.screenY)) {
+
+        view.card.classList.add('is-hidden')
+
+        return
+
+      }
+
+      layoutRegionCardView(view, viewportWidth, viewportHeight)
+
+    }
+
+
+
+    /**
+     * @param {ReturnType<typeof createRegionCardView>} view
+     * @param {object|null} cardModel
+     */
+    const applyPresentation = (cardModel) => {
+
+      if (!cardModel?.visible || !cardModel.regionId) {
+
+        view.regionId = null
+
+        view.anchor3D = null
+
+        view.showCard = false
+
+        view.card.classList.add('is-hidden')
+
+        lastCardDiag = ''
+
+        return
+
+      }
+
+
+
+      if (!cardModel.anchor3D) {
+
+        console.warn(`[SCA REGION CARD] skipped ${cardModel.regionId}: no anchor3D`)
+
+        view.regionId = null
+
+        view.anchor3D = null
+
+        view.showCard = false
+
+        view.card.classList.add('is-hidden')
+
+        lastCardDiag = ''
+
+        return
+
+      }
+
+
+
+      view.regionId = cardModel.regionId
+
+      view.titleEl.textContent = cardModel.name ?? cardModel.regionId
+
+      view.textEl.textContent = cardModel.text ?? ''
+
+      view.showCard = true
+
+      view.anchor3D = cardModel.anchor3D
+
+
+
+      view.card.classList.remove('is-hidden')
+
+      relayout()
+
+      requestAnimationFrame(relayout)
+
+    }
+
+
+
     /**
 
      * @param {string|null} regionId
 
-     * @param {{ x: number, y: number }|null} screenPoint
+     * @param {{ anchor3D?: { x:number, y:number, z:number } }|null} anchor
 
      */
 
-    const setActiveRegion = (regionId, screenPoint = null) => {
+    const setActiveRegion = (regionId, anchor = null) => {
 
       if (!regionId) {
 
-        view.regionId = null
-
-        view.card.classList.add('is-hidden')
+        applyPresentation(null)
 
         return
 
@@ -208,9 +368,7 @@
 
       if (!region) {
 
-        view.regionId = null
-
-        view.card.classList.add('is-hidden')
+        applyPresentation(null)
 
         return
 
@@ -218,44 +376,19 @@
 
 
 
-      view.regionId = regionId
+      const buildEntry = window.SCA3D?.buildRegionPresentationEntry
 
-      view.titleEl.textContent = region.name ?? regionId
+      const buildCard = window.SCA3D?.buildRegionCardModel
 
-      view.textEl.textContent = region.text ?? ''
+      const entry = typeof buildEntry === 'function' ?
 
-      view.showCard = region.interaction?.showCard !== false
+        buildEntry(region, null, regionId, anchor?.anchor3D ?? null) :
 
+        null
 
+      const cardModel = typeof buildCard === 'function' ? buildCard(entry) : null
 
-      if (screenPoint) {
-
-        view.screenX = screenPoint.x
-
-        view.screenY = screenPoint.y
-
-      }
-
-
-
-      if (!view.showCard) {
-        view.card.classList.add('is-hidden')
-        return
-      }
-
-      view.card.classList.remove('is-hidden')
-
-      const layout = () => {
-
-        layoutRegionCard(view, window.innerWidth, window.innerHeight)
-
-      }
-
-
-
-      layout()
-
-      requestAnimationFrame(layout)
+      applyPresentation(cardModel)
 
     }
 
@@ -263,11 +396,7 @@
 
     const onResize = () => {
 
-      if (view.regionId && view.showCard) {
-
-        layoutRegionCard(view, window.innerWidth, window.innerHeight)
-
-      }
+      relayout()
 
     }
 
@@ -277,15 +406,37 @@
 
 
 
+    const app = viewer?.global?.app
+
+    if (app) {
+
+      app.on('postrender', relayout)
+
+    } else {
+
+      viewer?.global?.events?.on('firstFrame', () => {
+
+        viewer.global?.app?.on('postrender', relayout)
+
+        relayout()
+
+      })
+
+    }
+
+
+
     window.SCA3D = window.SCA3D || {}
 
     window.SCA3D.regionOverlay = {
+
+      applyPresentation,
 
       setActiveRegion,
 
       hide() {
 
-        setActiveRegion(null)
+        applyPresentation(null)
 
       },
 
@@ -304,5 +455,4 @@
   window.initScaRegionOverlay = initScaRegionOverlay
 
 })()
-
 

@@ -947,6 +947,12 @@ const patchViewerBundle = (source: string): string => {
             if (scaNavFlags.navigationTargetsEnabled === false) {
                 return;
             }
+            const scaSuppressFocusFn = window.SCA3D?.shouldSuppressViewerClickFocus;
+            const scaSuppressFocus = typeof scaSuppressFocusFn === 'function' && scaSuppressFocusFn();
+            console.log('[CURSOR RING FLOW]', 'handler=navTarget:set', \`suppressed=\${scaSuppressFocus}\`);
+            if (scaSuppressFocus) {
+                return;
+            }
             const mode = state.cameraMode === 'walk' || state.cameraMode === 'fly' ?
                 state.cameraMode : 'walk';
             this.setTarget(pos, normal, mode);
@@ -962,6 +968,12 @@ const patchViewerBundle = (source: string): string => {
         });`,
         `events.on('orbitTarget:set', (pos, normal) => {
             if (scaNavFlags.navigationTargetsEnabled === false) {
+                return;
+            }
+            const scaSuppressFocusFn = window.SCA3D?.shouldSuppressViewerClickFocus;
+            const scaSuppressFocus = typeof scaSuppressFocusFn === 'function' && scaSuppressFocusFn();
+            console.log('[CURSOR RING FLOW]', 'handler=orbitTarget:set', \`suppressed=\${scaSuppressFocus}\`);
+            if (scaSuppressFocus) {
                 return;
             }
             this.navigating = false;
@@ -1075,6 +1087,8 @@ const patchViewerBundle = (source: string): string => {
             let scaRegionHighlightMaterial = null;
             let scaRegionHighlightTexWidth = 0;
             let scaRegionHighlightTexHeight = 0;
+            let scaRegionHighlightGaussianCount = 0;
+            let scaRegionHighlightLastDiag = '';
             const scaFindGsplatMaterial = () => {
                 const sceneMaterial = app.scene?.gsplat?.material ?? null;
                 if (sceneMaterial) {
@@ -1095,24 +1109,32 @@ const patchViewerBundle = (source: string): string => {
                 const resource = component?.resource ?? component?._resource ?? component?._placement?.resource ?? null;
                 const dims = resource?.textureDimensions ?? resource?.streams?.textureDimensions ?? null;
                 if (dims?.x > 0 && dims?.y > 0) {
+                    const width = dims.x;
+                    const height = Math.max(dims.y, Math.ceil(gaussianCount / width));
                     return {
-                        width: dims.x,
-                        height: dims.y,
+                        width,
+                        height,
+                        bufferSize: width * height,
                         source: 'gsplat.textureDimensions'
                     };
                 }
                 const splatTextureSize = app.scene?.gsplat?.material?.getParameter?.('splatTextureSize')?.data;
                 if (typeof splatTextureSize === 'number' && splatTextureSize > 0) {
+                    const width = splatTextureSize;
+                    const height = Math.ceil(gaussianCount / width);
                     return {
-                        width: splatTextureSize,
-                        height: Math.ceil(gaussianCount / splatTextureSize),
+                        width,
+                        height,
+                        bufferSize: width * height,
                         source: 'splatTextureSize'
                     };
                 }
                 const width = Math.ceil(Math.sqrt(gaussianCount));
+                const height = Math.ceil(gaussianCount / width);
                 return {
                     width,
-                    height: Math.ceil(gaussianCount / width),
+                    height,
+                    bufferSize: width * height,
                     source: 'calcTextureSize'
                 };
             };
@@ -1165,20 +1187,40 @@ const patchViewerBundle = (source: string): string => {
                     scaRegionHighlightMaterial = material;
                     scaRegionHighlightTexWidth = layout.width;
                     scaRegionHighlightTexHeight = layout.height;
-                    const bufferSize = layout.width * layout.height;
+                    scaRegionHighlightGaussianCount = gaussianCount;
+                    const bufferSize = layout.bufferSize;
+                    if (bufferSize < gaussianCount) {
+                        console.error('[SCA REGION] highlight init failed: buffer smaller than gaussianCount', {
+                            stage,
+                            gaussianCount,
+                            bufferSize,
+                            layout
+                        });
+                        return false;
+                    }
                     scaRegionHighlightBuffer = new Uint8Array(bufferSize);
                     scaRegionHighlightTexture = new Texture(app.graphicsDevice, {
                         name: 'scaRegionHighlight',
                         width: layout.width,
                         height: layout.height,
-                        format: PIXELFORMAT_R8,
+                        format: PIXELFORMAT_RGBA8,
                         mipmaps: false,
                         minFilter: FILTER_NEAREST,
                         magFilter: FILTER_NEAREST,
                         addressU: ADDRESS_CLAMP_TO_EDGE,
                         addressV: ADDRESS_CLAMP_TO_EDGE
                     });
-                    scaRegionHighlightTexture.setSource(scaRegionHighlightBuffer);
+                    const initLocked = scaRegionHighlightTexture.lock();
+                    initLocked.fill(0);
+                    scaRegionHighlightTexture.unlock();
+                    console.log('[SCA REGION HIGHLIGHT TEXTURE]', {
+                        width: scaRegionHighlightTexture.width,
+                        height: scaRegionHighlightTexture.height,
+                        format: 'RGBA8',
+                        lockedLength: initLocked.length,
+                        gaussianCount,
+                        layoutSource: layout.source
+                    });
                     material.setDefine('SCA_REGION_HIGHLIGHT', true);
                     material.setParameter('scaRegionHighlight', scaRegionHighlightTexture);
                     material.setParameter('scaRegionHighlightClr', [1, 0.4, 0, 0.5]);
@@ -1191,7 +1233,7 @@ const patchViewerBundle = (source: string): string => {
                         width: layout.width,
                         height: layout.height,
                         gaussianCount,
-                        format: 'R8',
+                        format: 'RGBA8',
                         layoutSource: layout.source,
                         renderer: app.graphicsDevice.isWebGPU ? 'webgpu' : 'webgl'
                     });
@@ -1208,27 +1250,60 @@ const patchViewerBundle = (source: string): string => {
                     scaRegionHighlightMaterial = null;
                     scaRegionHighlightTexWidth = 0;
                     scaRegionHighlightTexHeight = 0;
+                    scaRegionHighlightGaussianCount = 0;
                     return false;
                 }
             };
             this.setScaRegionHighlight = (bitset, color, active) => {
                 if (!scaRegionHighlightTexture || !scaRegionHighlightMaterial || !scaRegionHighlightBuffer) {
-                    return;
+                    return { nonZeroMask: 0, enabled: false, uploaded: false, bufferSize: 0 };
                 }
+                let nonZeroMask = 0;
                 scaRegionHighlightBuffer.fill(0);
+                const locked = scaRegionHighlightTexture.lock();
+                locked.fill(0);
                 if (bitset && active) {
-                    const limit = Math.min(bitset.length, scaRegionHighlightBuffer.length);
+                    const limit = Math.min(
+                        bitset.length,
+                        scaRegionHighlightGaussianCount,
+                        scaRegionHighlightBuffer.length
+                    );
                     for (let i = 0; i < limit; i++) {
                         if (bitset[i]) {
                             scaRegionHighlightBuffer[i] = 255;
+                            locked[i * 4] = 255;
+                            nonZeroMask++;
                         }
                     }
                 }
-                scaRegionHighlightTexture.setSource(scaRegionHighlightBuffer);
+                scaRegionHighlightTexture.unlock();
                 scaRegionHighlightMaterial.setParameter('scaRegionHighlightClr', color);
                 scaRegionHighlightMaterial.setParameter('scaRegionHighlightActive', active ? 1 : 0);
                 scaRegionHighlightMaterial.update();
                 app.renderNextFrame = true;
+                const diagKey = \`\${active ? 1 : 0}:\${nonZeroMask}:\${color?.join?.(',') ?? ''}\`;
+                if (diagKey !== scaRegionHighlightLastDiag) {
+                    scaRegionHighlightLastDiag = diagKey;
+                    console.log('[SCA REGION HIGHLIGHT]', {
+                        nonZeroMask,
+                        enabled: !!active,
+                        tint: color,
+                        opacity: color?.[3],
+                        gaussianCount: scaRegionHighlightGaussianCount,
+                        bufferSize: locked.length,
+                        texWidth: scaRegionHighlightTexWidth,
+                        texHeight: scaRegionHighlightTexHeight,
+                        textureWidth: scaRegionHighlightTexture.width,
+                        textureHeight: scaRegionHighlightTexture.height
+                    });
+                }
+                return {
+                    nonZeroMask,
+                    enabled: !!active,
+                    uploaded: true,
+                    bufferSize: locked.length,
+                    gaussianCount: scaRegionHighlightGaussianCount
+                };
             };
             this.clearScaRegionHighlight = () => {
                 this.setScaRegionHighlight(null, [0, 0, 0, 0], false);
@@ -1278,6 +1353,150 @@ const patchViewerBundle = (source: string): string => {
         }
     };`,
         'SCA NavInteraction cursor guard'
+    );
+
+    patched = replaceOnce(
+        patched,
+        `            if (this._mouseClickDelta < TAP_EPSILON) {
+                if (state.cameraMode === 'walk' && !state.gamingControls) {
+                    const result = this._pickCollision(this._lastPointerOffsetX, this._lastPointerOffsetY);
+                    if (result) {
+                        const speedMul = computeClickSpeedMul(event, state.cameraMode);
+                        events.fire('navigateTo', result.position, result.normal, speedMul);
+                    }
+                }
+                else if (state.cameraMode === 'fly') {
+                    this._flyToPickedPosition(this._lastPointerOffsetX, this._lastPointerOffsetY, event);
+                }
+                else if (state.cameraMode === 'orbit') {
+                    this._focusPickedPosition(this._lastPointerOffsetX, this._lastPointerOffsetY);
+                }
+            }`,
+        `            if (this._mouseClickDelta < TAP_EPSILON) {
+                const scaSuppressFocusFn = window.SCA3D?.shouldSuppressViewerClickFocus;
+                const scaSuppressFocus = typeof scaSuppressFocusFn === 'function' &&
+                    scaSuppressFocusFn(this._lastPointerOffsetX, this._lastPointerOffsetY);
+                console.log('[NAV CLICK FLOW]', 'handler=_onPointerUp', \`suppressed=\${scaSuppressFocus}\`);
+                if (scaSuppressFocus) {
+                    return;
+                }
+                if (state.cameraMode === 'walk' && !state.gamingControls) {
+                    const result = this._pickCollision(this._lastPointerOffsetX, this._lastPointerOffsetY);
+                    if (result) {
+                        const speedMul = computeClickSpeedMul(event, state.cameraMode);
+                        events.fire('navigateTo', result.position, result.normal, speedMul);
+                    }
+                }
+                else if (state.cameraMode === 'fly') {
+                    this._flyToPickedPosition(this._lastPointerOffsetX, this._lastPointerOffsetY, event);
+                }
+                else if (state.cameraMode === 'orbit') {
+                    this._focusPickedPosition(this._lastPointerOffsetX, this._lastPointerOffsetY);
+                }
+            }`,
+        'SCA region click focus suppress'
+    );
+
+    patched = replaceOnce(
+        patched,
+        `    async _focusPickedPosition(offsetX, offsetY) {
+        const global = this._global;
+        if (!global || global.state.cameraMode !== 'orbit')
+            return;
+        const request = ++this._targetPickRequest;
+        const target = await this._pickSceneTarget(offsetX, offsetY);`,
+        `    async _focusPickedPosition(offsetX, offsetY) {
+        const global = this._global;
+        if (!global || global.state.cameraMode !== 'orbit')
+            return;
+        const scaSuppressFocusFn = window.SCA3D?.shouldSuppressViewerClickFocus;
+        const scaSuppressFocus = typeof scaSuppressFocusFn === 'function' && scaSuppressFocusFn(offsetX, offsetY);
+        console.log('[NAV FOCUS FLOW]', 'handler=_focusPickedPosition', \`suppressed=\${scaSuppressFocus}\`);
+        if (scaSuppressFocus) {
+            return;
+        }
+        const request = ++this._targetPickRequest;
+        const target = await this._pickSceneTarget(offsetX, offsetY);`,
+        'SCA focusPickedPosition region suppress'
+    );
+
+    patched = replaceOnce(
+        patched,
+        `    setTarget(pos, normal, mode) {
+        this.targetPos = pos.clone();
+        this.targetNormal = normal.clone();
+        this.targetMode = mode;
+        this.hoverRing.hide();
+        this.targetRing.hide();
+    }`,
+        `    setTarget(pos, normal, mode) {
+        const scaSuppressFocusFn = window.SCA3D?.shouldSuppressViewerClickFocus;
+        const scaSuppressFocus = typeof scaSuppressFocusFn === 'function' && scaSuppressFocusFn();
+        console.log('[CURSOR RING FLOW]', 'handler=setTarget', \`suppressed=\${scaSuppressFocus}\`);
+        if (scaSuppressFocus) {
+            return;
+        }
+        this.targetPos = pos.clone();
+        this.targetNormal = normal.clone();
+        this.targetMode = mode;
+        this.hoverRing.hide();
+        this.targetRing.hide();
+    }`,
+        'SCA NavCursor setTarget suppress'
+    );
+
+    patched = replaceOnce(
+        patched,
+        `    _onMobileTap = () => {
+        const global = this._global;
+        if (!global)
+            return;
+        const { state, events } = global;
+        if (this._suppressClick) {
+            this._suppressClick = false;
+            return;
+        }
+        if (state.cameraMode === 'walk' && !state.gamingControls) {`,
+        `    _onMobileTap = () => {
+        const global = this._global;
+        if (!global)
+            return;
+        const { state, events } = global;
+        if (this._suppressClick) {
+            this._suppressClick = false;
+            return;
+        }
+        const scaSuppressFocusFn = window.SCA3D?.shouldSuppressViewerClickFocus;
+        const scaSuppressFocus = typeof scaSuppressFocusFn === 'function' &&
+            scaSuppressFocusFn(this._lastPointerOffsetX, this._lastPointerOffsetY);
+        if (scaSuppressFocus) {
+            return;
+        }
+        if (state.cameraMode === 'walk' && !state.gamingControls) {`,
+        'SCA mobile tap region focus suppress'
+    );
+
+    patched = replaceOnce(
+        patched,
+        `        const request = ++this._targetPickRequest;
+        const target = await this._pickSceneTarget(event.offsetX, event.offsetY);
+        if (!target || request !== this._targetPickRequest)
+            return;
+        const currentMode = this._global?.state.cameraMode;
+        if (currentMode === 'fly') {`,
+        `        const request = ++this._targetPickRequest;
+        const target = await this._pickSceneTarget(event.offsetX, event.offsetY);
+        if (!target || request !== this._targetPickRequest)
+            return;
+        const scaSuppressFocusFn = window.SCA3D?.shouldSuppressViewerClickFocus;
+        const scaSuppressFocus = typeof scaSuppressFocusFn === 'function' &&
+            scaSuppressFocusFn(event.offsetX, event.offsetY);
+        if (scaSuppressFocus) {
+            return;
+        }
+        const currentMode = this._global?.state.cameraMode;
+        if (currentMode === 'fly') {`,
+        'SCA dblclick region focus suppress'
     );
 
     const highlightShaderPatch = applyScaRegionHighlightGlslPatches(patched);

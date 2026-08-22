@@ -1,15 +1,20 @@
 import { Vec3 } from 'playcanvas';
 
 import { Events } from '../../events';
+import { IndexRanges } from '../../index-ranges';
 import { Scene } from '../../scene';
 import { Splat } from '../../splat';
 
+import {
+    applyRegionCardLayout,
+    buildRegionCardModel,
+    buildRegionPresentationEntry,
+    computeRegionAnchorFromIndices,
+    layoutRegionCard
+} from '../presentation';
 import { ScaRegion } from '../types/region';
 
 import { findSplatByScaSplatId } from './splat-identity';
-
-const TOOLTIP_MARGIN = 8;
-const TOOLTIP_ARROW_OFFSET = 25;
 
 const registerScaRegionCardPreview = (events: Events, scene: Scene, canvasContainer: { dom: HTMLElement }): void => {
     let overlay = document.getElementById('sca-region-card-preview-overlay');
@@ -31,51 +36,19 @@ const registerScaRegionCardPreview = (events: Events, scene: Scene, canvasContai
     card.append(titleEl, textEl);
     overlay.append(card);
 
-    const world = new Vec3();
     const screen = new Vec3();
 
     const hide = () => {
         card.classList.add('is-hidden');
     };
 
-    const layoutCard = (screenX: number, screenY: number) => {
-        card.classList.remove('is-hidden');
-
-        const rect = canvasContainer.dom.getBoundingClientRect();
-        const viewportWidth = rect.width;
-        const viewportHeight = rect.height;
-
-        const tooltipWidth = card.offsetWidth;
-        const tooltipHeight = card.offsetHeight;
-
-        let left = screenX + TOOLTIP_ARROW_OFFSET;
-        let top = screenY - tooltipHeight / 2;
-        let flipped = false;
-
-        if (left + tooltipWidth > viewportWidth - TOOLTIP_MARGIN) {
-            left = screenX - TOOLTIP_ARROW_OFFSET - tooltipWidth;
-            flipped = true;
-        }
-
-        left = Math.max(TOOLTIP_MARGIN, Math.min(left, viewportWidth - tooltipWidth - TOOLTIP_MARGIN));
-        top = Math.max(TOOLTIP_MARGIN, Math.min(top, viewportHeight - tooltipHeight - TOOLTIP_MARGIN));
-
-        const arrowY = Math.max(16, Math.min(screenY - top, tooltipHeight - 16));
-        card.style.setProperty('--arrow-top', `${arrowY}px`);
-        card.classList.toggle('arrow-right', !flipped);
-        card.classList.toggle('arrow-left', flipped);
-        card.style.transform = 'none';
-        card.style.left = `${Math.round(left)}px`;
-        card.style.top = `${Math.round(top)}px`;
-    };
-
-    const computeRegionCentroid = (region: ScaRegion): Vec3 | null => {
+    const computeRegionAnchor = (region: ScaRegion): Vec3 | null => {
         const splat = findSplatByScaSplatId(scene, region.source.scaSplatId);
         if (!splat) {
             return null;
         }
 
-        const ranges = events.invoke('sca.region.getMask', region.id);
+        const ranges = events.invoke('sca.region.getMask', region.id) as IndexRanges | null;
         if (!ranges || ranges.empty) {
             return null;
         }
@@ -83,26 +56,35 @@ const registerScaRegionCardPreview = (events: Events, scene: Scene, canvasContai
         const xData = splat.splatData.getProp('x') as Float32Array;
         const yData = splat.splatData.getProp('y') as Float32Array;
         const zData = splat.splatData.getProp('z') as Float32Array;
+        const numSplats = splat.splatData.numSplats;
 
-        let count = 0;
-        let sx = 0;
-        let sy = 0;
-        let sz = 0;
+        const members: number[] = [];
+        ranges.forEach((index: number) => members.push(index));
 
-        ranges.forEach((index: number) => {
-            sx += xData[index];
-            sy += yData[index];
-            sz += zData[index];
-            count++;
-        });
+        const anchor = computeRegionAnchorFromIndices(
+            members,
+            {
+                count: numSplats,
+                getCenter(index: number) {
+                    if (index < 0 || index >= numSplats) {
+                        return null;
+                    }
+                    return [xData[index], yData[index], zData[index]];
+                }
+            },
+            (x, y, z) => {
+                const local = new Vec3(x, y, z);
+                const world = new Vec3();
+                splat.worldTransform.transformPoint(local, world);
+                return [world.x, world.y, world.z];
+            }
+        );
 
-        if (count === 0) {
+        if (!anchor) {
             return null;
         }
 
-        world.set(sx / count, sy / count, sz / count);
-        splat.worldTransform.transformPoint(world, world);
-        return world.clone();
+        return new Vec3(anchor.x, anchor.y, anchor.z);
     };
 
     const updatePreview = () => {
@@ -113,13 +95,20 @@ const registerScaRegionCardPreview = (events: Events, scene: Scene, canvasContai
         }
 
         const region = events.invoke('sca.region.get', regionId) as ScaRegion | null;
-        if (!region?.enabled || region.interaction.showCard === false) {
+        if (!region) {
             hide();
             return;
         }
 
-        const centroid = computeRegionCentroid(region);
-        if (!centroid) {
+        const anchor = computeRegionAnchor(region);
+        const entry = buildRegionPresentationEntry(region, null, regionId, anchor ? {
+            x: anchor.x,
+            y: anchor.y,
+            z: anchor.z
+        } : null);
+        const cardModel = buildRegionCardModel(entry);
+
+        if (!cardModel?.visible || !cardModel.anchor3D) {
             hide();
             return;
         }
@@ -130,16 +119,29 @@ const registerScaRegionCardPreview = (events: Events, scene: Scene, canvasContai
             return;
         }
 
-        camera.worldToScreen(centroid, screen);
+        const world = new Vec3(cardModel.anchor3D.x, cardModel.anchor3D.y, cardModel.anchor3D.z);
+        camera.worldToScreen(world, screen);
         const rect = canvasContainer.dom.getBoundingClientRect();
         if (screen.z <= 0) {
             hide();
             return;
         }
 
-        titleEl.textContent = region.name;
-        textEl.textContent = region.text ?? '';
-        layoutCard(screen.x * rect.width, screen.y * rect.height);
+        titleEl.textContent = cardModel.name;
+        textEl.textContent = cardModel.text;
+        card.classList.remove('is-hidden');
+
+        const screenX = screen.x * rect.width;
+        const screenY = screen.y * rect.height;
+        const layout = layoutRegionCard({
+            screenX,
+            screenY,
+            cardWidth: card.offsetWidth,
+            cardHeight: card.offsetHeight,
+            viewportWidth: rect.width,
+            viewportHeight: rect.height
+        });
+        applyRegionCardLayout(card, layout);
     };
 
     events.on('sca.region.selected', () => {

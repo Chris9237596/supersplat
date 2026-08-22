@@ -3,6 +3,16 @@ import { strict as assert } from 'node:assert';
 import { Events } from '../src/events';
 import { IndexRanges } from '../src/index-ranges';
 import { decodeRuntimePickPixel } from '../src/sca/runtime/runtime-webgpu-picker';
+import {
+    buildRegionPresentationEntry,
+    buildRegionPresentationState,
+    computeRegionAnchorFromBitset,
+    createCentersAccessorFromFloat32,
+    layoutRegionCard,
+    parseRegionActiveColor,
+    parseRegionHoverColor,
+    resolveRegionVisual
+} from '../src/sca/presentation';
 import { resolveRegion, isClickableRegion } from '../src/sca/interaction/sca-region-core';
 import { createStorageRegionMaskLookup } from '../src/sca/interaction/sca-storage-mask-lookup';
 import { ScaRegionMembershipOp } from '../src/sca/edit/sca-region-ops';
@@ -398,6 +408,52 @@ const runRegionCoreTests = () => {
     console.log('[sca-regions] shared region core PASS');
 };
 
+const runPresentationTests = () => {
+    const region = sampleRegion('region_01', 'Region 1', 'splat_01', 4);
+    const hoverVisual = resolveRegionVisual(region, 'hover');
+    const activeVisual = resolveRegionVisual(region, 'selected');
+
+    assert.ok(hoverVisual);
+    assert.ok(activeVisual);
+    assert.equal(parseRegionHoverColor(region.visual.hoverTint, region.visual.hoverOpacity).a, 0.35);
+    assert.equal(parseRegionActiveColor(region.visual.activeTint, region.visual.activeOpacity).a, 0.55);
+
+    const centers = new Float32Array([
+        0, 0, 0,
+        1, 0, 0,
+        0, 1, 0,
+        1, 1, 0
+    ]);
+    const bitset = new Uint8Array([1, 0, 1, 0]);
+    const accessor = createCentersAccessorFromFloat32(centers, 4);
+    const anchor = computeRegionAnchorFromBitset(bitset, accessor);
+    assert.ok(anchor);
+    assert.equal(anchor!.x, 0);
+    assert.equal(anchor!.y, 0.5);
+    assert.equal(anchor!.z, 0);
+
+    const entry = buildRegionPresentationEntry(region, null, region.id, anchor);
+    assert.equal(entry.cardVisible, true);
+    assert.equal(entry.state, 'selected');
+
+    const state = buildRegionPresentationState([region], region.id, region.id, new Map([[region.id, anchor!]]));
+    assert.equal(state.selectedRegionId, region.id);
+    assert.equal(state.regions[region.id].name, 'Region 1');
+
+    const layout = layoutRegionCard({
+        screenX: 100,
+        screenY: 100,
+        cardWidth: 120,
+        cardHeight: 80,
+        viewportWidth: 800,
+        viewportHeight: 600
+    });
+    assert.ok(layout.left >= 8);
+    assert.ok(layout.top >= 8);
+
+    console.log('[sca-regions] shared presentation PASS');
+};
+
 const runRuntimePickDecodeTests = () => {
     const miss = decodeRuntimePickPixel([0, 0, 0, 0]);
     assert.equal(miss.gaussianIndex, null);
@@ -425,6 +481,7 @@ async function main() {
     runIndexRangeSetOpsTests();
     runRuntimeExportRemapTests();
     runRegionCoreTests();
+    runPresentationTests();
     runRuntimePickDecodeTests();
     await runHistoryTests();
 
@@ -440,6 +497,7 @@ async function main() {
     console.log('IndexRanges union/subtract: PASS');
     console.log('Runtime export mask remap: PASS');
     console.log('Shared region core: PASS');
+    console.log('Shared presentation: PASS');
     console.log('Runtime pick decode: PASS');
     console.log('Membership op undo/redo: PASS');
     console.log('===========================================================\n');
