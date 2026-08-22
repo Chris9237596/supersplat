@@ -692,7 +692,10 @@ const verifyGlslHighlightPatch = (source: string): void => {
         throw new Error('[SCA] viewer GLSL highlight patch failed: missing scaRegionVisitedClr uniform');
     }
     if (!source.includes('regionState > 0.75')) {
-        throw new Error('[SCA] viewer GLSL highlight patch failed: missing per-gaussian state tint branch');
+        throw new Error('[SCA] viewer GLSL highlight patch failed: missing selected state branch (regionState > 0.75)');
+    }
+    if (!source.includes('regionState > 0.45')) {
+        throw new Error('[SCA] viewer GLSL highlight patch failed: missing visited state branch (regionState > 0.45)');
     }
     if (!source.includes('flat varying float scaGaussianIndex')) {
         throw new Error('[SCA] viewer GLSL highlight patch failed: missing flat varying scaGaussianIndex');
@@ -722,7 +725,7 @@ const applyScaRegionHighlightGlslPatches = (source: string): RegionHighlightShad
 
     try {
         if (trial.includes('vec4 fragColor = vec4(gaussianColor.xyz, alpha);')) {
-            trial = trial.replace(
+            trial = trial.replaceAll(
                 'vec4 fragColor = vec4(gaussianColor.xyz, alpha);',
                 `vec4 fragColor = vec4(gaussianColor.xyz, alpha);
         #ifdef SCA_REGION_HIGHLIGHT
@@ -1716,11 +1719,15 @@ const patchViewerBundle = (source: string): string => {
     if (highlightShaderPatch.ok) {
         verifyGlslHighlightPatch(patched);
     }
+    if (!patched.includes('const SCA_REGION_STATE_VISITED = 170')) {
+        throw new Error('[SCA] viewer highlight patch failed: missing SCA_REGION_STATE_VISITED encoding');
+    }
     return patched;
 };
 
 export {
     patchViewerBundle,
+    applyScaRegionHighlightGlslPatches,
     verifyPickerPatch,
     verifyNoInvalidWgslHighlightInjection,
     verifyGlslHighlightPatch,

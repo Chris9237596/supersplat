@@ -8,8 +8,9 @@ import {
 } from '../src/sca/export/export-sca-runtime-package';
 
 const runAssetInventoryTests = () => {
-    assert.equal(SCA_RUNTIME_ASSET_FILENAMES.length, 14);
+    assert.equal(SCA_RUNTIME_ASSET_FILENAMES.length, 15);
     assert.ok(SCA_RUNTIME_ASSET_FILENAMES.includes('sca-runtime.js'));
+    assert.ok(SCA_RUNTIME_ASSET_FILENAMES.includes('sca-host-bridge.js'));
     assert.ok(SCA_RUNTIME_ASSET_FILENAMES.includes('sca-debug.js'));
     assert.ok(SCA_RUNTIME_ASSET_FILENAMES.includes('sca-hotspot-markers.css'));
 

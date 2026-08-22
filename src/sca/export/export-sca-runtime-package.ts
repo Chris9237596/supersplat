@@ -51,7 +51,8 @@ const SCA_RUNTIME_ASSET_FILENAMES = [
     'sca-region-overlay.js',
     'sca-region-runtime.js',
     'sca-hotspot-markers.css',
-    'sca-runtime.js'
+    'sca-runtime.js',
+    'sca-host-bridge.js'
 ] as const;
 
 type ScaRuntimeAssetFilename = typeof SCA_RUNTIME_ASSET_FILENAMES[number];
@@ -84,6 +85,7 @@ type ScaRuntimeAssets = {
     regionRuntimeJs: string;
     hotspotCss: string;
     runtimeJs: string;
+    hostBridgeJs: string;
 };
 
 let runtimeAssetFetchCache: Promise<ScaRuntimeAssets> | null = null;
@@ -280,7 +282,8 @@ const patchIndexHtml = (html: string): string => {
         '        <script src="./sca-hotspot-overlay.js"></script>\n' +
         '        <script src="./sca-region-overlay.js"></script>\n' +
         '        <script src="./sca-region-runtime.js"></script>\n' +
-        '        <script src="./sca-runtime.js"></script>\n\n' +
+        '        <script src="./sca-runtime.js"></script>\n' +
+        '        <script src="./sca-host-bridge.js"></script>\n\n' +
         '        <!-- Application Script -->'
     );
 
@@ -304,6 +307,7 @@ const patchPreviewHtml = (
     regionRuntimeJs: string,
     hotspotCss: string,
     runtimeJs: string,
+    hostBridgeJs: string,
     embeddedAssets: Record<string, string> = {}
 ): string => {
     const embeddedProject = JSON.stringify(project);
@@ -324,7 +328,8 @@ const patchPreviewHtml = (
         `<script>\n${overlayJs}\n</script>\n` +
         `<script>\n${regionOverlayJs}\n</script>\n` +
         `<script>\n${regionRuntimeJs}\n</script>\n` +
-        `<script>\n${runtimeJs}\n</script>\n\n`;
+        `<script>\n${runtimeJs}\n</script>\n` +
+        `<script>\n${hostBridgeJs}\n</script>\n\n`;
 
     let patched = html.replace(
         '        <!-- Application Script -->',
@@ -524,7 +529,8 @@ const fetchScaRuntimeAssetsInternal = async (): Promise<ScaRuntimeAssets> => {
         regionOverlayJs,
         regionRuntimeJs,
         hotspotCss,
-        runtimeJs
+        runtimeJs,
+        hostBridgeJs
     ] = await Promise.all(SCA_RUNTIME_ASSET_FILENAMES.map((filename) => fetchRuntimeAsset(filename)));
 
     return {
@@ -541,7 +547,8 @@ const fetchScaRuntimeAssetsInternal = async (): Promise<ScaRuntimeAssets> => {
         regionOverlayJs,
         regionRuntimeJs,
         hotspotCss,
-        runtimeJs
+        runtimeJs,
+        hostBridgeJs
     };
 };
 
@@ -737,6 +744,7 @@ const buildRuntimeViewerPreviewHtml = async (
             runtimeAssets.regionRuntimeJs,
             runtimeAssets.hotspotCss,
             runtimeAssets.runtimeJs,
+            runtimeAssets.hostBridgeJs,
             embeddedAssets
         );
 
@@ -876,7 +884,8 @@ const exportScaRuntimePackage = async (
             regionOverlayJs,
             regionRuntimeJs,
             hotspotCss,
-            runtimeJs
+            runtimeJs,
+            hostBridgeJs
         } = runtimeAssets;
 
         memFs.results.set('sca-runtime-capabilities.js', encoder.encode(scaCapabilitiesJs));
@@ -893,6 +902,7 @@ const exportScaRuntimePackage = async (
         memFs.results.set('sca-region-runtime.js', encoder.encode(regionRuntimeJs));
         memFs.results.set('sca-hotspot-markers.css', encoder.encode(hotspotCss));
         memFs.results.set('sca-runtime.js', encoder.encode(runtimeJs));
+        memFs.results.set('sca-host-bridge.js', encoder.encode(hostBridgeJs));
 
         const draftExportProject = buildRuntimeExportProject(project, splats, viewerConfig);
         const embeddedAssets: Record<string, string> = {};

@@ -28,6 +28,8 @@
         "test:sca-regions": "npx tsx tools/sca-regions-test.ts",
         "test:sca-region-save-persistence": "npx tsx tools/sca-region-save-persistence-test.ts",
         "test:sca-runtime-export-assets": "npx tsx tools/sca-runtime-export-assets-test.ts",
+        "test:sca-host-bridge": "npx tsx tools/sca-host-bridge-test.ts",
+        "test:sca-viewer-patch-visited": "npx tsx tools/sca-viewer-patch-visited-test.ts",
         "test:spike-gaussian-pick": "npx tsx tools/spike-gaussian-pick.mjs"
     },
     "engines": {

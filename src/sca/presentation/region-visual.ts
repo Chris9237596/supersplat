@@ -1,4 +1,4 @@
-import { DEFAULT_ACTIVE_OPACITY, DEFAULT_HOVER_OPACITY } from '../region-defaults';
+import { DEFAULT_ACTIVE_OPACITY, DEFAULT_HOVER_OPACITY, DEFAULT_VISITED_OPACITY } from '../region-defaults';
 import { ScaRegion } from '../types/region';
 
 import {
@@ -36,13 +36,16 @@ const resolveRegionVisual = (
 
     if (state === 'visited') {
         const visited = visual.visited;
-        if (!visited?.enabled) {
+        if (!visited || visited.enabled === false) {
             return null;
         }
 
         return {
             state,
-            tint: parseRegionVisitedColor(visited.color, visited.opacity),
+            tint: parseRegionVisitedColor(
+                visited.color,
+                visited.opacity ?? DEFAULT_VISITED_OPACITY
+            ),
             highlightActive: true
         };
     }

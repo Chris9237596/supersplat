@@ -683,6 +683,43 @@
       window.SCA3D?.isRegionVisited?.(regionId) === true ||
       window.SCA3D?.state?.regionVisited?.[regionId] === true
 
+    const getRegionVisitedVisual = (regionId) =>
+      ctx.lookup.entries.find((item) => item.regionId === regionId)?.region?.visual?.visited ?? null
+
+    const logVisitedPresentationDebug = (presentationState, activeEntry, hoverEntry, visitedEntries, highlightStats) => {
+      if (!window.SCA3D?.debug?.regions && !window.SCA3D?.debug?.runtimeEvents) {
+        return
+      }
+
+      if (visitedEntries.length === 0 && !highlightStats?.visitedMembers) {
+        return
+      }
+
+      for (const visitedEntry of visitedEntries) {
+        const entryState = presentationState.regions?.[visitedEntry.regionId]
+        const visitedConfig = getRegionVisitedVisual(visitedEntry.regionId)
+        const members = countBitsetMembers(
+          ctx.lookup.entries.find((item) => item.regionId === visitedEntry.regionId)?.bitset ?? null
+        )
+        const stateValue = entryState?.state === 'visited' ? 170 :
+          (entryState?.state === 'hover' ? 85 :
+            (entryState?.state === 'selected' ? 255 : 0))
+
+        window.scaDebug?.('regions', [
+          '[SCA VISITED PRESENTATION]',
+          `region=${visitedEntry.regionId}`,
+          `visited=${isRegionVisited(visitedEntry.regionId)}`,
+          `selected=${activeEntry?.regionId === visitedEntry.regionId}`,
+          `hover=${hoverEntry?.regionId === visitedEntry.regionId}`,
+          `stateValue=${stateValue}`,
+          `members=${members}`,
+          `tint=${visitedEntry.tint ? rgbaToHex(visitedEntry.tint) : 'none'}`,
+          `visualEnabled=${visitedConfig?.enabled !== false}`,
+          `uploadedVisitedMembers=${highlightStats?.visitedMembers ?? 0}`,
+        ].join(' '))
+      }
+    }
+
     const syncPulsePlaybackState = () => {
 
       window.SCA3D.state = window.SCA3D.state || {}
@@ -952,6 +989,14 @@
 
       let visitedTint = null
 
+      const selectedMaskEntry = activeEntry?.regionId ?
+        ctx.lookup.entries.find((item) => item.regionId === activeEntry.regionId) :
+        null
+
+      const hoverMaskEntry = hoverEntry?.regionId ?
+        ctx.lookup.entries.find((item) => item.regionId === hoverEntry.regionId) :
+        null
+
       for (const visitedEntry of visitedEntries) {
 
         const visitedLookup = ctx.lookup.entries.find((item) => item.regionId === visitedEntry.regionId)
@@ -972,7 +1017,7 @@
 
         for (let i = 0; i < visitedBitset.length; i++) {
 
-          if (visitedLookup.bitset[i]) {
+          if (visitedLookup.bitset[i] && !selectedMaskEntry?.bitset?.[i] && !hoverMaskEntry?.bitset?.[i]) {
 
             visitedBitset[i] = 1
 
@@ -1022,6 +1067,14 @@
           )
 
         }
+
+        logVisitedPresentationDebug(
+          presentationState,
+          activeEntry,
+          hoverEntry,
+          visitedEntries,
+          highlightStats
+        )
 
         const highlightKey = `${activeEntry?.regionId ?? 'none'}:${hoverEntry?.regionId ?? 'none'}:${highlightStats?.nonZeroMask ?? 0}`
 
@@ -1628,6 +1681,61 @@
     syncRegionPresentation('init')
 
     window.SCA3D.refreshRegionPresentation = () => syncRegionPresentation('refresh')
+
+    window.SCA3D.debugRegionPresentation = (regionId) => {
+      const buildState = window.SCA3D?.buildRegionPresentationState
+      if (typeof buildState !== 'function' || !regionId) {
+        console.warn('[SCA3D] debugRegionPresentation unavailable or missing regionId')
+        return null
+      }
+
+      const regions = ctx.lookup.entries.map((entry) => entry.region)
+      const anchorByRegionId = new Map()
+      for (const entry of ctx.lookup.entries) {
+        anchorByRegionId.set(entry.regionId, computeRegionAnchor3D(entry.bitset, viewer))
+      }
+
+      const visitedRegionIds = new Set()
+      for (const entry of ctx.lookup.entries) {
+        if (isRegionVisited(entry.regionId)) {
+          visitedRegionIds.add(entry.regionId)
+        }
+      }
+
+      const presentationState = buildState(
+        regions,
+        hoverRegionId,
+        activeRegionId,
+        anchorByRegionId,
+        visitedRegionIds
+      )
+
+      const entry = presentationState.regions?.[regionId] ?? null
+      const visitedVisual = getRegionVisitedVisual(regionId)
+      const members = countBitsetMembers(
+        ctx.lookup.entries.find((item) => item.regionId === regionId)?.bitset ?? null
+      )
+      const stateValue = entry?.state === 'visited' ? 170 :
+        (entry?.state === 'hover' ? 85 :
+          (entry?.state === 'selected' ? 255 : 0))
+
+      const snapshot = {
+        regionId,
+        visited: isRegionVisited(regionId),
+        selected: activeRegionId === regionId,
+        hovered: hoverRegionId === regionId,
+        presentationState: entry?.state ?? 'normal',
+        stateValue,
+        members,
+        tint: entry?.tint ?? null,
+        visualVisited: visitedVisual,
+        regionVisitedState: window.SCA3D?.state?.regionVisited ?? {},
+        highlightReady: !!ctx.highlight,
+      }
+
+      console.log('[SCA3D debugRegionPresentation]', snapshot)
+      return snapshot
+    }
 
     syncPulsePlaybackState()
 

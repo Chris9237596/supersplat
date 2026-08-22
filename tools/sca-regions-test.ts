@@ -895,6 +895,16 @@ const runRegionVisitedTests = () => {
     }, 'visited');
     assert.equal(disabledVisitedVisual, null);
 
+    const implicitEnabledVisitedVisual = resolveRegionVisual({
+        ...withVisited,
+        visual: {
+            ...withVisited.visual,
+            visited: { color: '#224466', opacity: 0.4 }
+        }
+    }, 'visited');
+    assert.ok(implicitEnabledVisitedVisual);
+    assert.equal(implicitEnabledVisitedVisual!.state, 'visited');
+
     const presentation = buildRegionPresentationState(
         [withVisited],
         null,

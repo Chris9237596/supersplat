@@ -55,13 +55,25 @@
     if (!regionId) {
       return
     }
-    if (visited) {
+
+    const nextVisited = !!visited
+    const wasVisited = regionVisitedIds.has(regionId)
+    if (wasVisited === nextVisited) {
+      return
+    }
+
+    if (nextVisited) {
       regionVisitedIds.add(regionId)
     } else {
       regionVisitedIds.delete(regionId)
     }
     syncRegionVisitedPublicState()
     window.SCA3D.refreshRegionPresentation?.()
+    window.scaDebug?.(
+      'runtimeEvents',
+      `[SCA EVENT] regionVisitedChanged ${regionId} visited=${nextVisited}`
+    )
+    window.SCA3D.emitRegionVisitedChanged?.(regionId, nextVisited)
   }
 
   /**
@@ -924,6 +936,11 @@
         return
       }
 
+      window.scaDebug?.(
+        'runtimeEvents',
+        `[SCA ACTIVATE] hotspot=${target.id} source=${source} emitClick=${emitClick}`
+      )
+
       window.SCA3D.state.selectedHotspotId = target.id
       window.SCA3D.state.selectedRegionId = null
       window.SCA3D.hotspotOverlay?.setSelected?.(target.id)
@@ -934,16 +951,25 @@
       }
 
       if (emitClick) {
+        window.scaDebug?.(
+          'runtimeEvents',
+          `[SCA EVENT] hotspotClicked ${target.id} source=${source}`
+        )
         window.SCA3D.handleHotspotClick?.(hotspot)
       }
     } else if (target.type === 'region') {
       const isDirectClick = emitClick || source === 'click'
+      const markVisited = shouldMarkRegionVisited(source, options)
+      window.scaDebug?.(
+        'runtimeEvents',
+        `[SCA ACTIVATE] region=${target.id} source=${source} markVisited=${markVisited} emitClick=${emitClick}`
+      )
       if (isDirectClick && window.SCA3D.state.selectedRegionId === target.id) {
         setActiveTarget(viewer, viewerConfig, null, { source, emitClick: false, markVisited: false })
         return
       }
 
-      if (shouldMarkRegionVisited(source, options)) {
+      if (markVisited) {
         setRegionVisitedInternal(target.id, true)
       }
 
@@ -958,6 +984,10 @@
       }
 
       if (emitClick) {
+        window.scaDebug?.(
+          'runtimeEvents',
+          `[SCA EVENT] regionClicked ${target.id} source=${source}`
+        )
         const region = window.SCA3D.state.regionById?.get?.(target.id)
         if (region) {
           window.SCA3D.handleRegionClick?.(region)
@@ -1654,12 +1684,14 @@
     window.SCA3D.isRegionVisited = (regionId) => isRegionVisitedInternal(regionId)
     window.SCA3D.resetRegionVisited = (regionId) => {
       if (regionId) {
-        regionVisitedIds.delete(regionId)
-      } else {
-        regionVisitedIds.clear()
+        setRegionVisitedInternal(regionId, false)
+        return
       }
-      syncRegionVisitedPublicState()
-      window.SCA3D.refreshRegionPresentation?.()
+
+      const previouslyVisited = [...regionVisitedIds]
+      for (const visitedRegionId of previouslyVisited) {
+        setRegionVisitedInternal(visitedRegionId, false)
+      }
     }
     syncRegionVisitedPublicState()
 
@@ -1711,6 +1743,12 @@
     }
 
     initScaNavigationTargets(viewer, project, viewerConfig)
+
+    if (typeof initScaHostBridge === 'function') {
+      initScaHostBridge()
+    } else {
+      console.warn('[SCA3D] host bridge not available')
+    }
 
     applyViewerConfig(viewer, viewerConfig).catch((error) => {
       console.warn('[SCA3D] viewer config application failed:', error)
