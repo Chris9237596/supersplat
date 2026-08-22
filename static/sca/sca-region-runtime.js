@@ -412,20 +412,26 @@
 
       return {
 
-        setCombinedMasks(selectedBitset, hoverBitset, selectedColor, hoverColor) {
+        setCombinedMasks(selectedBitset, hoverBitset, selectedColor, hoverColor, visitedBitset, visitedColor) {
           const selectedMembers = selectedBitset ? countBitsetMembers(selectedBitset) : 0
           const hoverMembers = hoverBitset ? countBitsetMembers(hoverBitset) : 0
-          const { minIndex, maxIndex, samples } = scanBitsetIndexRange(selectedBitset || hoverBitset)
+          const visitedMembers = visitedBitset ? countBitsetMembers(visitedBitset) : 0
+          const { minIndex, maxIndex, samples } = scanBitsetIndexRange(selectedBitset || hoverBitset || visitedBitset)
           const result = viewer.setScaRegionHighlightCombined?.(
             selectedBitset,
             hoverBitset,
             [selectedColor.r, selectedColor.g, selectedColor.b, selectedColor.a],
-            [hoverColor.r, hoverColor.g, hoverColor.b, hoverColor.a]
+            [hoverColor.r, hoverColor.g, hoverColor.b, hoverColor.a],
+            visitedBitset,
+            visitedColor ?
+              [visitedColor.r, visitedColor.g, visitedColor.b, visitedColor.a] :
+              [0, 0, 0, 0]
           ) ?? { nonZeroMask: 0, enabled: false, uploaded: false, bufferSize: 0, gaussianCount: 0 }
           return {
-            members: selectedMembers + hoverMembers,
+            members: selectedMembers + hoverMembers + visitedMembers,
             selectedMembers,
             hoverMembers,
+            visitedMembers,
             minIndex,
             maxIndex,
             samples,
@@ -569,9 +575,6 @@
 
           activeRegionId = regionId
           logRegionTransition(pendingActivationSource === 'click' ? 'clicked' : 'navigated', regionId)
-          if (pendingActivationSource === 'click') {
-            stopPulseAfterInteraction(regionId)
-          }
           window.SCA3D.setActiveTarget?.(
             { type: 'region', id: regionId },
             {
@@ -675,8 +678,10 @@
 
     const pulsePlaybackByRegionId = new Map()
 
-    /** Session playback state — future visited/interaction hooks can extend this map. */
-    const pulseStoppedByInteractionIds = new Set()
+    /** Session playback state derived from visited + stopOnInteraction. */
+    const isRegionVisited = (regionId) =>
+      window.SCA3D?.isRegionVisited?.(regionId) === true ||
+      window.SCA3D?.state?.regionVisited?.[regionId] === true
 
     const syncPulsePlaybackState = () => {
 
@@ -686,7 +691,17 @@
 
         pulseStoppedByInteraction: Object.fromEntries(
 
-          [...pulseStoppedByInteractionIds].map((regionId) => [regionId, true])
+          ctx.lookup.entries
+
+            .filter(({ region }) =>
+
+              typeof window.SCA3D?.shouldStopPulseOnRegionInteraction === 'function' ?
+
+                window.SCA3D.shouldStopPulseOnRegionInteraction(region) && isRegionVisited(region.id) :
+
+                false)
+
+            .map(({ regionId }) => [regionId, true])
 
         ),
 
@@ -708,7 +723,15 @@
 
       }
 
-      if (pulseStoppedByInteractionIds.has(region.id)) {
+      if (
+
+        isRegionVisited(region.id) &&
+
+        typeof window.SCA3D?.shouldStopPulseOnRegionInteraction === 'function' &&
+
+        window.SCA3D.shouldStopPulseOnRegionInteraction(region)
+
+      ) {
 
         return false
 
@@ -722,6 +745,12 @@
 
     const shouldStopPulseOnRegionInteraction = (region) => {
 
+      if (typeof window.SCA3D?.shouldStopPulseOnRegionInteraction === 'function') {
+
+        return window.SCA3D.shouldStopPulseOnRegionInteraction(region)
+
+      }
+
       const pulse = region?.visual?.pulse
 
       return pulse?.enabled === true &&
@@ -729,34 +758,6 @@
         pulse.mode === 'loop' &&
 
         pulse.stopOnInteraction === true
-
-    }
-
-    const stopPulseAfterInteraction = (regionId) => {
-
-      if (!regionId) {
-
-        return
-
-      }
-
-      const region = ctx.lookup.entries.find((entry) => entry.regionId === regionId)?.region
-
-      if (!shouldStopPulseOnRegionInteraction(region)) {
-
-        return
-
-      }
-
-      pulseStoppedByInteractionIds.add(regionId)
-
-      manualPulseRegionIds.delete(regionId)
-
-      pulsePlaybackByRegionId.delete(regionId)
-
-      syncPulsePlaybackState()
-
-      syncRegionPulse()
 
     }
 
@@ -910,9 +911,22 @@
 
       }
 
+      const visitedRegionIds = new Set()
+      for (const entry of ctx.lookup.entries) {
+        if (isRegionVisited(entry.regionId)) {
+          visitedRegionIds.add(entry.regionId)
+        }
+      }
 
 
-      const presentationState = buildState(regions, hoverRegionId, activeRegionId, anchorByRegionId)
+
+      const presentationState = buildState(
+        regions,
+        hoverRegionId,
+        activeRegionId,
+        anchorByRegionId,
+        visitedRegionIds
+      )
 
       window.SCA3D.state = window.SCA3D.state || {}
 
@@ -928,19 +942,59 @@
 
       const hoverEntry = getHover(presentationState)
 
+      const getVisitedEntries = window.SCA3D?.getVisitedPresentationEntries
+
+      const visitedEntries = typeof getVisitedEntries === 'function' ?
+        getVisitedEntries(presentationState) :
+        []
+
+      let visitedBitset = null
+
+      let visitedTint = null
+
+      for (const visitedEntry of visitedEntries) {
+
+        const visitedLookup = ctx.lookup.entries.find((item) => item.regionId === visitedEntry.regionId)
+
+        if (!visitedLookup?.bitset || !visitedEntry.tint) {
+
+          continue
+
+        }
+
+        if (!visitedBitset) {
+
+          visitedBitset = new Uint8Array(visitedLookup.bitset.length)
+
+          visitedTint = visitedEntry.tint
+
+        }
+
+        for (let i = 0; i < visitedBitset.length; i++) {
+
+          if (visitedLookup.bitset[i]) {
+
+            visitedBitset[i] = 1
+
+          }
+
+        }
+
+      }
+
 
 
       if (ctx.highlight) {
 
         const visualState = activeEntry?.tint ?
           (hoverEntry?.tint ? 'selected+hover' : 'selected') :
-          (hoverEntry?.tint ? 'hover' : 'normal')
+          (hoverEntry?.tint ? 'hover' : (visitedBitset ? 'visited' : 'normal'))
 
         const visualKey = `${activeEntry?.regionId ?? 'none'}:${hoverEntry?.regionId ?? 'none'}:${visualState}`
 
         let highlightStats = null
 
-        if (!activeEntry?.tint && !hoverEntry?.tint) {
+        if (!activeEntry?.tint && !hoverEntry?.tint && !visitedBitset) {
 
           ctx.highlight.clear()
 
@@ -962,7 +1016,9 @@
             selectedLookup?.bitset ?? null,
             hoverLookup?.bitset ?? null,
             selectedTint,
-            hoverTint
+            hoverTint,
+            visitedBitset,
+            visitedTint ?? { r: 0, g: 0, b: 0, a: 0 }
           )
 
         }
@@ -1560,8 +1616,6 @@
         return
       }
 
-      stopPulseAfterInteraction(regionEntry.regionId)
-
       window.SCA3D.setActiveTarget?.(
         { type: 'region', id: regionEntry.regionId },
         { source: 'click', emitClick: true }
@@ -1572,6 +1626,8 @@
 
 
     syncRegionPresentation('init')
+
+    window.SCA3D.refreshRegionPresentation = () => syncRegionPresentation('refresh')
 
     syncPulsePlaybackState()
 
@@ -1643,8 +1699,6 @@
         return
 
       }
-
-      pulseStoppedByInteractionIds.delete(regionId)
 
       manualPulseRegionIds.add(regionId)
 

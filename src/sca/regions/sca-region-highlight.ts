@@ -18,8 +18,10 @@ type SplatHighlightPlan = {
     splat: Splat;
     selectedRanges: IndexRanges | null;
     hoverRanges: IndexRanges | null;
+    visitedRanges: IndexRanges | null;
     selectedColor: Color | null;
     hoverColor: Color | null;
+    visitedColor: Color | null;
 };
 
 const countIndexRanges = (ranges: IndexRanges | null): number => {
@@ -72,7 +74,7 @@ const registerScaRegionHighlight = (events: Events, scene: Scene): void => {
     const appendRegionPlan = (
         plans: Map<Splat, SplatHighlightPlan>,
         regionId: string,
-        state: 'hover' | 'selected'
+        state: 'hover' | 'selected' | 'visited'
     ) => {
         const region = events.invoke('sca.region.get', regionId) as ScaRegion | null;
         const visual = resolveRegionVisual(region, state);
@@ -98,8 +100,10 @@ const registerScaRegionHighlight = (events: Events, scene: Scene): void => {
                 splat,
                 selectedRanges: null,
                 hoverRanges: null,
+                visitedRanges: null,
                 selectedColor: null,
-                hoverColor: null
+                hoverColor: null,
+                visitedColor: null
             };
             plans.set(splat, plan);
         }
@@ -108,9 +112,12 @@ const registerScaRegionHighlight = (events: Events, scene: Scene): void => {
         if (state === 'selected') {
             plan.selectedRanges = ranges;
             plan.selectedColor = tint;
-        } else {
+        } else if (state === 'hover') {
             plan.hoverRanges = ranges;
             plan.hoverColor = tint;
+        } else {
+            plan.visitedRanges = ranges;
+            plan.visitedColor = tint;
         }
     };
 
@@ -131,6 +138,8 @@ const registerScaRegionHighlight = (events: Events, scene: Scene): void => {
         if (selectedId) {
             if (authoringPreview === 'hover') {
                 appendRegionPlan(plans, selectedId, 'hover');
+            } else if (authoringPreview === 'visited') {
+                appendRegionPlan(plans, selectedId, 'visited');
             } else {
                 appendRegionPlan(plans, selectedId, 'selected');
             }
@@ -150,7 +159,9 @@ const registerScaRegionHighlight = (events: Events, scene: Scene): void => {
                 plan.selectedRanges,
                 plan.hoverRanges,
                 plan.selectedColor ?? undefined,
-                plan.hoverColor ?? undefined
+                plan.hoverColor ?? undefined,
+                plan.visitedRanges,
+                plan.visitedColor ?? undefined
             );
         }
 

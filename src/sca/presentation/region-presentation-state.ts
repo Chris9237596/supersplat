@@ -24,13 +24,17 @@ type RegionPresentationState = {
 const resolveEntryState = (
     regionId: string,
     hoveredRegionId: string | null,
-    selectedRegionId: string | null
+    selectedRegionId: string | null,
+    visitedRegionIds: ReadonlySet<string> | null = null
 ): RegionVisualState => {
     if (selectedRegionId === regionId) {
         return 'selected';
     }
     if (hoveredRegionId === regionId) {
         return 'hover';
+    }
+    if (visitedRegionIds?.has(regionId)) {
+        return 'visited';
     }
     return 'normal';
 };
@@ -39,9 +43,10 @@ const buildRegionPresentationEntry = (
     region: ScaRegion,
     hoveredRegionId: string | null,
     selectedRegionId: string | null,
-    anchor3D: RegionAnchor3D | null
+    anchor3D: RegionAnchor3D | null,
+    visitedRegionIds: ReadonlySet<string> | null = null
 ): RegionPresentationEntry => {
-    const state = resolveEntryState(region.id, hoveredRegionId, selectedRegionId);
+    const state = resolveEntryState(region.id, hoveredRegionId, selectedRegionId, visitedRegionIds);
     const visual = resolveRegionVisual(region, state === 'normal' ? 'normal' : state);
     const cardVisible = region.enabled &&
         region.interaction.showCard !== false &&
@@ -64,7 +69,8 @@ const buildRegionPresentationState = (
     regions: ScaRegion[],
     hoveredRegionId: string | null,
     selectedRegionId: string | null,
-    anchorByRegionId: Map<string, RegionAnchor3D | null> = new Map()
+    anchorByRegionId: Map<string, RegionAnchor3D | null> = new Map(),
+    visitedRegionIds: ReadonlySet<string> | null = null
 ): RegionPresentationState => {
     const entries: Record<string, RegionPresentationEntry> = {};
 
@@ -76,7 +82,8 @@ const buildRegionPresentationState = (
             region,
             hoveredRegionId,
             selectedRegionId,
-            anchorByRegionId.get(region.id) ?? null
+            anchorByRegionId.get(region.id) ?? null,
+            visitedRegionIds
         );
     }
 
@@ -105,6 +112,12 @@ const getHoverPresentationEntry = (
     return state.regions[state.hoveredRegionId] ?? null;
 };
 
+const getVisitedPresentationEntries = (
+    state: RegionPresentationState
+): RegionPresentationEntry[] => {
+    return Object.values(state.regions).filter((entry) => entry.state === 'visited' && !!entry.tint);
+};
+
 export {
     RegionPresentationEntry,
     RegionPresentationState,
@@ -112,5 +125,6 @@ export {
     buildRegionPresentationState,
     getActivePresentationEntry,
     getHoverPresentationEntry,
+    getVisitedPresentationEntries,
     resolveEntryState
 };

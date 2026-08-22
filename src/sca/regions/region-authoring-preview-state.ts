@@ -4,7 +4,7 @@
  *
  * Future states (not in schema yet): 'normal' | 'pressed' | 'disabled'
  */
-type RegionAuthoringPreviewState = null | 'hover' | 'selected';
+type RegionAuthoringPreviewState = null | 'hover' | 'selected' | 'visited';
 
 export {
     RegionAuthoringPreviewState

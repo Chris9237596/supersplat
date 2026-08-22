@@ -1,6 +1,6 @@
 import { generateRegionId } from './ids/generate-region-id';
 import { regionMaskZipPath } from './regions/region-mask-paths';
-import { ScaRegion, ScaRegionPulse, ScaRegionPulseMode } from './types/region';
+import { ScaRegion, ScaRegionPulse, ScaRegionPulseMode, ScaRegionVisitedVisual } from './types/region';
 import { ScaProject } from './types/project';
 
 const DEFAULT_HOVER_TINT = '#ff6600';
@@ -45,6 +45,30 @@ const normalizePulseSpeed = (raw: unknown): number => {
     }
 
     return Math.max(0.1, Math.min(8, raw));
+};
+
+const DEFAULT_VISITED_OPACITY = 0.35;
+
+const normalizeRegionVisitedField = (
+    raw: unknown,
+    activeTint: string
+): { visited?: ScaRegionVisitedVisual } => {
+    if (!raw || typeof raw !== 'object') {
+        return {};
+    }
+
+    const record = raw as Record<string, unknown>;
+    if (record.enabled !== true) {
+        return {};
+    }
+
+    return {
+        visited: {
+            enabled: true,
+            color: normalizeHexColor(record.color, activeTint),
+            opacity: normalizeOpacity(record.opacity, DEFAULT_VISITED_OPACITY)
+        }
+    };
 };
 
 const normalizeRegionPulseField = (
@@ -158,6 +182,10 @@ const normalizeRegion = (raw: unknown): ScaRegion | null => {
             hoverOpacity: normalizeOpacity(visualRecord.hoverOpacity, DEFAULT_HOVER_OPACITY),
             activeTint: normalizeHexColor(visualRecord.activeTint, DEFAULT_ACTIVE_TINT),
             activeOpacity: normalizeOpacity(visualRecord.activeOpacity, DEFAULT_ACTIVE_OPACITY),
+            ...normalizeRegionVisitedField(
+                visualRecord.visited,
+                normalizeHexColor(visualRecord.activeTint, DEFAULT_ACTIVE_TINT)
+            ),
             ...(normalizeRegionPulseField(visualRecord.pulse, normalizeHexColor(visualRecord.activeTint, DEFAULT_ACTIVE_TINT)))
         }
     };
@@ -227,6 +255,7 @@ export {
     DEFAULT_HOVER_TINT,
     DEFAULT_PULSE_SPEED,
     DEFAULT_PULSE_STRENGTH,
+    DEFAULT_VISITED_OPACITY,
     normalizeRegion,
     normalizeRegions
 };

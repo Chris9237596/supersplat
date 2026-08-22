@@ -72,6 +72,7 @@ class Splat extends Element {
     scaRegionPulseActive = false;
     private scaRegionHighlightClr = new Color(1, 0.4, 0, 0.55);
     private scaRegionHoverClr = new Color(1, 0.4, 0, 0.35);
+    private scaRegionVisitedClr = new Color(1, 0.4, 0, 0.35);
     private scaRegionPulseClr = new Color(1, 0.4, 0, 1);
     private scaRegionPulseStrength = 0.5;
     private scaRegionPulseSpeed = 1;
@@ -143,6 +144,12 @@ class Splat extends Element {
                 this.scaRegionHoverClr.g,
                 this.scaRegionHoverClr.b,
                 this.scaRegionHoverClr.a
+            ]);
+            material.setParameter('scaRegionVisitedClr', [
+                this.scaRegionVisitedClr.r,
+                this.scaRegionVisitedClr.g,
+                this.scaRegionVisitedClr.b,
+                this.scaRegionVisitedClr.a
             ]);
             material.setParameter('scaRegionPulse', this.scaRegionPulseTexture);
             material.setParameter('scaRegionPulseActive', this.scaRegionPulseActive ? 1 : 0);
@@ -528,6 +535,12 @@ class Splat extends Element {
             this.scaRegionHoverClr.b,
             this.scaRegionHoverClr.a
         ]);
+        material.setParameter('scaRegionVisitedClr', [
+            this.scaRegionVisitedClr.r,
+            this.scaRegionVisitedClr.g,
+            this.scaRegionVisitedClr.b,
+            this.scaRegionVisitedClr.a
+        ]);
         material.setParameter('scaRegionPulseActive', this.scaRegionPulseActive ? 1 : 0);
         material.setParameter('scaRegionPulseClr', [
             this.scaRegionPulseClr.r,
@@ -740,12 +753,15 @@ class Splat extends Element {
         selectedRanges: IndexRanges | null,
         hoverRanges: IndexRanges | null,
         selectedColor?: Color,
-        hoverColor?: Color
+        hoverColor?: Color,
+        visitedRanges?: IndexRanges | null,
+        visitedColor?: Color
     ) {
         const hasSelected = !!selectedRanges && !selectedRanges.empty;
         const hasHover = !!hoverRanges && !hoverRanges.empty;
+        const hasVisited = !!visitedRanges && !visitedRanges.empty;
 
-        if (!hasSelected && !hasHover) {
+        if (!hasSelected && !hasHover && !hasVisited) {
             this.clearScaRegionHighlight();
             return;
         }
@@ -768,14 +784,32 @@ class Splat extends Element {
             );
         }
 
+        if (visitedColor) {
+            this.scaRegionVisitedClr.set(
+                visitedColor.r,
+                visitedColor.g,
+                visitedColor.b,
+                visitedColor.a
+            );
+        }
+
         const SCA_REGION_STATE_HOVER = 85;
+        const SCA_REGION_STATE_VISITED = 170;
         const SCA_REGION_STATE_SELECTED = 255;
 
         const buffer = this.scaRegionHighlightTexture.lock() as Uint8Array;
         buffer.fill(0);
 
+        if (hasVisited) {
+            visitedRanges!.forEach((index) => {
+                if (index >= 0 && index < buffer.length) {
+                    buffer[index] = SCA_REGION_STATE_VISITED;
+                }
+            });
+        }
+
         if (hasSelected) {
-            selectedRanges.forEach((index) => {
+            selectedRanges!.forEach((index) => {
                 if (index >= 0 && index < buffer.length) {
                     buffer[index] = SCA_REGION_STATE_SELECTED;
                 }
@@ -783,7 +817,7 @@ class Splat extends Element {
         }
 
         if (hasHover) {
-            hoverRanges.forEach((index) => {
+            hoverRanges!.forEach((index) => {
                 if (index >= 0 && index < buffer.length) {
                     if (buffer[index] !== SCA_REGION_STATE_SELECTED) {
                         buffer[index] = SCA_REGION_STATE_HOVER;

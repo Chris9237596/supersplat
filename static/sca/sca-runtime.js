@@ -20,6 +20,57 @@
     navigationTargetsEnabled: true,
   }
 
+  /** @type {Set<string>} */
+  const regionVisitedIds = new Set()
+
+  function syncRegionVisitedPublicState() {
+    window.SCA3D.state = window.SCA3D.state || {}
+    window.SCA3D.state.regionVisited = Object.fromEntries(
+      [...regionVisitedIds].map((regionId) => [regionId, true])
+    )
+  }
+
+  /**
+   * @param {string} source
+   * @param {{ markVisited?: boolean }} options
+   */
+  function shouldMarkRegionVisited(source, options = {}) {
+    if (options.markVisited === false) {
+      return false
+    }
+    if (options.markVisited === true) {
+      return true
+    }
+    if (source === 'programmatic') {
+      return false
+    }
+    return true
+  }
+
+  /**
+   * @param {string|null|undefined} regionId
+   * @param {boolean} visited
+   */
+  function setRegionVisitedInternal(regionId, visited) {
+    if (!regionId) {
+      return
+    }
+    if (visited) {
+      regionVisitedIds.add(regionId)
+    } else {
+      regionVisitedIds.delete(regionId)
+    }
+    syncRegionVisitedPublicState()
+    window.SCA3D.refreshRegionPresentation?.()
+  }
+
+  /**
+   * @param {string|null|undefined} regionId
+   */
+  function isRegionVisitedInternal(regionId) {
+    return !!regionId && regionVisitedIds.has(regionId)
+  }
+
   /**
    * @param {unknown} raw
    * @param {number} fallback
@@ -836,11 +887,12 @@
    * @param {object} viewer
    * @param {ReturnType<typeof normalizeViewerConfig>} viewerConfig
    * @param {{ type: 'hotspot' | 'region', id: string }|null} target
-   * @param {{ source?: string, emitClick?: boolean }} [options]
+   * @param {{ source?: string, emitClick?: boolean, markVisited?: boolean, focusCamera?: boolean }} [options]
    */
   function setActiveTarget(viewer, viewerConfig, target, options = {}) {
     const source = options.source ?? 'programmatic'
     const emitClick = options.emitClick === true
+    const focusCamera = options.focusCamera !== false
 
     window.SCA3D.state = window.SCA3D.state || {}
     window.SCA3D.state.activeTarget = target ?
@@ -855,6 +907,7 @@
       window.SCA3D.hotspotOverlay?.setSelected?.(null)
       window.SCA3D.presentRegion?.(null, source)
       window.SCA3D.navigation?.syncToActiveTarget?.()
+      window.SCA3D.refreshRegionPresentation?.()
       return
     }
 
@@ -876,7 +929,7 @@
       window.SCA3D.hotspotOverlay?.setSelected?.(target.id)
       window.SCA3D.presentRegion?.(null, source)
 
-      if (hotspot.position) {
+      if (hotspot.position && focusCamera) {
         focusInteractionTarget(viewer, viewerConfig, hotspot.position)
       }
 
@@ -886,8 +939,12 @@
     } else if (target.type === 'region') {
       const isDirectClick = emitClick || source === 'click'
       if (isDirectClick && window.SCA3D.state.selectedRegionId === target.id) {
-        setActiveTarget(viewer, viewerConfig, null, { source, emitClick: false })
+        setActiveTarget(viewer, viewerConfig, null, { source, emitClick: false, markVisited: false })
         return
+      }
+
+      if (shouldMarkRegionVisited(source, options)) {
+        setRegionVisitedInternal(target.id, true)
       }
 
       window.SCA3D.state.selectedRegionId = target.id
@@ -896,7 +953,7 @@
       window.SCA3D.presentRegion?.(target.id, source)
 
       const anchor = window.SCA3D.getRegionAnchor3D?.(target.id)
-      if (anchor) {
+      if (anchor && focusCamera) {
         focusInteractionTarget(viewer, viewerConfig, anchor)
       }
 
@@ -909,6 +966,27 @@
     }
 
     window.SCA3D.navigation?.syncToActiveTarget?.()
+    window.SCA3D.refreshRegionPresentation?.()
+  }
+
+  /**
+   * @param {string|object|null|undefined} regionOrId
+   */
+  function resolveRegionFromArg(regionOrId) {
+    if (typeof regionOrId === 'string') {
+      return window.SCA3D.state.regionById?.get?.(regionOrId) ?? null
+    }
+    return regionOrId ?? null
+  }
+
+  /**
+   * @param {string|object|null|undefined} hotspotOrId
+   */
+  function resolveHotspotFromArg(hotspotOrId) {
+    if (typeof hotspotOrId === 'string') {
+      return window.SCA3D.state.hotspotById?.get?.(hotspotOrId) ?? null
+    }
+    return hotspotOrId ?? null
   }
 
   /**
@@ -1033,35 +1111,48 @@
    * @param {ReturnType<typeof normalizeViewerConfig>} viewerConfig
    * @param {object} hotspot
    */
-  function activateScaHotspot(viewer, viewerConfig, hotspot, options = {}) {
+  function activateScaHotspot(viewer, viewerConfig, hotspotOrId, options = {}) {
+    const hotspot = resolveHotspotFromArg(hotspotOrId)
     if (!hotspot?.id) {
       return
     }
+
+    const source = options.source ?? (options.emitEvent === true || options.emitClick === true ? 'click' : 'external')
+    const emitClick = options.emitEvent === true || options.emitClick === true
 
     setActiveTarget(
       viewer,
       viewerConfig,
       { type: 'hotspot', id: hotspot.id },
-      { source: options.source ?? 'click', emitClick: options.emitClick ?? true }
+      { source, emitClick, focusCamera: options.focusCamera !== false }
     )
   }
 
   /**
    * @param {object} viewer
    * @param {ReturnType<typeof normalizeViewerConfig>} viewerConfig
-   * @param {object} region
-   * @param {{ source?: string, emitClick?: boolean }} [options]
+   * @param {string|object} regionOrId
+   * @param {{ source?: string, emitEvent?: boolean, emitClick?: boolean, markVisited?: boolean, focusCamera?: boolean }} [options]
    */
-  function activateScaRegion(viewer, viewerConfig, region, options = {}) {
+  function activateScaRegion(viewer, viewerConfig, regionOrId, options = {}) {
+    const region = resolveRegionFromArg(regionOrId)
     if (!region?.id) {
       return
     }
+
+    const source = options.source ?? 'external'
+    const emitClick = options.emitEvent === true || options.emitClick === true
 
     setActiveTarget(
       viewer,
       viewerConfig,
       { type: 'region', id: region.id },
-      { source: options.source ?? 'click', emitClick: options.emitClick ?? false }
+      {
+        source,
+        emitClick,
+        markVisited: options.markVisited,
+        focusCamera: options.focusCamera !== false,
+      }
     )
   }
 
@@ -1555,10 +1646,22 @@
     window.SCA3D.state.viewerConfig = viewerConfig
     window.SCA3D.state.hotspotById = hotspotById
     window.SCA3D.state.viewer = viewer
-    window.SCA3D.activateHotspot = (hotspot, options) => activateScaHotspot(viewer, viewerConfig, hotspot, options)
-    window.SCA3D.activateRegion = (region, options) => activateScaRegion(viewer, viewerConfig, region, options)
+    window.SCA3D.activateHotspot = (hotspotOrId, options) => activateScaHotspot(viewer, viewerConfig, hotspotOrId, options)
+    window.SCA3D.activateRegion = (regionOrId, options) => activateScaRegion(viewer, viewerConfig, regionOrId, options)
     window.SCA3D.setActiveTarget = (target, options) => setActiveTarget(viewer, viewerConfig, target, options)
     window.SCA3D.focusInteractionTarget = (anchor3D) => focusInteractionTarget(viewer, viewerConfig, anchor3D)
+    window.SCA3D.setRegionVisited = (regionId, visited) => setRegionVisitedInternal(regionId, !!visited)
+    window.SCA3D.isRegionVisited = (regionId) => isRegionVisitedInternal(regionId)
+    window.SCA3D.resetRegionVisited = (regionId) => {
+      if (regionId) {
+        regionVisitedIds.delete(regionId)
+      } else {
+        regionVisitedIds.clear()
+      }
+      syncRegionVisitedPublicState()
+      window.SCA3D.refreshRegionPresentation?.()
+    }
+    syncRegionVisitedPublicState()
 
     applyRuntimeUx(viewer, viewerConfig, hotspotById)
     applyViewerBackground(viewerConfig.background, viewer)

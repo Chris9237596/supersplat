@@ -1,7 +1,9 @@
 import { ScaRegion } from '../types/region';
 
 type RegionPulsePlaybackState = {
-    pulseStoppedByInteraction: boolean;
+    regionVisited?: boolean;
+    /** @deprecated Prefer regionVisited — kept for transitional callers. */
+    pulseStoppedByInteraction?: boolean;
 };
 
 const shouldPlayAuthoredRegionPulse = (
@@ -13,7 +15,8 @@ const shouldPlayAuthoredRegionPulse = (
         return false;
     }
 
-    if (playback.pulseStoppedByInteraction) {
+    const visited = playback.regionVisited === true || playback.pulseStoppedByInteraction === true;
+    if (visited && shouldStopPulseOnRegionInteraction(region)) {
         return false;
     }
 

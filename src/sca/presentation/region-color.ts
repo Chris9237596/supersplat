@@ -43,10 +43,15 @@ const parseRegionActiveColor = (hex: unknown, opacity: number): RgbaColor => {
     return parseRegionHexColor(hex, opacity, DEFAULT_ACTIVE_TINT);
 };
 
+const parseRegionVisitedColor = (hex: unknown, opacity: number): RgbaColor => {
+    return parseRegionHexColor(hex, opacity, DEFAULT_ACTIVE_TINT);
+};
+
 export {
     RgbaColor,
     normalizeHexColor,
     parseRegionActiveColor,
     parseRegionHexColor,
-    parseRegionHoverColor
+    parseRegionHoverColor,
+    parseRegionVisitedColor
 };

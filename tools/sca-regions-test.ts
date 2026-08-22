@@ -8,9 +8,11 @@ import {
     buildRegionPresentationState,
     computeRegionAnchorFromBitset,
     createCentersAccessorFromFloat32,
+    getVisitedPresentationEntries,
     layoutRegionCard,
     parseRegionActiveColor,
     parseRegionHoverColor,
+    resolveEntryState,
     resolveRegionVisual,
     resolveRegionPulse,
     resolveRegionPulsePreview,
@@ -815,6 +817,14 @@ const runRegionPulseTests = () => {
 
     const loopPulse = stopOnInteractionRegion;
     assert.equal(
+        shouldPlayAuthoredRegionPulse(loopPulse, { regionVisited: false }),
+        true
+    );
+    assert.equal(
+        shouldPlayAuthoredRegionPulse(loopPulse, { regionVisited: true }),
+        false
+    );
+    assert.equal(
         shouldPlayAuthoredRegionPulse(loopPulse, { pulseStoppedByInteraction: false }),
         true
     );
@@ -837,6 +847,68 @@ const runRegionPulseTests = () => {
     console.log('[sca-regions] region pulse PASS');
 };
 
+const runRegionVisitedTests = () => {
+    const base = sampleRegion('region_01', 'Alpha', 'splat_01', 10);
+    const withoutVisited = normalizeRegions([base])[0];
+    assert.equal(withoutVisited.visual.visited, undefined);
+
+    const withVisited = normalizeRegions([{
+        ...base,
+        visual: {
+            ...base.visual,
+            visited: {
+                enabled: true,
+                color: '#224466',
+                opacity: 0.4
+            }
+        }
+    }])[0];
+
+    assert.equal(withVisited.visual.visited?.enabled, true);
+    assert.equal(withVisited.visual.visited?.color, '#224466');
+    assert.equal(withVisited.visual.visited?.opacity, 0.4);
+
+    const block = serializeSsprojScaBlock({
+        version: SCA_PROJECT_VERSION,
+        hotspots: [],
+        regions: [withVisited],
+        viewer: undefined
+    });
+    const restored = deserializeSsprojScaBlock(block);
+    assert.equal(restored.regions[0].visual.visited?.enabled, true);
+    assert.equal(restored.regions[0].visual.visited?.color, '#224466');
+
+    assert.equal(resolveEntryState('region_01', null, null, new Set(['region_01'])), 'visited');
+    assert.equal(resolveEntryState('region_01', 'region_01', null, new Set(['region_01'])), 'hover');
+    assert.equal(resolveEntryState('region_01', null, 'region_01', new Set(['region_01'])), 'selected');
+
+    const visitedVisual = resolveRegionVisual(withVisited, 'visited');
+    assert.ok(visitedVisual);
+    assert.equal(visitedVisual!.state, 'visited');
+
+    const disabledVisitedVisual = resolveRegionVisual({
+        ...withVisited,
+        visual: {
+            ...withVisited.visual,
+            visited: { enabled: false, color: '#224466', opacity: 0.4 }
+        }
+    }, 'visited');
+    assert.equal(disabledVisitedVisual, null);
+
+    const presentation = buildRegionPresentationState(
+        [withVisited],
+        null,
+        null,
+        new Map(),
+        new Set(['region_01'])
+    );
+    const visitedEntries = getVisitedPresentationEntries(presentation);
+    assert.equal(visitedEntries.length, 1);
+    assert.equal(visitedEntries[0].state, 'visited');
+
+    console.log('[sca-regions] region visited PASS');
+};
+
 async function main() {
     runIdTests();
     runMaskFormatTests();
@@ -854,6 +926,7 @@ async function main() {
     await runRegionReplaceSelectionTests();
     runRuntimePickDecodeTests();
     runRegionPulseTests();
+    runRegionVisitedTests();
     await runHistoryTests();
 
     console.log('\n========== SCA REGIONS PHASE 1 REWORK TEST REPORT ==========');
@@ -873,6 +946,7 @@ async function main() {
     console.log('Region replace selection: PASS');
     console.log('Runtime pick decode: PASS');
     console.log('Region pulse: PASS');
+    console.log('Region visited: PASS');
     console.log('Membership op undo/redo: PASS');
     console.log('===========================================================\n');
 }

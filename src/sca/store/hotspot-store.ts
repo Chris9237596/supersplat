@@ -324,6 +324,17 @@ class HotspotStore {
                     };
                 }
 
+                if (patch.visual?.visited) {
+                    nextVisual.visited = {
+                        ...(current.visual.visited ?? {
+                            enabled: false,
+                            color: current.visual.activeTint,
+                            opacity: 0.35
+                        }),
+                        ...patch.visual.visited
+                    };
+                }
+
                 return nextVisual;
             })()
         };

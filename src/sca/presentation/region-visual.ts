@@ -1,9 +1,14 @@
 import { DEFAULT_ACTIVE_OPACITY, DEFAULT_HOVER_OPACITY } from '../region-defaults';
 import { ScaRegion } from '../types/region';
 
-import { parseRegionActiveColor, parseRegionHoverColor, RgbaColor } from './region-color';
+import {
+    parseRegionActiveColor,
+    parseRegionHoverColor,
+    parseRegionVisitedColor,
+    RgbaColor
+} from './region-color';
 
-type RegionVisualState = 'normal' | 'hover' | 'selected';
+type RegionVisualState = 'normal' | 'hover' | 'visited' | 'selected';
 
 type ResolvedRegionVisual = {
     state: RegionVisualState;
@@ -25,6 +30,19 @@ const resolveRegionVisual = (
         return {
             state,
             tint: parseRegionHoverColor(visual.hoverTint, visual.hoverOpacity ?? DEFAULT_HOVER_OPACITY),
+            highlightActive: true
+        };
+    }
+
+    if (state === 'visited') {
+        const visited = visual.visited;
+        if (!visited?.enabled) {
+            return null;
+        }
+
+        return {
+            state,
+            tint: parseRegionVisitedColor(visited.color, visited.opacity),
             highlightActive: true
         };
     }

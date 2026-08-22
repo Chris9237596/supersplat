@@ -26,7 +26,7 @@ import { Events } from '../../events';
 
 import { ScaRegion, ScaRegionPatch } from '../types/region';
 
-import { DEFAULT_ACTIVE_TINT, DEFAULT_HOVER_TINT, DEFAULT_PULSE_SPEED, DEFAULT_PULSE_STRENGTH } from '../region-defaults';
+import { DEFAULT_ACTIVE_TINT, DEFAULT_HOVER_TINT, DEFAULT_PULSE_SPEED, DEFAULT_PULSE_STRENGTH, DEFAULT_VISITED_OPACITY } from '../region-defaults';
 import { RegionAuthoringPreviewState } from '../regions/region-authoring-preview-state';
 import { CollapsibleSection } from './components/collapsible-section';
 import { createRegionTintControls } from './region-tint-controls';
@@ -70,6 +70,12 @@ class ScaRegionsPanel extends Container {
 
     private activeStrengthInput: SliderInput;
 
+    private visitedEnabledInput: BooleanInput;
+
+    private visitedTintControls: ReturnType<typeof createRegionTintControls>;
+
+    private visitedStrengthInput: SliderInput;
+
     private pulseEnabledInput: BooleanInput;
 
     private pulseTintControls: ReturnType<typeof createRegionTintControls>;
@@ -96,7 +102,8 @@ class ScaRegionsPanel extends Container {
 
     private authoringPreviewRefs = {
         hover: 0,
-        selected: 0
+        selected: 0,
+        visited: 0
     };
 
     constructor(private events: Events, private sectionLayout: ScaSectionLayoutManager, args = {}) {
@@ -339,6 +346,44 @@ class ScaRegionsPanel extends Container {
 
 
 
+        const statesTitle = new Label({
+            class: 'sca-panel-subsection-label',
+            text: 'STATES'
+        });
+
+        const visitedEnabledRow = new Container({ class: 'sca-hotspot-form-row' });
+        const visitedEnabledLabel = new Label({
+            class: 'sca-hotspot-form-label',
+            text: 'Enable visited style'
+        });
+        this.visitedEnabledInput = new BooleanInput({
+            class: 'sca-hotspot-form-toggle',
+            type: 'toggle',
+            value: false
+        });
+        visitedEnabledRow.append(visitedEnabledLabel);
+        visitedEnabledRow.append(this.visitedEnabledInput);
+
+        this.visitedTintControls = createRegionTintControls('Visited color', DEFAULT_ACTIVE_TINT);
+
+        const visitedStrengthRow = new Container({ class: 'sca-hotspot-form-row' });
+        const visitedStrengthLabel = new Label({
+            class: 'sca-hotspot-form-label',
+            text: 'Visited strength'
+        });
+        this.visitedStrengthInput = new SliderInput({
+            class: 'sca-hotspot-form-slider',
+            min: 0,
+            max: 1,
+            step: 0.01,
+            precision: 2,
+            value: DEFAULT_VISITED_OPACITY
+        });
+        visitedStrengthRow.append(visitedStrengthLabel);
+        visitedStrengthRow.append(this.visitedStrengthInput);
+
+
+
         const pulseEnabledRow = new Container({ class: 'sca-hotspot-form-row' });
 
         const pulseEnabledLabel = new Label({ class: 'sca-hotspot-form-label', text: 'Enable Pulse' });
@@ -544,6 +589,10 @@ class ScaRegionsPanel extends Container {
         visualSection.body.append(hoverStrengthRow);
         visualSection.body.append(this.activeTintControls.row);
         visualSection.body.append(activeStrengthRow);
+        visualSection.body.append(statesTitle);
+        visualSection.body.append(visitedEnabledRow);
+        visualSection.body.append(this.visitedTintControls.row);
+        visualSection.body.append(visitedStrengthRow);
 
         const pulseSection = new CollapsibleSection({
             sectionId: 'regionPulse',
@@ -709,6 +758,70 @@ class ScaRegionsPanel extends Container {
                 this.commitPatch({
                     visual: {
                         activeOpacity: this.activeStrengthInput.value
+                    }
+                });
+            }
+        );
+
+
+
+        this.visitedEnabledInput.on('change', () => {
+            if (this.visitedEnabledInput.value) {
+                this.commitPatch({
+                    visual: {
+                        visited: {
+                            enabled: true,
+                            color: this.visitedTintControls.getValue(),
+                            opacity: this.visitedStrengthInput.value
+                        }
+                    }
+                });
+                return;
+            }
+
+            this.commitPatch({
+                visual: {
+                    visited: {
+                        enabled: false,
+                        color: this.visitedTintControls.getValue(),
+                        opacity: this.visitedStrengthInput.value
+                    }
+                }
+            });
+        });
+
+        this.visitedTintControls.bind(events, (color) => {
+            if (!this.visitedEnabledInput.value) {
+                return;
+            }
+            this.commitPatch({
+                visual: {
+                    visited: {
+                        enabled: true,
+                        color,
+                        opacity: this.visitedStrengthInput.value
+                    }
+                }
+            });
+        }, {
+            onPreviewStart: () => this.beginAuthoringPreview('visited'),
+            onPreviewEnd: () => this.endAuthoringPreview('visited')
+        });
+
+        this.bindStrengthAuthoringPreview(
+            this.visitedStrengthInput,
+            'visited',
+            () => {
+                if (!this.visitedEnabledInput.value) {
+                    return;
+                }
+                this.commitPatch({
+                    visual: {
+                        visited: {
+                            enabled: true,
+                            color: this.visitedTintControls.getValue(),
+                            opacity: this.visitedStrengthInput.value
+                        }
                     }
                 });
             }
@@ -923,12 +1036,14 @@ class ScaRegionsPanel extends Container {
             state = 'hover';
         } else if (this.authoringPreviewRefs.selected > 0) {
             state = 'selected';
+        } else if (this.authoringPreviewRefs.visited > 0) {
+            state = 'visited';
         }
 
         this.events.fire('sca.region.authoringPreview.set', state);
     }
 
-    private beginAuthoringPreview(state: 'hover' | 'selected'): void {
+    private beginAuthoringPreview(state: 'hover' | 'selected' | 'visited'): void {
         if (!this.selectedId) {
             return;
         }
@@ -937,7 +1052,7 @@ class ScaRegionsPanel extends Container {
         this.syncAuthoringPreviewState();
     }
 
-    private endAuthoringPreview(state: 'hover' | 'selected'): void {
+    private endAuthoringPreview(state: 'hover' | 'selected' | 'visited'): void {
         this.authoringPreviewRefs[state] = Math.max(0, this.authoringPreviewRefs[state] - 1);
         this.syncAuthoringPreviewState();
     }
@@ -945,12 +1060,13 @@ class ScaRegionsPanel extends Container {
     private resetAuthoringPreview(): void {
         this.authoringPreviewRefs.hover = 0;
         this.authoringPreviewRefs.selected = 0;
+        this.authoringPreviewRefs.visited = 0;
         this.events.fire('sca.region.authoringPreview.set', null);
     }
 
     private bindStrengthAuthoringPreview(
         slider: SliderInput,
-        state: 'hover' | 'selected',
+        state: 'hover' | 'selected' | 'visited',
         onCommit: () => void
     ): void {
         let pointerActive = false;
@@ -1047,6 +1163,11 @@ class ScaRegionsPanel extends Container {
         this.activeTintControls.setValue(region.visual.activeTint);
 
         this.activeStrengthInput.value = region.visual.activeOpacity;
+
+        const visited = region.visual.visited;
+        this.visitedEnabledInput.value = visited?.enabled === true;
+        this.visitedTintControls.setValue(visited?.color ?? region.visual.activeTint ?? DEFAULT_ACTIVE_TINT);
+        this.visitedStrengthInput.value = visited?.opacity ?? DEFAULT_VISITED_OPACITY;
 
         const pulse = region.visual.pulse;
         this.pulseEnabledInput.value = pulse?.enabled === true;

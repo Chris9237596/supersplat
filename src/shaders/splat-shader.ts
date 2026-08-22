@@ -6,6 +6,7 @@ uniform sampler2D splatState;
 uniform sampler2D scaRegionHighlight;
 uniform vec4 scaRegionHighlightClr;
 uniform vec4 scaRegionHoverClr;
+uniform vec4 scaRegionVisitedClr;
 uniform float scaRegionHighlightActive;
 uniform sampler2D scaRegionPulse;
 uniform vec4 scaRegionPulseClr;
@@ -156,7 +157,12 @@ void main(void) {
         } else if (scaRegionHighlightActive > 0.5) {
             float regionState = texelFetch(scaRegionHighlight, splat.uv, 0).r;
             if (regionState > 0.02) {
-                vec4 tint = regionState > 0.5 ? scaRegionHighlightClr : scaRegionHoverClr;
+                vec4 tint = scaRegionHoverClr;
+                if (regionState > 0.75) {
+                    tint = scaRegionHighlightClr;
+                } else if (regionState > 0.45) {
+                    tint = scaRegionVisitedClr;
+                }
                 color.xyz = mix(color.xyz, tint.xyz, tint.a);
             }
         }

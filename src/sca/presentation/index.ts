@@ -3,7 +3,8 @@ export {
     normalizeHexColor,
     parseRegionActiveColor,
     parseRegionHexColor,
-    parseRegionHoverColor
+    parseRegionHoverColor,
+    parseRegionVisitedColor
 } from './region-color';
 
 export {
@@ -37,6 +38,7 @@ export {
     buildRegionPresentationState,
     getActivePresentationEntry,
     getHoverPresentationEntry,
+    getVisitedPresentationEntries,
     resolveEntryState
 } from './region-presentation-state';
 
