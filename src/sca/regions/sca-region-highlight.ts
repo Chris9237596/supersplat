@@ -237,6 +237,18 @@ const registerScaRegionHighlight = (events: Events, scene: Scene): void => {
         applyCombinedHighlight();
     });
 
+    // remapRegionMasksForSave() reloads project metadata without firing refresh
+    // events; re-apply highlight from current mask after a successful save.
+    events.on('doc.saved', () => {
+        const selectedId = events.invoke('sca.region.getSelected') as string | null;
+        if (!selectedId) {
+            return;
+        }
+
+        lastHighlightLog = '';
+        applyCombinedHighlight();
+    });
+
     events.on('scene.clear', () => {
         hoverRegionId = null;
         authoringPreviewState = null;
