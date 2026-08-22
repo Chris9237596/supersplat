@@ -94,7 +94,7 @@ const scaDiagMaybeLogMove = (cam, state, transitionTimer) => {
     const lookAnimT = scaLookAnim ?
         Math.min(1, scaLookAnim.elapsed / scaLookAnim.duration) :
         null;
-    if (window.SCA3D?.cameraDebugVerbose) {
+    if (window.SCA3D?.debug?.camera || window.SCA3D?.cameraDebugVerbose) {
         console.log('[SCA3D CAMERA MOVE]', JSON.stringify({
             source: scaDiagClassifySource(state, transitionTimer),
             positionBefore: [scaDiagPrevPos.x, scaDiagPrevPos.y, scaDiagPrevPos.z],
@@ -141,6 +141,9 @@ const scaResolveStartupFlyAnim = () => {
     }
 };
 const scaLogStartupFlyComplete = (cam, oc, pivot) => {
+    if (!window.SCA3D?.debug?.camera && !window.SCA3D?.cameraDebugVerbose) {
+        return;
+    }
     console.log('[SCA3D] startup flyTo complete', JSON.stringify({
         cameraPosition: [cam.position.x, cam.position.y, cam.position.z],
         orbitCurrentDistance: oc._childPose.position.z,
@@ -313,7 +316,7 @@ const LOOK_AT_TARGET_METHODS = `this.setAnnotationNavigationEnabled = (enabled) 
             };
             if (!(durationSec > 0)) {
                 applyFinal();
-                console.log('[SCA3D] home transition complete');
+                window.scaDebug?.('camera', '[SCA3D] home transition complete');
                 return Promise.resolve();
             }
             scaHomeFromPos.set(fromPose.position[0], fromPose.position[1], fromPose.position[2]);
@@ -508,7 +511,7 @@ const SCA_CAMERA_UPDATE = `            if (scaLookAnim) {
                 const tz = scaHomeFromTarget.z + (scaHomeToTarget.z - scaHomeFromTarget.z) * homeEased;
                 const fov = scaHomeAnim.fromFov + (scaHomeAnim.toFov - scaHomeAnim.fromFov) * homeEased;
                 scaApplyHomePose(this.camera, [px, py, pz], [tx, ty, tz], fov);
-                console.log('[SCA3D] home transition frame', JSON.stringify({ t: homeT, position: [px, py, pz] }));
+                window.scaDebug?.('camera', '[SCA3D] home transition frame', JSON.stringify({ t: homeT, position: [px, py, pz] }));
                 target.copy(this.camera);
                 from.copy(this.camera);
                 transitionTimer = 1;
@@ -519,7 +522,7 @@ const SCA_CAMERA_UPDATE = `            if (scaLookAnim) {
                     target.copy(this.camera);
                     from.copy(this.camera);
                     transitionTimer = 1;
-                    console.log('[SCA3D] home transition complete');
+                    window.scaDebug?.('camera', '[SCA3D] home transition complete');
                     scaResolveHomeAnim();
                 }
                 global.app.renderNextFrame = true;
@@ -957,7 +960,7 @@ const patchViewerBundle = (source: string): string => {
             }
             const scaSuppressFocusFn = window.SCA3D?.shouldSuppressViewerClickFocus;
             const scaSuppressFocus = typeof scaSuppressFocusFn === 'function' && scaSuppressFocusFn();
-            console.log('[CURSOR RING FLOW]', 'handler=navTarget:set', \`suppressed=\${scaSuppressFocus}\`);
+            window.scaDebug?.('navigation', '[CURSOR RING FLOW]', 'handler=navTarget:set', \`suppressed=\${scaSuppressFocus}\`);
             if (scaSuppressFocus) {
                 return;
             }
@@ -980,7 +983,7 @@ const patchViewerBundle = (source: string): string => {
             }
             const scaSuppressFocusFn = window.SCA3D?.shouldSuppressViewerClickFocus;
             const scaSuppressFocus = typeof scaSuppressFocusFn === 'function' && scaSuppressFocusFn();
-            console.log('[CURSOR RING FLOW]', 'handler=orbitTarget:set', \`suppressed=\${scaSuppressFocus}\`);
+            window.scaDebug?.('navigation', '[CURSOR RING FLOW]', 'handler=orbitTarget:set', \`suppressed=\${scaSuppressFocus}\`);
             if (scaSuppressFocus) {
                 return;
             }
@@ -1002,7 +1005,7 @@ const patchViewerBundle = (source: string): string => {
 \t\t\twindow.dispatchEvent(new CustomEvent('sca:interruptCameraAnimation'));
 \t\t}
 \t\tscaDiagWheelFrameCount = 3;
-\t\tif (window.SCA3D?.cameraDebugVerbose) {
+\t\tif (window.SCA3D?.debug?.camera || window.SCA3D?.cameraDebugVerbose) {
 \t\t\tconsole.log('[SCA3D CAMERA MOVE] wheel event', JSON.stringify({ deltaY: event.deltaY }));
 \t\t}
 \t\tthis.deltas.wheel.append([event.deltaY]);
@@ -1293,7 +1296,7 @@ const patchViewerBundle = (source: string): string => {
                 const diagKey = \`\${active ? 1 : 0}:\${nonZeroMask}:\${color?.join?.(',') ?? ''}\`;
                 if (diagKey !== scaRegionHighlightLastDiag) {
                     scaRegionHighlightLastDiag = diagKey;
-                    console.log('[SCA REGION HIGHLIGHT]', {
+                    window.scaDebug?.('regions', '[SCA REGION HIGHLIGHT]', {
                         nonZeroMask,
                         enabled: !!active,
                         tint: color,
@@ -1355,7 +1358,7 @@ const patchViewerBundle = (source: string): string => {
                 const diagKey = \`\${selectedCount}:\${hoverCount}:\${nonZeroMask}:\${selectedColor?.join?.(',') ?? ''}:\${hoverColor?.join?.(',') ?? ''}\`;
                 if (diagKey !== scaRegionHighlightLastDiag) {
                     scaRegionHighlightLastDiag = diagKey;
-                    console.log('[SCA REGION HIGHLIGHT]', {
+                    window.scaDebug?.('regions', '[SCA REGION HIGHLIGHT]', {
                         nonZeroMask,
                         selectedCount,
                         hoverCount,
@@ -1451,7 +1454,7 @@ const patchViewerBundle = (source: string): string => {
                 const scaSuppressFocusFn = window.SCA3D?.shouldSuppressViewerClickFocus;
                 const scaSuppressFocus = typeof scaSuppressFocusFn === 'function' &&
                     scaSuppressFocusFn(this._lastPointerOffsetX, this._lastPointerOffsetY);
-                console.log('[NAV CLICK FLOW]', 'handler=_onPointerUp', \`suppressed=\${scaSuppressFocus}\`);
+                window.scaDebug?.('navigation', '[NAV CLICK FLOW]', 'handler=_onPointerUp', \`suppressed=\${scaSuppressFocus}\`);
                 if (scaSuppressFocus) {
                     return;
                 }
@@ -1486,7 +1489,7 @@ const patchViewerBundle = (source: string): string => {
             return;
         const scaSuppressFocusFn = window.SCA3D?.shouldSuppressViewerClickFocus;
         const scaSuppressFocus = typeof scaSuppressFocusFn === 'function' && scaSuppressFocusFn(offsetX, offsetY);
-        console.log('[NAV FOCUS FLOW]', 'handler=_focusPickedPosition', \`suppressed=\${scaSuppressFocus}\`);
+        window.scaDebug?.('navigation', '[NAV FOCUS FLOW]', 'handler=_focusPickedPosition', \`suppressed=\${scaSuppressFocus}\`);
         if (scaSuppressFocus) {
             return;
         }
@@ -1507,7 +1510,7 @@ const patchViewerBundle = (source: string): string => {
         `    setTarget(pos, normal, mode) {
         const scaSuppressFocusFn = window.SCA3D?.shouldSuppressViewerClickFocus;
         const scaSuppressFocus = typeof scaSuppressFocusFn === 'function' && scaSuppressFocusFn();
-        console.log('[CURSOR RING FLOW]', 'handler=setTarget', \`suppressed=\${scaSuppressFocus}\`);
+        window.scaDebug?.('navigation', '[CURSOR RING FLOW]', 'handler=setTarget', \`suppressed=\${scaSuppressFocus}\`);
         if (scaSuppressFocus) {
             return;
         }

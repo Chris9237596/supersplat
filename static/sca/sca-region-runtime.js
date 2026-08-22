@@ -230,11 +230,11 @@
 
     if (regionId) {
 
-      console.log(`[SCA REGION] ${kind} ${regionId}`)
+      window.scaDebug?.('regions', `[SCA REGION] ${kind} ${regionId}`)
 
     } else {
 
-      console.log(`[SCA REGION] ${kind}`)
+      window.scaDebug?.('regions', `[SCA REGION] ${kind}`)
 
     }
 
@@ -300,11 +300,11 @@
 
       if (nextMode === 'pointer' && nextDetail) {
 
-        console.log(`[SCA CURSOR] ${nextDetail}`)
+        window.scaDebug?.('regions', `[SCA CURSOR] ${nextDetail}`)
 
       } else if (nextMode === 'navigation') {
 
-        console.log('[SCA CURSOR] navigation')
+        window.scaDebug?.('regions', '[SCA CURSOR] navigation')
 
       }
 
@@ -435,6 +435,7 @@
           }
         },
 
+        /** @deprecated Use setCombinedMasks — single-mask path superseded by combined state texture. */
         setMaskFromBitset(bitset, color, active) {
 
           const members = countBitsetMembers(bitset)
@@ -586,7 +587,7 @@
         return
       }
       lastPickDiag = { key }
-      console.log([
+      window.scaDebug?.('picking', [
         '[SCA RUNTIME PICK]',
         `backend=${backend}`,
         gaussianIndex !== null && gaussianIndex !== undefined ?
@@ -655,46 +656,6 @@
         screenY: clientY,
 
       }
-
-    }
-
-
-
-    const applyResolvedRegionVisual = (regionEntry, visualState) => {
-
-      if (!ctx.highlight) {
-
-        return null
-
-      }
-
-      if (!regionEntry) {
-
-        ctx.highlight.clear()
-
-        return null
-
-      }
-
-      const resolve = window.SCA3D?.resolveRegionVisual
-
-      const visual = typeof resolve === 'function' ?
-
-        resolve(regionEntry.region, visualState) :
-
-        null
-
-      if (!visual) {
-
-        ctx.highlight.clear()
-
-        return null
-
-      }
-
-      ctx.highlight.setMaskFromBitset(regionEntry.bitset, visual.tint, true)
-
-      return visual
 
     }
 
@@ -797,7 +758,7 @@
 
           lastHighlightDiag = highlightKey
 
-          console.log([
+          window.scaDebug?.('regions', [
 
             '[SCA REGION HIGHLIGHT]',
 
@@ -837,7 +798,7 @@
 
           lastVisualDiag = visualKey
 
-          console.log([
+          window.scaDebug?.('regions', [
 
             '[SCA REGION VISUAL]',
 
@@ -879,7 +840,7 @@
 
           lastAnchorDiag = anchorKey
 
-          console.log([
+          window.scaDebug?.('regions', [
 
             '[SCA REGION ANCHOR]',
 
@@ -915,11 +876,11 @@
 
         const suffix = source ? ` (${source})` : ''
 
-        console.log(`[SCA REGION CARD] show ${activeEntry.regionId}${suffix}`)
+        window.scaDebug?.('cards', `[SCA REGION CARD] show ${activeEntry.regionId}${suffix}`)
 
       } else if (source === 'deselect' && activeRegionId === null) {
 
-        console.log('[SCA REGION CARD] hide')
+        window.scaDebug?.('cards', '[SCA REGION CARD] hide')
 
       }
 
@@ -1024,7 +985,7 @@
 
       const backend = window.SCA3D?.runtimePicker?.backendId ?? 'centers'
 
-      if (window.SCA3D?.state?.debugHoverPick) {
+      if (window.SCA3D?.debug?.picking || window.SCA3D?.state?.debugHoverPick) {
 
         console.log('[SCA HOVER PICK]', `backend=${backend}`, `durationMs=${durationMs.toFixed(1)}`, `regionId=${nextId ?? 'none'}`)
 
@@ -1155,7 +1116,7 @@
 
       if (!picker || typeof picker.pickSyncDetailed !== 'function') {
 
-        console.log('[SCA CLICK FLOW]', 'capture-pointerup', 'suppressionSet=false', 'reason=picker-unavailable')
+        window.scaDebug?.('picking', '[SCA CLICK FLOW]', 'capture-pointerup', 'suppressionSet=false', 'reason=picker-unavailable')
 
         return
 
@@ -1185,7 +1146,7 @@
 
       if (gaussianIndex === null) {
 
-        console.log('[SCA CLICK FLOW]', 'capture-pointerup', 'suppressionSet=false', 'reason=no-gaussian-hit')
+        window.scaDebug?.('picking', '[SCA CLICK FLOW]', 'capture-pointerup', 'suppressionSet=false', 'reason=no-gaussian-hit')
 
         return
 
@@ -1233,7 +1194,7 @@
 
       markNativeClickSuppressed(event.pointerId, offsetX, offsetY, regionId)
 
-      console.log([
+      window.scaDebug?.('picking', [
 
         '[SCA CLICK FLOW]',
 

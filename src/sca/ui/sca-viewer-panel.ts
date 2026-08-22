@@ -460,8 +460,21 @@ class ScaViewerPanel extends Container {
         this.append(this.exitPreviewButton);
         this.append(viewerInteractionPreviewRow);
         this.append(authoringPreviewNote);
-        this.append(runtimePreviewSpikeRow);
-        this.append(runtimePreviewButton);
+
+        const debugSection = new Container({ class: 'sca-debug-section' });
+        const debugTitle = new Label({
+            class: 'sca-panel-subsection-label',
+            text: 'Debug / Advanced'
+        });
+        const debugNote = new Label({
+            class: 'sca-viewer-preview-note',
+            text: 'Runtime viewer preview and spike picker — for engineering validation only.'
+        });
+        debugSection.append(debugTitle);
+        debugSection.append(debugNote);
+        debugSection.append(runtimePreviewSpikeRow);
+        debugSection.append(runtimePreviewButton);
+        this.append(debugSection);
 
         runtimePreviewButton.on('click', () => {
             this.events.fire('sca.runtimeViewerPreview.open', {

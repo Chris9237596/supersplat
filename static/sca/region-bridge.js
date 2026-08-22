@@ -21,7 +21,7 @@
       payload: { regionId },
     }
 
-    console.log(`[SCA3D] regionClicked: ${regionId}`)
+    window.scaDebug?.('navigation', `[SCA3D] regionClicked: ${regionId}`)
 
     window.dispatchEvent(
       new CustomEvent(DOM_EVENT_NAME, {
@@ -44,7 +44,7 @@
     }
 
     if (region.interaction?.clickable === false) {
-      console.log(`[SCA3D] region click ignored (not clickable): ${region.id}`)
+      window.scaDebug?.('navigation', `[SCA3D] region click ignored (not clickable): ${region.id}`)
       return
     }
 

@@ -23,7 +23,7 @@
       payload: { hotspotId },
     }
 
-    console.log(`[SCA3D] hotspotClicked: ${hotspotId}`)
+    window.scaDebug?.('navigation', `[SCA3D] hotspotClicked: ${hotspotId}`)
 
     window.dispatchEvent(
       new CustomEvent(DOM_EVENT_NAME, {
@@ -63,7 +63,7 @@
     }
 
     if (hotspot.click?.enabled === false) {
-      console.log(`[SCA3D] hotspot click ignored (disabled): ${hotspot.id}`)
+      window.scaDebug?.('navigation', `[SCA3D] hotspot click ignored (disabled): ${hotspot.id}`)
       return
     }
 

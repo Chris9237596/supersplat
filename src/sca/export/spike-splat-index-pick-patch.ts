@@ -1,7 +1,7 @@
 /**
- * SPIKE ONLY — Option A: dedicated splat.index Gaussian pick pass.
- * Applied at export time when `useGaussianPickSpike` is enabled.
- * Do not enable in production exports until spike validation is complete.
+ * @deprecated Experimental Gaussian-index pick spike. Not used in production exports.
+ * Production uses RuntimeWebGpuPickerAdapter or RuntimeCentersPickerAdapter via sca-picker.js.
+ * Applied at export time only when `useGaussianPickSpike` is explicitly enabled in Debug/Advanced UI.
  */
 
 /** PlayCanvas WebgpuShaderProcessorWGSL VARYING name extractor (see engine bundle). */

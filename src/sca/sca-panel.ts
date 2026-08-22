@@ -148,10 +148,23 @@ class ScaPanel extends Container {
 
         exportSection.append(exportTitle);
         exportSection.append(includePreviewRow);
-        exportSection.append(useGaussianPickSpikeRow);
         exportSection.append(sogCompressionRow);
         exportSection.append(exportRuntimePackageButton);
+
+        const debugSection = new Container({ class: 'sca-debug-section' });
+        const debugTitle = new Label({
+            class: 'sca-panel-section-label',
+            text: 'Debug / Advanced'
+        });
+        const debugNote = new Label({
+            class: 'sca-export-preview-label',
+            text: 'Experimental tools — not used in normal export workflow.'
+        });
+        debugSection.append(debugTitle);
+        debugSection.append(debugNote);
+        debugSection.append(useGaussianPickSpikeRow);
         body.append(exportSection);
+        body.append(debugSection);
 
         exportRuntimePackageButton.on('click', () => {
             events.fire('sca.export.runtimePackage', {

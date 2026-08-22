@@ -214,7 +214,7 @@
 
         lastCardDiag = cardKey
 
-        console.log([
+        window.scaDebug?.('cards', [
 
           '[SCA REGION CARD]',
 

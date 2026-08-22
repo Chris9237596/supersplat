@@ -37,13 +37,14 @@ const PREVIEW_FILENAME = 'preview.html';
 
 type ScaRuntimePackageOptions = {
     includePreview?: boolean;
-    /** SPIKE ONLY: export Option A splat.index picker instead of production vPickId path. */
+    /** @deprecated Debug only — Gaussian Pick Spike. Production uses RuntimeWebGpuPickerAdapter / RuntimeCentersPickerAdapter. */
     useGaussianPickSpike?: boolean;
     sogCompressionMode?: SogCompressionMode;
 };
 
 const patchViewerBundleForExport = (source: string, useGaussianPickSpike: boolean): string => {
     const patched = patchViewerBundle(source);
+    /** @deprecated Spike path — use production RuntimeWebGpuPickerAdapter / RuntimeCentersPickerAdapter. */
     return useGaussianPickSpike ? applySpikeSplatIndexPickPatch(patched) : patched;
 };
 
@@ -166,6 +167,7 @@ const patchIndexHtml = (html: string): string => {
 
     patched = patched.replace(
         '        <!-- Application Script -->',
+        '        <script src="./sca-debug.js"></script>\n' +
         '        <script src="./camera-animation.js"></script>\n' +
         '        <script src="./hotspot-bridge.js"></script>\n' +
         '        <script src="./region-bridge.js"></script>\n' +
@@ -186,6 +188,7 @@ const patchIndexHtml = (html: string): string => {
 const patchPreviewHtml = (
     html: string,
     project: ScaProject,
+    scaDebugJs: string,
     cameraAnimationJs: string,
     bridgeJs: string,
     regionBridgeJs: string,
@@ -206,6 +209,7 @@ const patchPreviewHtml = (
         `<script>\nwindow.__SCA3D_EMBEDDED_PROJECT__ = ${embeddedProject};\n</script>\n` +
         `<script>\nwindow.__SCA3D_EMBEDDED_ASSETS__ = ${embeddedAssetsJson};\n</script>\n` +
         `<style>\n${hotspotCss}\n</style>\n` +
+        `<script>\n${scaDebugJs}\n</script>\n` +
         `<script>\n${cameraAnimationJs}\n</script>\n` +
         `<script>\n${bridgeJs}\n</script>\n` +
         `<script>\n${regionBridgeJs}\n</script>\n` +
@@ -380,6 +384,7 @@ const patchExportedViewerAssets = (memFs: MemoryFileSystem, useGaussianPickSpike
 
 const fetchScaRuntimeAssets = async () => {
     const [
+        scaDebugJs,
         cameraAnimationJs,
         bridgeJs,
         regionBridgeJs,
@@ -393,6 +398,7 @@ const fetchScaRuntimeAssets = async () => {
         hotspotCss,
         runtimeJs
     ] = await Promise.all([
+        fetchRuntimeAsset('sca-debug.js'),
         fetchRuntimeAsset('camera-animation.js'),
         fetchRuntimeAsset('hotspot-bridge.js'),
         fetchRuntimeAsset('region-bridge.js'),
@@ -408,6 +414,7 @@ const fetchScaRuntimeAssets = async () => {
     ]);
 
     return {
+        scaDebugJs,
         cameraAnimationJs,
         bridgeJs,
         regionBridgeJs,
@@ -442,7 +449,9 @@ const buildRuntimeViewerPreviewHtml = async (
     const useGaussianPickSpike = options.useGaussianPickSpike ?? false;
     const sogCompressionMode = options.sogCompressionMode ?? DEFAULT_SOG_COMPRESSION_MODE;
     console.log(`[SCA EXPORT] requested compression: ${sogCompressionMode}`);
-    console.log(`[SCA RUNTIME PREVIEW] picker mode: ${useGaussianPickSpike ? 'gaussian-index-spike' : 'production'}`);
+    if (useGaussianPickSpike) {
+        console.warn('[SCA RUNTIME PREVIEW] deprecated Gaussian Pick Spike enabled — production uses RuntimeWebGpuPickerAdapter or RuntimeCentersPickerAdapter');
+    }
 
     if (splats.length === 0) {
         throw new Error('[SCA] cannot build runtime preview: no splats in scene');
@@ -515,6 +524,7 @@ const buildRuntimeViewerPreviewHtml = async (
         const previewHtml = patchPreviewHtml(
             new TextDecoder().decode(previewBytes),
             exportProject,
+            runtimeAssets.scaDebugJs,
             runtimeAssets.cameraAnimationJs,
             runtimeAssets.bridgeJs,
             runtimeAssets.regionBridgeJs,
@@ -551,7 +561,9 @@ const exportScaRuntimePackage = async (
     const useGaussianPickSpike = options.useGaussianPickSpike ?? false;
     const sogCompressionMode = options.sogCompressionMode ?? DEFAULT_SOG_COMPRESSION_MODE;
     console.log(`[SCA EXPORT] requested compression: ${sogCompressionMode}`);
-    console.log(`[SCA EXPORT] picker mode: ${useGaussianPickSpike ? 'gaussian-index-spike' : 'production'}`);
+    if (useGaussianPickSpike) {
+        console.warn('[SCA EXPORT] deprecated Gaussian Pick Spike enabled — production uses RuntimeWebGpuPickerAdapter or RuntimeCentersPickerAdapter');
+    }
     if (splats.length === 0) {
         throw new Error('[SCA] cannot export runtime package: no splats in scene');
     }
@@ -610,6 +622,7 @@ const exportScaRuntimePackage = async (
         memFs.results.set('index.html', encoder.encode(patchedHtml));
         const runtimeAssets = await fetchScaRuntimeAssets();
         const {
+            scaDebugJs,
             cameraAnimationJs,
             bridgeJs,
             regionBridgeJs,
@@ -624,6 +637,7 @@ const exportScaRuntimePackage = async (
             runtimeJs
         } = runtimeAssets;
 
+        memFs.results.set('sca-debug.js', encoder.encode(scaDebugJs));
         memFs.results.set('camera-animation.js', encoder.encode(cameraAnimationJs));
         memFs.results.set('hotspot-bridge.js', encoder.encode(bridgeJs));
         memFs.results.set('region-bridge.js', encoder.encode(regionBridgeJs));

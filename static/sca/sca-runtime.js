@@ -626,7 +626,7 @@
     syncFade()
     nav.classList.remove('hidden')
 
-    console.log(
+    window.scaDebug?.('navigation',
       `[SCA3D] navigation targets ready (${hotspotTargets.length} hotspot(s), ${regionTargets.length} region(s))`
     )
   }
@@ -687,7 +687,7 @@
     const diag = window.__SCA3D_CAMERA_DIAG
     diag.flyToStartCount = (diag.flyToStartCount || 0) + 1
 
-    console.log('[SCA3D] startup flyTo start', JSON.stringify({
+    window.scaDebug?.('camera', '[SCA3D] startup flyTo start', JSON.stringify({
       startCount: diag.flyToStartCount,
       duration: durationSeconds,
       startPosition: startPose.position,
@@ -918,10 +918,10 @@
       return
     }
 
-    console.log('[SCA3D] home transition start')
-    console.log('duration', duration)
-    console.log('fromPosition', startPose.position)
-    console.log('toPosition', endPose.position)
+    window.scaDebug?.('camera', '[SCA3D] home transition start')
+    window.scaDebug?.('camera', 'duration', duration)
+    window.scaDebug?.('camera', 'fromPosition', startPose.position)
+    window.scaDebug?.('camera', 'toPosition', endPose.position)
 
     await viewer.animateHomeTransition(startPose, endPose, duration)
   }
@@ -1090,11 +1090,11 @@
       activateScaHotspot(viewer, viewerConfig, hotspot, { source: 'annotation', emitClick: false })
 
       const positionBefore = readCameraPosition(viewer)
-      console.log('[SCA3D] select animation')
-      console.log('position before', positionBefore)
-      console.log('position after', readCameraPosition(viewer))
-      console.log('target', hotspot.position)
-      console.log('duration', focusDuration)
+      window.scaDebug?.('camera', '[SCA3D] select animation')
+      window.scaDebug?.('camera', 'position before', positionBefore)
+      window.scaDebug?.('camera', 'position after', readCameraPosition(viewer))
+      window.scaDebug?.('camera', 'target', hotspot.position)
+      window.scaDebug?.('camera', 'duration', focusDuration)
     })
 
     events.on('annotation.deactivate', () => {
@@ -1315,7 +1315,7 @@
     diag.startupAnimationType = animation.type
     diag.startupAnimationDuration = animation.duration
 
-    console.log('[SCA3D] viewer.camera.animation', JSON.stringify({
+    window.scaDebug?.('camera', '[SCA3D] viewer.camera.animation', JSON.stringify({
       type: animation.type,
       duration: animation.duration,
       turntable: animation.turntable,
