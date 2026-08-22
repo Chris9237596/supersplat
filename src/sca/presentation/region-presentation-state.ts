@@ -1,7 +1,7 @@
 import { ScaRegion } from '../types/region';
 
 import { RegionAnchor3D } from './region-anchor';
-import { RegionVisualState, resolveRegionVisual } from './region-visual';
+import { RegionVisualState, resolveRegionVisualWithAnimation } from './region-visual';
 
 type RegionPresentationEntry = {
     regionId: string;
@@ -47,7 +47,7 @@ const buildRegionPresentationEntry = (
     visitedRegionIds: ReadonlySet<string> | null = null
 ): RegionPresentationEntry => {
     const state = resolveEntryState(region.id, hoveredRegionId, selectedRegionId, visitedRegionIds);
-    const visual = resolveRegionVisual(region, state === 'normal' ? 'normal' : state);
+    const visual = resolveRegionVisualWithAnimation(region, state === 'normal' ? 'normal' : state);
     const cardVisible = region.enabled &&
         region.interaction.showCard !== false &&
         state === 'selected';

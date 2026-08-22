@@ -417,6 +417,7 @@ export {
     computeReparentLocalKeepWorld,
     getNodeHandleWorldEuler,
     getNodeHandleWorldPosition,
+    getNodeHandleWorldPositionFromPose,
     getRigChildren,
     getValidParentOptions,
     isWorldMatrixIdentity,

@@ -1,4 +1,5 @@
 import { DEFAULT_ACTIVE_OPACITY, DEFAULT_HOVER_OPACITY, DEFAULT_VISITED_OPACITY } from '../region-defaults';
+import { getRegionAnimationOpacityOverride } from '../animation/region-animation-presentation';
 import { ScaRegion } from '../types/region';
 
 import {
@@ -57,8 +58,39 @@ const resolveRegionVisual = (
     };
 };
 
+const applyAnimationOpacityOverride = (
+    regionId: string,
+    tint: RgbaColor
+): RgbaColor => {
+    const override = getRegionAnimationOpacityOverride(regionId);
+    if (override === null) {
+        return tint;
+    }
+
+    return {
+        ...tint,
+        a: override
+    };
+};
+
+const resolveRegionVisualWithAnimation = (
+    region: ScaRegion | null | undefined,
+    state: RegionVisualState
+): ResolvedRegionVisual | null => {
+    const visual = resolveRegionVisual(region, state);
+    if (!visual || !region) {
+        return visual;
+    }
+
+    return {
+        ...visual,
+        tint: applyAnimationOpacityOverride(region.id, visual.tint)
+    };
+};
+
 export {
     RegionVisualState,
     ResolvedRegionVisual,
-    resolveRegionVisual
+    resolveRegionVisual,
+    resolveRegionVisualWithAnimation
 };

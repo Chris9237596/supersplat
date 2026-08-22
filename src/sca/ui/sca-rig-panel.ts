@@ -17,7 +17,6 @@ import {
     rigParentIdFromSelectValue
 } from '../rig/rig-hierarchy-ui';
 import { ScaRigReparentMode } from '../rig/rig-hierarchy';
-import { ScaRigAnimationPlaybackState } from '../rig/rig-animation-types';
 import { ScaProject } from '../types/project';
 import { ScaRigNode } from '../types/rig';
 import { ScaSectionLayoutManager } from './sca-section-layout-state';
@@ -36,13 +35,6 @@ class ScaRigPanel extends Container {
     private reparentModeSelect: SelectInput | null = null;
     private positionInputs: SliderInput[] = [];
     private rotationInputs: SliderInput[] = [];
-    private animationSection: Container | null = null;
-    private animationInfoLabel: Label | null = null;
-    private animationTimeLabel: Label | null = null;
-    private createAnimationButton: Button | null = null;
-    private playAnimationButton: Button | null = null;
-    private stopAnimationButton: Button | null = null;
-    private resetAnimationButton: Button | null = null;
 
     constructor(private events: Events, _sectionLayout: ScaSectionLayoutManager) {
         super({ class: 'sca-rig-panel' });
@@ -90,10 +82,6 @@ class ScaRigPanel extends Container {
 
         events.on('tool.deactivated', () => {
             this.syncTransformModeButtons();
-        });
-
-        events.on('sca.rig.animation.changed', () => {
-            this.syncAnimationControls();
         });
 
         this.rebuildList();
@@ -148,13 +136,6 @@ class ScaRigPanel extends Container {
         this.reparentModeSelect = null;
         this.positionInputs = [];
         this.rotationInputs = [];
-        this.animationSection = null;
-        this.animationInfoLabel = null;
-        this.animationTimeLabel = null;
-        this.createAnimationButton = null;
-        this.playAnimationButton = null;
-        this.stopAnimationButton = null;
-        this.resetAnimationButton = null;
     }
 
     private refreshSelectedNodeForm(forceRemount = false) {
@@ -194,7 +175,6 @@ class ScaRigPanel extends Container {
         this.formContainer.append(nameRow);
 
         this.formContainer.append(this.createTransformModeRow());
-        this.formContainer.append(this.createAnimationTestSection());
 
         const hierarchyTitle = new Label({
             class: ['sca-panel-subsection-label', 'sca-panel-subsection-label-nested'],
@@ -316,110 +296,6 @@ class ScaRigPanel extends Container {
         });
 
         this.syncTransformModeButtons();
-        this.syncAnimationControls();
-    }
-
-    private createAnimationTestSection(): Container {
-        const section = new Container({ class: 'sca-rig-animation-test' });
-
-        const title = new Label({
-            class: ['sca-panel-subsection-label', 'sca-panel-subsection-label-nested'],
-            text: 'ANIMATION TEST (EXPERIMENTAL)'
-        });
-        section.append(title);
-
-        this.createAnimationButton = new Button({
-            class: 'sca-hotspot-form-button',
-            text: 'Create Test Animation'
-        });
-        this.createAnimationButton.on('click', () => {
-            this.events.fire('sca.rig.animation.createTest');
-        });
-        section.append(this.createAnimationButton);
-
-        this.animationInfoLabel = new Label({
-            class: 'sca-rig-animation-info',
-            text: 'No test animation'
-        });
-        section.append(this.animationInfoLabel);
-
-        this.animationTimeLabel = new Label({
-            class: 'sca-rig-animation-time',
-            text: '0.00 / 0.00'
-        });
-        section.append(this.animationTimeLabel);
-
-        const controls = new Container({ class: 'sca-rig-animation-controls' });
-        this.playAnimationButton = new Button({
-            class: ['sca-rig-transform-mode-button'],
-            text: 'Play'
-        });
-        this.stopAnimationButton = new Button({
-            class: ['sca-rig-transform-mode-button'],
-            text: 'Stop'
-        });
-        this.resetAnimationButton = new Button({
-            class: ['sca-rig-transform-mode-button'],
-            text: 'Reset'
-        });
-
-        this.playAnimationButton.on('click', () => {
-            this.events.fire('sca.rig.animation.play');
-        });
-        this.stopAnimationButton.on('click', () => {
-            this.events.fire('sca.rig.animation.stop');
-        });
-        this.resetAnimationButton.on('click', () => {
-            this.events.fire('sca.rig.animation.reset');
-        });
-
-        controls.append(this.playAnimationButton);
-        controls.append(this.stopAnimationButton);
-        controls.append(this.resetAnimationButton);
-        section.append(controls);
-
-        this.animationSection = section;
-        return section;
-    }
-
-    private getAnimationState(): ScaRigAnimationPlaybackState {
-        return this.events.invoke('sca.rig.animation.getState') as ScaRigAnimationPlaybackState;
-    }
-
-    private syncAnimationControls() {
-        if (!this.animationSection) {
-            return;
-        }
-
-        const state = this.getAnimationState();
-        const hasClip = !!state.clip;
-        const duration = state.clip?.duration ?? 1;
-
-        if (this.animationInfoLabel) {
-            this.animationInfoLabel.text = hasClip ?
-                `${state.clip!.name}\nDuration: ${duration.toFixed(1)}s` :
-                'No test animation';
-        }
-
-        if (this.animationTimeLabel) {
-            this.animationTimeLabel.text = `${state.currentTime.toFixed(2)} / ${duration.toFixed(2)}`;
-        }
-
-        if (this.createAnimationButton) {
-            this.createAnimationButton.enabled = !!this.getSelectedNodeId();
-        }
-
-        if (this.playAnimationButton) {
-            this.playAnimationButton.enabled = hasClip && !state.playing;
-        }
-
-        if (this.stopAnimationButton) {
-            this.stopAnimationButton.enabled = hasClip && (state.playing || state.influenceActive);
-        }
-
-        if (this.resetAnimationButton) {
-            this.resetAnimationButton.enabled = hasClip;
-        }
     }
 
     private createTransformModeRow(): Container {

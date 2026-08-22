@@ -5,6 +5,7 @@ import { Mat4, Quat, Vec3 } from 'playcanvas';
 import { Events } from '../src/events';
 import { ScaProjectOp } from '../src/sca/edit/sca-edit-ops';
 import { registerScaHistory } from '../src/sca/edit/register-sca-history';
+import { registerScaAnimationEvents } from '../src/sca/animation/register-sca-animation-events';
 import { generateRigId } from '../src/sca/ids/generate-rig-id';
 import { createDefaultRigNode, normalizeRig, DEFAULT_RIG_BIND_MODE } from '../src/sca/rig/rig-defaults';
 import {
@@ -37,7 +38,17 @@ import {
 } from '../src/sca/rig/rig-hierarchy';
 import { collectRigHierarchyMarkerSegments } from '../src/sca/rig/rig-node-markers';
 import { pickRigNodeIdAtScreen } from '../src/sca/rig/rig-node-pick';
-import { clipTargetNodeExists, createTestAnimationClip, sampleTrackRotation } from '../src/sca/rig/rig-animation';
+import { clipTargetNodeExists, createTestAnimationClip, sampleNumberTrack, sampleTrackPosition, sampleTrackRotation } from '../src/sca/rig/rig-animation';
+import { getRegionAnimationOpacityOverride, applyRegionAnimationOverrides } from '../src/sca/animation/region-animation-presentation';
+import { KEYFRAME_TIME_EPSILON } from '../src/sca/animation/animation-defaults';
+import { findAnimationClipsForTrigger } from '../src/sca/animation/animation-store';
+import { navigateClipKeyframeTime, timesNearEqual } from '../src/sca/animation/animation-keyframe-nav';
+import {
+    clearAnimationEditOverride,
+    setAnimationEditMode,
+    setAnimationEditOverride
+} from '../src/sca/animation/animation-edit-state';
+import { normalizeAnimations } from '../src/sca/animation/animation-defaults';
 import {
     evaluateFinalRigPose,
     evaluateRigPose,
@@ -53,6 +64,7 @@ import {
 } from '../src/sca/rig/rig-binding-ui';
 import { restoreRigSlotTransforms } from '../src/sca/rig/region-rig-restore';
 import { RegionRigApplier } from '../src/sca/rig/region-rig-applier';
+import { ScaRigAnimationController } from '../src/sca/rig/sca-rig-animation-controller';
 import {
     getNodeLocalPivotPosition,
     getNodeWorldPivotPosition,
@@ -1665,8 +1677,8 @@ const runRigAnimationTests = () => {
 
     const clip = createTestAnimationClip(node.id, node.rotation);
     assert.deepEqual(node.rotation, authoredRotation, 'create clip does not mutate authored rotation');
-    assert.equal(clip.tracks[0].keyframes[0].rotation[2], 0);
-    assert.equal(clip.tracks[0].keyframes[1].rotation[2], 30);
+    assert.equal(clip.tracks[0].keyframes[0].value[2], 0);
+    assert.equal(clip.tracks[0].keyframes[1].value[2], 30);
 
     setRigAnimationPlaybackState({
         clip,
@@ -1787,15 +1799,632 @@ const runRigAnimationTests = () => {
         editAddCount++;
     });
     registerScaHistory(events, store, assetStore);
-    events.fire('sca.rig.animation.createTest');
-    events.fire('sca.rig.animation.play');
-    events.fire('sca.rig.animation.stop');
-    events.fire('sca.rig.animation.reset');
+    events.fire('sca.animation.play');
+    events.fire('sca.animation.stop');
+    events.fire('sca.animation.reset');
+    events.fire('sca.animation.setCurrentTime', 0.5);
     assert.equal(editAddCount, 0, 'playback creates no history entries');
 
     setRigAnimationPlaybackState(null);
 
     console.log('[sca-rig] rig animation PASS');
+};
+
+const runAnimationTimelineTests = async () => {
+    const store = new HotspotStore(sampleProject());
+    const upper = createDefaultRigNode('rig_01', 'Claw Upper');
+    const lower = createDefaultRigNode('rig_02', 'Claw Lower');
+    lower.parentId = 'rig_01';
+    upper.rotation = [-15, 0, 0];
+    lower.rotation = [15, 0, 0];
+    upper.position = [0, 0, 0];
+    lower.position = [0, 0.5, 0];
+    store.addRigNode(upper);
+    store.addRigNode(lower);
+
+    const clip = store.addAnimationClip('Claw Test', 2);
+    assert.match(clip.id, /^animation_\d+$/, 'stable animation id');
+
+    store.addRigAnimationKeyframe(clip.id, upper.id, 'rotation', 0, [-15, 0, 0]);
+    store.addRigAnimationKeyframe(clip.id, upper.id, 'rotation', 1, [10, 0, 0]);
+    store.addRigAnimationKeyframe(clip.id, lower.id, 'rotation', 0, [15, 0, 0]);
+    store.addRigAnimationKeyframe(clip.id, lower.id, 'rotation', 1, [-10, 0, 0]);
+    store.addRigAnimationKeyframe(clip.id, upper.id, 'position', 0, [...upper.position] as [number, number, number]);
+    store.addRigAnimationKeyframe(clip.id, upper.id, 'position', 1, [0, 0.2, 0]);
+
+    const project = store.getProject();
+    const savedClip = project.animations![0];
+    assert.equal(savedClip.tracks.filter((track) => track.targetType === 'rig-node' && track.nodeId === upper.id).length, 2);
+
+    store.addRigAnimationKeyframe(clip.id, upper.id, 'rotation', 0.5, [0, 0, 0]);
+    const duplicateTracks = store.getProject().animations![0].tracks.filter((track) =>
+        track.targetType === 'rig-node' && track.nodeId === upper.id && track.property === 'rotation'
+    );
+    assert.equal(duplicateTracks.length, 1, 'prevent duplicate rotation track');
+
+    const rotationTrack = savedClip.tracks.find((track) =>
+        track.targetType === 'rig-node' && track.nodeId === upper.id && track.property === 'rotation'
+    )!;
+    assert.equal(rotationTrack.keyframes.length, 2);
+
+    const rig = project.rig!;
+    const animatedClip = savedClip;
+    setRigAnimationPlaybackState({
+        activeClipId: animatedClip.id,
+        clip: animatedClip,
+        playing: false,
+        previewActive: true,
+        currentTime: 0.5,
+        selectedTrackId: null,
+        selectedKeyframeId: null
+    });
+
+    const midUpper = evaluateFinalRigPose(rig).nodes.get(upper.id)!;
+    assert.ok(Math.abs(midUpper.rotation[0] - (-2.5)) < 2, 'rotation interpolates at t=0.5');
+    assert.ok(Math.abs(midUpper.position[1] - 0.1) < 1e-3, 'position interpolates at t=0.5');
+
+    const midRotation = sampleTrackRotation(rotationTrack as { keyframes: { time: number; value: [number, number, number] }[] }, 0.5);
+    assert.ok(Math.abs(midRotation[0] - (-2.5)) < 2, 'quaternion interpolation path');
+
+    const authoredUpper = [...upper.rotation] as [number, number, number];
+    const authoredLower = [...lower.rotation] as [number, number, number];
+    assert.deepEqual(store.getProject().rig!.nodes.find((node) => node.id === upper.id)!.rotation, authoredUpper);
+    assert.deepEqual(store.getProject().rig!.nodes.find((node) => node.id === lower.id)!.rotation, authoredLower);
+
+    setRigAnimationPlaybackState({
+        activeClipId: animatedClip.id,
+        clip: animatedClip,
+        playing: false,
+        previewActive: true,
+        currentTime: 1,
+        selectedTrackId: null,
+        selectedKeyframeId: null
+    });
+    const childMatBefore = new Mat4();
+    buildNodeWorldMatrixDirect({ version: 1, nodes: [upper, lower], bindings: [] }, lower, childMatBefore);
+    const childMatAfter = new Mat4();
+    buildNodeWorldMatrixFromPose({ version: 1, nodes: [upper, lower], bindings: [] }, evaluateFinalRigPose({ version: 1, nodes: [upper, lower], bindings: [] }), lower, childMatAfter);
+    assert.ok(!matricesNearEqual(childMatBefore, childMatAfter), 'two-node clip affects child hierarchy');
+
+    const opacityClip = store.addAnimationClip('Opacity Test', 1);
+    store.addRegionOpacityAnimationKeyframe(opacityClip.id, 'region_01', 0, 1);
+    store.addRegionOpacityAnimationKeyframe(opacityClip.id, 'region_01', 1, 0.25);
+    const fullOpacityClip = store.getAnimationClip(opacityClip.id)!;
+    applyRegionAnimationOverrides(fullOpacityClip, 0.5, true);
+    assert.ok(Math.abs(getRegionAnimationOpacityOverride('region_01')! - 0.625) < 1e-3);
+    applyRegionAnimationOverrides(null, 0, false);
+    assert.equal(getRegionAnimationOpacityOverride('region_01'), null);
+
+    const freshClip = store.getAnimationClip(clip.id)!;
+    const freshRotationTrack = freshClip.tracks.find((track) =>
+        track.targetType === 'rig-node' && track.nodeId === upper.id && track.property === 'rotation'
+    )!;
+    store.deleteAnimationKeyframe(clip.id, freshRotationTrack.id, freshRotationTrack.keyframes[0].id);
+    const afterDelete = store.getAnimationClip(clip.id)!;
+    assert.equal(
+        afterDelete.tracks.find((track) => track.id === freshRotationTrack.id)?.keyframes.length ?? 0,
+        freshRotationTrack.keyframes.length - 1
+    );
+
+    store.deleteRigNode(lower.id);
+    const afterNodeDelete = store.getProject();
+    assert.ok(
+        (afterNodeDelete.animations ?? []).every((entry) =>
+            entry.tracks.every((track) => track.targetType !== 'rig-node' || track.nodeId !== lower.id)
+        ),
+        'deleted node removes animation tracks'
+    );
+
+    const persistedClip = store.getAnimationClip(clip.id)!;
+    const json = stringifyProjectJson(store.getProject(), false);
+    const roundTrip = normalizeProject(JSON.parse(json));
+    const roundTripClip = roundTrip.animations?.find((entry) => entry.id === clip.id);
+    assert.ok(roundTripClip);
+    assert.equal(roundTripClip!.tracks.length, persistedClip.tracks.length);
+    assert.ok(roundTrip.animations?.some((entry) => entry.name === 'Claw Test'));
+
+    setRigAnimationPlaybackState(null);
+    const serialized = JSON.stringify(roundTrip);
+    assert.equal(serialized.includes('currentTime'), false);
+    assert.equal(serialized.includes('previewActive'), false);
+
+    setRigAnimationPlaybackState({
+        activeClipId: animatedClip.id,
+        clip: animatedClip,
+        playing: false,
+        previewActive: false,
+        currentTime: 0,
+        selectedTrackId: null,
+        selectedKeyframeId: null
+    });
+    assert.deepEqual(evaluateFinalRigPose(rig).nodes.get(upper.id)!.rotation, authoredUpper, 'disable preview restores authored pose');
+
+    const events = new Events();
+    const assetStore = new ScaAssetStore();
+    let editAddCount = 0;
+    events.on('edit.add', () => {
+        editAddCount++;
+    });
+    const history = registerScaHistory(events, store, assetStore);
+    registerScaAnimationEvents(events, store, history);
+    events.fire('sca.animation.create', 'History Clip', 1);
+    assert.equal(editAddCount, 1, 'create animation creates history entry');
+    const historyClip = store.getAnimations().find((entry) => entry.name === 'History Clip');
+    assert.ok(historyClip);
+    const node = store.getProject().rig!.nodes[0];
+    events.fire('sca.animation.keyframe.addRig', historyClip!.id, node.id, 'rotation', 0, [...node.rotation] as [number, number, number]);
+    assert.equal(editAddCount, 2, 'add keyframe creates history entry');
+
+    console.log('[sca-rig] animation timeline PASS');
+};
+
+const runAnimationEditModeTests = async () => {
+    const store = new HotspotStore(sampleProject());
+    const upper = createDefaultRigNode('rig_01', 'Claw Upper');
+    upper.rotation = [-15, 0, 0];
+    upper.position = [0, 0, 0];
+    store.addRigNode(upper);
+
+    const clip = store.addAnimationClip('Edit Mode Test', 2);
+    store.addRigAnimationKeyframe(clip.id, upper.id, 'rotation', 0, [-15, 0, 0]);
+    store.addRigAnimationKeyframe(clip.id, upper.id, 'rotation', 2, [45, 0, 0]);
+    store.addRigAnimationKeyframe(clip.id, upper.id, 'position', 0, [0, 0, 0]);
+    store.addRigAnimationKeyframe(clip.id, upper.id, 'position', 2, [0, 0.5, 0]);
+
+    const project = store.getProject();
+    const animatedClip = store.getAnimationClip(clip.id)!;
+    const rig = project.rig!;
+    const authoredRotation = [...upper.rotation] as [number, number, number];
+    const authoredPosition = [...upper.position] as [number, number, number];
+
+    const events = new Events();
+    const assetStore = new ScaAssetStore();
+    let editAddCount = 0;
+    events.on('edit.add', () => {
+        editAddCount++;
+    });
+    events.function('sca.project.get', () => store.getProject());
+    events.function('sca.rig.getSelected', () => upper.id);
+    events.function('sca.region.getSelected', () => null);
+
+    const scene = {
+        app: { on() {}, off() {} },
+        forceRender: false,
+        canvas: { parentElement: null }
+    } as unknown as import('../src/scene').Scene;
+
+    const applier = new RegionRigApplier();
+    const history = registerScaHistory(events, store, assetStore);
+    registerScaAnimationEvents(events, store, history);
+    new ScaRigAnimationController(events, scene, applier);
+
+    events.fire('sca.animation.setActiveClip', clip.id);
+    events.fire('sca.animation.setCurrentTime', 1.25);
+    events.fire('sca.animation.setEditMode', true);
+
+    let state = events.invoke('sca.animation.getState') as ReturnType<typeof events.invoke>;
+    assert.equal(state.currentTime, 1.25, 'currentTime stays at 1.25 when entering edit mode');
+    assert.equal(state.previewActive, true, 'preview stays active during animation edit');
+    assert.equal(state.editMode, true);
+
+    events.fire('sca.animation.disablePreview');
+    state = events.invoke('sca.animation.getState') as typeof state;
+    assert.equal(state.currentTime, 1.25, 'disablePreview ignored while edit mode active');
+    assert.equal(state.previewActive, true);
+
+    const rotationTrackForEval = animatedClip.tracks.find((track) =>
+        track.targetType === 'rig-node' && track.nodeId === upper.id && track.property === 'rotation'
+    )!;
+    const expectedInterpolated = sampleTrackRotation(
+        rotationTrackForEval as { keyframes: { time: number; value: [number, number, number] }[] },
+        1.25
+    );
+    const interpolatedRotation = evaluateFinalRigPose(rig, project).nodes.get(upper.id)!.rotation;
+    assert.ok(
+        Math.abs(interpolatedRotation[0] - expectedInterpolated[0]) < 2,
+        'editing between keys starts from evaluated pose'
+    );
+
+    setAnimationEditOverride({
+        nodeId: upper.id,
+        property: 'rotation',
+        value: [25, 0, 0]
+    });
+    const overrideRotation = evaluateFinalRigPose(rig, project).nodes.get(upper.id)!.rotation;
+    assert.deepEqual(overrideRotation, [25, 0, 0]);
+    clearAnimationEditOverride();
+
+    const historyBeforeKeyframe = editAddCount;
+    events.fire(
+        'sca.animation.keyframe.addRig',
+        clip.id,
+        upper.id,
+        'rotation',
+        1.25,
+        [30, 0, 0]
+    );
+    assert.equal(editAddCount - historyBeforeKeyframe, 1, 'animation keyframe commit = one history entry');
+
+    state = events.invoke('sca.animation.getState') as typeof state;
+    assert.equal(state.currentTime, 1.25, 'currentTime stays at 1.25 after keyframe commit');
+    assert.deepEqual(
+        store.getProject().rig!.nodes.find((node) => node.id === upper.id)!.rotation,
+        authoredRotation,
+        'authored node.rotation unchanged after animation edit keyframe'
+    );
+    assert.deepEqual(
+        store.getProject().rig!.nodes.find((node) => node.id === upper.id)!.position,
+        authoredPosition,
+        'authored node.position unchanged after animation edit keyframe'
+    );
+
+    const rotationTrack = store.getAnimationClip(clip.id)!.tracks.find((track) =>
+        track.targetType === 'rig-node' && track.nodeId === upper.id && track.property === 'rotation'
+    )!;
+    const rotationAt125 = rotationTrack.keyframes.find((keyframe) => timesNearEqual(keyframe.time, 1.25));
+    assert.ok(rotationAt125, 'rotate creates rotation key at currentTime');
+    assert.deepEqual(rotationAt125!.value, [30, 0, 0]);
+
+    events.fire(
+        'sca.animation.keyframe.addRig',
+        clip.id,
+        upper.id,
+        'position',
+        1.25,
+        [0, 0.3, 0.1]
+    );
+    const positionTrack = store.getAnimationClip(clip.id)!.tracks.find((track) =>
+        track.targetType === 'rig-node' && track.nodeId === upper.id && track.property === 'position'
+    )!;
+    const positionAt125 = positionTrack.keyframes.find((keyframe) => timesNearEqual(keyframe.time, 1.25));
+    assert.ok(positionAt125, 'move creates position key at currentTime');
+
+    const replaceKeyframeId = rotationAt125!.id;
+    const keyCountBeforeReplace = rotationTrack.keyframes.length;
+    store.addRigAnimationKeyframe(clip.id, upper.id, 'rotation', 1.25 + KEYFRAME_TIME_EPSILON * 0.5, [40, 0, 0]);
+    const afterReplace = store.getAnimationClip(clip.id)!.tracks.find((track) =>
+        track.targetType === 'rig-node' && track.nodeId === upper.id && track.property === 'rotation'
+    )!;
+    assert.equal(afterReplace.keyframes.length, keyCountBeforeReplace, 'same-time replacement does not increase key count');
+    const replacedKeyframe = afterReplace.keyframes.find((keyframe) => timesNearEqual(keyframe.time, 1.25))!;
+    assert.equal(replacedKeyframe.id, replaceKeyframeId, 'same-time replacement preserves keyframe id');
+    assert.deepEqual(replacedKeyframe.value, [40, 0, 0], 'same-time key replaces existing value');
+
+    store.addRegionOpacityAnimationKeyframe(clip.id, 'region_01', 0, 1);
+    store.addRegionOpacityAnimationKeyframe(clip.id, 'region_01', 1, 0.5);
+    const opacityTrackBefore = store.getAnimationClip(clip.id)!.tracks.find((track) =>
+        track.targetType === 'region' && track.regionId === 'region_01' && track.property === 'opacity'
+    )!;
+    const opacityKeyframeId = opacityTrackBefore!.keyframes.find((keyframe) => timesNearEqual(keyframe.time, 1))!.id;
+    store.addRegionOpacityAnimationKeyframe(clip.id, 'region_01', 1, 0.25);
+    const opacityTrackAfter = store.getAnimationClip(clip.id)!.tracks.find((track) =>
+        track.targetType === 'region' && track.regionId === 'region_01' && track.property === 'opacity'
+    )!;
+    assert.equal(opacityTrackAfter!.keyframes.length, opacityTrackBefore!.keyframes.length);
+    const replacedOpacity = opacityTrackAfter!.keyframes.find((keyframe) => timesNearEqual(keyframe.time, 1))!;
+    assert.equal(replacedOpacity!.id, opacityKeyframeId);
+    assert.equal(replacedOpacity!.value, 0.25, 'keyframe replacement works for opacity');
+
+    const navClip = store.getAnimationClip(clip.id)!;
+    const prevForNode = navigateClipKeyframeTime(navClip, 1.25, 'previous', upper.id, null);
+    assert.ok(prevForNode);
+    assert.ok(prevForNode!.time < 1.25 - KEYFRAME_TIME_EPSILON, 'J goes to previous selected-target key');
+    const nextForNode = navigateClipKeyframeTime(navClip, 1.25, 'next', upper.id, null);
+    assert.ok(nextForNode);
+    assert.ok(nextForNode!.time > 1.25 + KEYFRAME_TIME_EPSILON, 'K goes to next selected-target key');
+
+    const emptyNodeClip = store.addAnimationClip('Global Nav', 2);
+    store.addRegionOpacityAnimationKeyframe(emptyNodeClip.id, 'region_01', 0.5, 0.75);
+    const globalNavClip = store.getAnimationClip(emptyNodeClip.id)!;
+    const globalPrev = navigateClipKeyframeTime(globalNavClip, 1, 'previous', upper.id, null);
+    assert.ok(globalPrev);
+    assert.ok(timesNearEqual(globalPrev!.time, 0.5), 'fallback global key navigation');
+
+    const historyBeforeNav = editAddCount;
+    events.fire('sca.animation.navigateKeyframe', 'previous');
+    assert.equal(editAddCount, historyBeforeNav, 'navigation produces zero history entries');
+    state = events.invoke('sca.animation.getState') as typeof state;
+    assert.ok(state.currentTime < 1.25, 'navigation updates currentTime');
+
+    events.invoke('sca.history.beginTransaction');
+    events.invoke('sca.history.cancelTransaction');
+    assert.equal(editAddCount, historyBeforeNav, 'click without movement = zero history');
+
+    events.fire('sca.animation.setEditMode', false);
+    store.updateRigNode(upper.id, { rotation: [5, 0, 0] });
+    assert.deepEqual(
+        store.getProject().rig!.nodes.find((node) => node.id === upper.id)!.rotation,
+        [5, 0, 0],
+        'normal rig edit mode still edits authored node pose'
+    );
+
+    setAnimationEditMode(false);
+    clearAnimationEditOverride();
+    setRigAnimationPlaybackState(null);
+
+    console.log('[sca-rig] animation edit mode PASS');
+};
+
+const runAnimationCreateTests = async () => {
+    const emptyProject = createEmptyProject();
+    assert.equal(emptyProject.animations, undefined);
+
+    const store = new HotspotStore(emptyProject);
+    const clip = store.addAnimationClip('Animation 1', 2);
+    assert.equal(store.getProject().animations?.length, 1);
+    assert.equal(clip.tracks.length, 0);
+    assert.equal(clip.duration, 2);
+
+    const normalized = normalizeProject({
+        ...emptyProject,
+        animations: [{
+            id: clip.id,
+            name: clip.name,
+            duration: clip.duration,
+            tracks: []
+        }]
+    });
+    assert.equal(normalized.animations?.length, 1, 'empty clip survives normalizeProject()');
+    assert.equal(normalized.animations![0].tracks.length, 0);
+
+    setRigAnimationPlaybackState({
+        activeClipId: clip.id,
+        clip,
+        playing: false,
+        previewActive: true,
+        currentTime: 0.5,
+        selectedTrackId: null,
+        selectedKeyframeId: null,
+        editMode: false
+    });
+    const node = createDefaultRigNode('rig_01');
+    const rig = { version: 1 as const, nodes: [node], bindings: [] as [] };
+    assert.deepEqual(
+        evaluateFinalRigPose(rig).nodes.get(node.id)!.rotation,
+        node.rotation,
+        'empty clip evaluates safely'
+    );
+    setRigAnimationPlaybackState(null);
+
+    const events = new Events();
+    const assetStore = new ScaAssetStore();
+    let projectChangedCount = 0;
+    let animationChangedCount = 0;
+    events.on('sca.project.changed', () => {
+        projectChangedCount++;
+    });
+    events.on('sca.animation.changed', () => {
+        animationChangedCount++;
+    });
+    events.function('sca.project.get', () => store.getProject());
+    events.function('sca.rig.getSelected', () => null);
+    events.function('sca.region.getSelected', () => null);
+
+    const scene = {
+        app: { on() {}, off() {} },
+        forceRender: false,
+        canvas: { parentElement: null }
+    } as unknown as import('../src/scene').Scene;
+
+    const history = registerScaHistory(events, store, assetStore);
+    registerScaAnimationEvents(events, store, history);
+    new ScaRigAnimationController(events, scene, new RegionRigApplier());
+
+    let editAddCount = 0;
+    events.on('edit.add', () => {
+        editAddCount++;
+    });
+
+    projectChangedCount = 0;
+    animationChangedCount = 0;
+    events.fire('sca.animation.create', 'History Animation', 2);
+    assert.equal(editAddCount, 1, 'create animation = exactly one history entry');
+    assert.equal(projectChangedCount, 1, 'create animation does not recursively fire project mutation');
+    assert.ok(animationChangedCount <= 2, 'timeline refresh with empty clip completes once');
+
+    const state = events.invoke('sca.animation.getState') as {
+        activeClipId: string | null;
+        clip: { id: string; tracks: unknown[] } | null;
+    };
+    assert.ok(state.activeClipId, 'activeClipId points to created clip after create');
+    assert.equal(state.clip?.id, state.activeClipId);
+    assert.equal(state.clip?.tracks.length, 0);
+
+    const second = store.addAnimationClip('Animation 2', 2);
+    assert.match(second.id, /^animation_\d+$/, 'create second animation creates animation_02');
+    assert.notEqual(second.id, clip.id);
+
+    let undoOp: import('../src/sca/edit/sca-edit-ops').ScaProjectOp | null = null;
+    const captureUndoOp = (entry: import('../src/sca/edit/sca-edit-ops').ScaProjectOp) => {
+        if (!undoOp) {
+            undoOp = entry;
+        }
+    };
+    events.on('edit.add', captureUndoOp);
+    events.fire('sca.animation.create', 'Undo Me', 2);
+    events.off('edit.add', captureUndoOp);
+    assert.ok(undoOp);
+    const op = undoOp!;
+    assert.equal(store.getAnimations().length, 4);
+    await op.undo();
+    assert.equal(store.getAnimations().length, 3, 'undo create removes clip');
+    await op.do();
+    assert.equal(store.getAnimations().length, 4, 'redo create restores clip');
+
+    console.log('[sca-rig] animation create PASS');
+};
+
+const runAnimationLoadSelectionTests = () => {
+    const store = new HotspotStore(sampleProject());
+    const first = store.addAnimationClip('First', 2);
+    const second = store.addAnimationClip('Second', 2);
+
+    const events = new Events();
+    events.function('sca.project.get', () => store.getProject());
+    events.function('sca.rig.getSelected', () => null);
+    events.function('sca.region.getSelected', () => null);
+
+    const scene = {
+        app: { on() {}, off() {} },
+        forceRender: false,
+        canvas: { parentElement: null }
+    } as unknown as import('../src/scene').Scene;
+
+    new ScaRigAnimationController(events, scene, new RegionRigApplier());
+
+    events.fire('sca.project.changed');
+    let state = events.invoke('sca.animation.getState') as {
+        activeClipId: string | null;
+        clip: { id: string } | null;
+    };
+    assert.equal(state.activeClipId, first.id, 'selects first clip when activeClipId is null');
+    assert.equal(state.clip?.id, first.id);
+
+    events.fire('sca.animation.setActiveClip', second.id);
+    store.loadProject(store.getProject());
+    events.fire('sca.project.changed');
+    state = events.invoke('sca.animation.getState') as typeof state;
+    assert.equal(state.activeClipId, second.id, 'preserves valid activeClipId after project reload');
+
+    events.fire('sca.animation.setActiveClip', null);
+    events.fire('sca.project.changed');
+    state = events.invoke('sca.animation.getState') as typeof state;
+    assert.equal(state.activeClipId, null, 'explicit no-clip selection survives project refresh');
+
+    events.fire('scene.clear');
+    store.loadProject(store.getProject());
+    events.fire('sca.project.changed');
+    state = events.invoke('sca.animation.getState') as typeof state;
+    assert.equal(state.activeClipId, first.id, 'scene clear allows auto-select on next project refresh');
+
+    console.log('[sca-rig] animation load selection PASS');
+};
+
+const runAnimationPlaybackSettingsTests = () => {
+    const store = new HotspotStore(sampleProject());
+    const clip = store.addAnimationClip('Playback Test', 2);
+
+    store.updateAnimationClip(clip.id, {
+        autoplay: true,
+        loop: true,
+        trigger: { type: 'region', targetId: 'region_01' }
+    });
+
+    let updated = store.getAnimationClip(clip.id)!;
+    assert.equal(updated.autoplay, true);
+    assert.equal(updated.loop, true);
+    assert.deepEqual(updated.trigger, { type: 'region', targetId: 'region_01' });
+
+    store.updateAnimationClip(clip.id, { trigger: { type: 'none' } });
+    updated = store.getAnimationClip(clip.id)!;
+    assert.equal(updated.trigger, undefined);
+
+    store.updateAnimationClip(clip.id, {
+        trigger: { type: 'region', targetId: 'region_01' }
+    });
+    store.deleteRegion('region_01');
+    updated = store.getAnimationClip(clip.id)!;
+    assert.equal(updated.trigger, undefined, 'invalid region trigger clears on sync');
+
+    const events = new Events();
+    const assetStore = new ScaAssetStore();
+    let editAddCount = 0;
+    events.on('edit.add', () => {
+        editAddCount++;
+    });
+    events.function('sca.project.get', () => store.getProject());
+
+    const history = registerScaHistory(events, store, assetStore);
+    registerScaAnimationEvents(events, store, history);
+
+    events.fire('sca.animation.update', clip.id, { autoplay: false, loop: false });
+    assert.equal(editAddCount, 1, 'playback settings update creates history entry');
+    updated = store.getAnimationClip(clip.id)!;
+    assert.equal(updated.autoplay, false);
+    assert.equal(updated.loop, false);
+
+    console.log('[sca-rig] animation playback settings PASS');
+};
+
+const runAnimationTestTriggerTests = () => {
+    const store = new HotspotStore(sampleProject());
+    const clip = store.addAnimationClip('Trigger Test', 2);
+    store.updateAnimationClip(clip.id, {
+        trigger: { type: 'region', targetId: 'region_01' }
+    });
+
+    const matched = findAnimationClipsForTrigger(store.getProject(), 'region', 'region_01');
+    assert.equal(matched.length, 1);
+    assert.equal(matched[0].id, clip.id);
+
+    const events = new Events();
+    events.function('sca.project.get', () => store.getProject());
+    events.function('sca.rig.getSelected', () => null);
+    events.function('sca.region.getSelected', () => null);
+
+    const scene = {
+        app: { on() {}, off() {} },
+        forceRender: false,
+        canvas: { parentElement: null }
+    } as unknown as import('../src/scene').Scene;
+
+    new ScaRigAnimationController(events, scene, new RegionRigApplier());
+    events.fire('sca.project.changed');
+    events.fire('sca.animation.testTrigger');
+
+    const state = events.invoke('sca.animation.getState') as { playing: boolean; activeClipId: string | null };
+    assert.equal(state.activeClipId, clip.id);
+    assert.equal(state.playing, true, 'test trigger starts preview playback');
+
+    let editAddCount = 0;
+    events.on('edit.add', () => {
+        editAddCount++;
+    });
+    events.fire('sca.animation.testTrigger');
+    assert.equal(editAddCount, 0, 'test trigger does not create history');
+
+    console.log('[sca-rig] animation test trigger PASS');
+};
+
+const runAnimationPreviewTriggerTests = () => {
+    const store = new HotspotStore(sampleProject());
+    const clip = store.addAnimationClip('Preview Trigger Test', 2);
+    store.updateAnimationClip(clip.id, {
+        trigger: { type: 'region', targetId: 'region_01' }
+    });
+
+    const events = new Events();
+    events.function('sca.project.get', () => store.getProject());
+    events.function('sca.rig.getSelected', () => null);
+    events.function('sca.region.getSelected', () => null);
+
+    const scene = {
+        app: { on() {}, off() {} },
+        forceRender: false,
+        canvas: { parentElement: null }
+    } as unknown as import('../src/scene').Scene;
+
+    new ScaRigAnimationController(events, scene, new RegionRigApplier());
+    events.fire('sca.project.changed');
+
+    events.fire('sca.animation.previewTriggerFromTarget', 'region', 'region_01');
+    let state = events.invoke('sca.animation.getState') as { playing: boolean; activeClipId: string | null; currentTime: number };
+    assert.equal(state.playing, false, 'preview trigger ignored when toggle is off');
+
+    events.fire('sca.animation.triggerPreview.setEnabled', true);
+    events.fire('sca.animation.previewTriggerFromTarget', 'region', 'region_01');
+    state = events.invoke('sca.animation.getState') as typeof state;
+    assert.equal(state.activeClipId, clip.id);
+    assert.equal(state.playing, true, 'preview trigger plays first matched clip from t=0');
+
+    let editAddCount = 0;
+    events.on('edit.add', () => {
+        editAddCount++;
+    });
+    events.fire('sca.animation.previewTriggerFromTarget', 'region', 'region_01');
+    assert.equal(editAddCount, 0, 'preview trigger does not create history');
+
+    console.log('[sca-rig] animation preview trigger PASS');
 };
 
 const runZeroMoveHandleStabilityTests = () => {
@@ -2245,6 +2874,13 @@ async function main() {
     runPoseEvaluationTests();
     runRigNodeMarkerTests();
     runRigAnimationTests();
+    await runAnimationTimelineTests();
+    await runAnimationEditModeTests();
+    await runAnimationCreateTests();
+    runAnimationLoadSelectionTests();
+    runAnimationPlaybackSettingsTests();
+    runAnimationTestTriggerTests();
+    runAnimationPreviewTriggerTests();
     runZeroMoveHandleStabilityTests();
     runBindingEffectiveConsistencyTests();
     await runScaProjectOpNoOpTests();
@@ -2287,6 +2923,12 @@ async function main() {
     console.log('Pose evaluation: PASS');
     console.log('Rig node markers: PASS');
     console.log('Rig animation: PASS');
+    console.log('Animation timeline: PASS');
+    console.log('Animation edit mode: PASS');
+    console.log('Animation create: PASS');
+    console.log('Animation load selection: PASS');
+    console.log('Animation playback settings: PASS');
+    console.log('Animation test trigger: PASS');
     console.log('Zero-move handle stability: PASS');
     console.log('Binding effective consistency: PASS');
     console.log('ScaProjectOp no-op apply: PASS');

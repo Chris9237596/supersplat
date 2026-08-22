@@ -25,5 +25,6 @@ const scaRuntimeModule = (input, file) => ({
 
 export default [
     scaRuntimeModule('src/sca/runtime/sca-picker-entry.ts', 'static/sca/sca-picker.js'),
-    scaRuntimeModule('src/sca/runtime/sca-region-core-entry.ts', 'static/sca/sca-region-core.js')
+    scaRuntimeModule('src/sca/runtime/sca-region-core-entry.ts', 'static/sca/sca-region-core.js'),
+    scaRuntimeModule('src/sca/runtime/sca-animation-runtime-entry.ts', 'static/sca/sca-animation-runtime.js')
 ];

@@ -1,8 +1,11 @@
 import { ScaHotspot, ScaNavigationMode, ScaProject, ScaRigNode, ScaViewerBackground, ScaViewerConfig } from '../types/project';
+import { ScaAnimationClip } from '../types/animation';
+import { ScaRigNodeAnimationProperty } from '../types/animation';
 import { createEmptyProject } from '../types/project';
 import { ScaRegion, ScaRegionPatch } from '../types/region';
 import { ScaRigBindMode, ScaRigVec3 } from '../types/rig';
 import { mergeVisualStateContent } from '../region-state-content';
+import { syncAnimationTargets } from '../animation/animation-store';
 import { DEFAULT_RIG_BIND_MODE, ensureProjectRig, normalizeRig } from '../rig/rig-defaults';
 import {
     createKeepWorldBindOffset,
@@ -12,6 +15,16 @@ import {
     wouldCreateRigCycle
 } from '../rig/rig-hierarchy';
 import { computeSnapBindOffset, poseFromVec3 } from '../rig/rig-transform';
+import {
+    addAnimationClip,
+    addRegionOpacityKeyframe,
+    addRigKeyframe,
+    deleteAnimationClip,
+    deleteAnimationKeyframe,
+    findAnimationClip,
+    toggleRigKeyframeAtTime,
+    updateAnimationClip
+} from '../animation/animation-store';
 import {
     createDefaultViewerConfig,
     ensureNavigationValid,
@@ -529,6 +542,7 @@ class HotspotStore {
         rig.nodes.splice(index, 1);
         rig.bindings = rig.bindings.filter((binding) => binding.nodeId !== id);
         this.project.rig = rig.nodes.length > 0 || rig.bindings.length > 0 ? rig : undefined;
+        syncAnimationTargets(this.project);
 
         if (this.selectedRigNodeId === id) {
             this.selectedRigNodeId = null;
@@ -603,6 +617,7 @@ class HotspotStore {
 
     private removeRigBindingsForRegion(regionId: string): void {
         if (!this.project.rig) {
+            syncAnimationTargets(this.project);
             return;
         }
 
@@ -612,6 +627,61 @@ class HotspotStore {
         if (this.project.rig.nodes.length === 0 && this.project.rig.bindings.length === 0) {
             delete this.project.rig;
         }
+        syncAnimationTargets(this.project);
+    }
+
+    getAnimations(): ScaAnimationClip[] {
+        return structuredClone(this.project.animations ?? []);
+    }
+
+    getAnimationClip(id: string): ScaAnimationClip | null {
+        const clip = findAnimationClip(this.project, id);
+        return clip ? structuredClone(clip) : null;
+    }
+
+    addAnimationClip(name: string, duration?: number): ScaAnimationClip {
+        return addAnimationClip(this.project, name, duration);
+    }
+
+    updateAnimationClip(id: string, patch: Partial<Pick<ScaAnimationClip, 'name' | 'duration' | 'autoplay' | 'loop' | 'trigger'>>): ScaAnimationClip {
+        return updateAnimationClip(this.project, id, patch);
+    }
+
+    deleteAnimationClip(id: string): void {
+        deleteAnimationClip(this.project, id);
+    }
+
+    addRigAnimationKeyframe(
+        clipId: string,
+        nodeId: string,
+        property: ScaRigNodeAnimationProperty,
+        time: number,
+        value: ScaRigVec3
+    ): ScaAnimationClip {
+        return addRigKeyframe(this.project, clipId, nodeId, property, time, value);
+    }
+
+    addRegionOpacityAnimationKeyframe(
+        clipId: string,
+        regionId: string,
+        time: number,
+        value: number
+    ): ScaAnimationClip {
+        return addRegionOpacityKeyframe(this.project, clipId, regionId, time, value);
+    }
+
+    toggleRigAnimationKeyframe(
+        clipId: string,
+        nodeId: string,
+        property: ScaRigNodeAnimationProperty,
+        time: number,
+        value: ScaRigVec3
+    ): { clip: ScaAnimationClip; added: boolean } {
+        return toggleRigKeyframeAtTime(this.project, clipId, nodeId, property, time, value);
+    }
+
+    deleteAnimationKeyframe(clipId: string, trackId: string, keyframeId: string): ScaAnimationClip {
+        return deleteAnimationKeyframe(this.project, clipId, trackId, keyframeId);
     }
 
     loadProject(project: ScaProject): void {
@@ -631,6 +701,8 @@ class HotspotStore {
             !this.project.rig?.nodes.some((node) => node.id === this.selectedRigNodeId)) {
             this.selectedRigNodeId = null;
         }
+
+        syncAnimationTargets(this.project);
     }
 
     toJSON(): ScaProject {

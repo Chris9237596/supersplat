@@ -59,7 +59,10 @@ const migrateSsprojScaBlock = (raw: unknown): ScaProject => {
         regions: Array.isArray(projectRaw.regions) ? projectRaw.regions : [],
         splats: Array.isArray(projectRaw.splats) ? projectRaw.splats as ScaProject['splats'] : undefined,
         viewer: projectRaw.viewer as ScaProject['viewer'],
-        rig: projectRaw.rig as ScaProject['rig']
+        rig: projectRaw.rig as ScaProject['rig'],
+        animations: Array.isArray(projectRaw.animations) ?
+            projectRaw.animations as ScaProject['animations'] :
+            undefined
     });
 };
 

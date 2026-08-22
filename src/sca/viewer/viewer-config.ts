@@ -14,6 +14,7 @@ import { ScaRegion } from '../types/region';
 
 import { normalizeRegions } from '../region-defaults';
 import { normalizeRig } from '../rig/rig-defaults';
+import { normalizeAnimations, pruneAnimationTargets } from '../animation/animation-defaults';
 import { normalizeBackground } from './viewer-background';
 
 const DEFAULT_FOV = 60;
@@ -311,10 +312,14 @@ const normalizeViewerConfig = (
 
 const normalizeProject = (project: ScaProject, fallbackInitial?: Partial<ScaCameraPose>): ScaProject => {
     const rig = normalizeRig(project.rig);
+    const regions = normalizeRegions(project.regions);
+    const animations = normalizeAnimations(project.animations);
+    const nodeIds = new Set(rig?.nodes.map((node) => node.id) ?? []);
+    const regionIds = new Set(regions.map((region) => region.id));
     const normalized: ScaProject = {
         version: project.version,
         hotspots: project.hotspots,
-        regions: normalizeRegions(project.regions),
+        regions,
         splats: project.splats ? [...project.splats] : undefined,
         viewer: project.viewer ?
             normalizeViewerConfig(project.viewer, fallbackInitial) :
@@ -323,6 +328,11 @@ const normalizeProject = (project: ScaProject, fallbackInitial?: Partial<ScaCame
 
     if (rig) {
         normalized.rig = rig;
+    }
+
+    const prunedAnimations = pruneAnimationTargets(animations, nodeIds, regionIds);
+    if (prunedAnimations && prunedAnimations.length > 0) {
+        normalized.animations = prunedAnimations;
     }
 
     return normalized;

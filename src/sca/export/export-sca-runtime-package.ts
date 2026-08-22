@@ -50,6 +50,7 @@ const SCA_RUNTIME_ASSET_FILENAMES = [
     'sca-hotspot-overlay.js',
     'sca-region-overlay.js',
     'sca-region-runtime.js',
+    'sca-animation-runtime.js',
     'sca-hotspot-markers.css',
     'sca-runtime.js',
     'sca-host-bridge.js'
@@ -83,6 +84,7 @@ type ScaRuntimeAssets = {
     overlayJs: string;
     regionOverlayJs: string;
     regionRuntimeJs: string;
+    animationRuntimeJs: string;
     hotspotCss: string;
     runtimeJs: string;
     hostBridgeJs: string;
@@ -282,6 +284,7 @@ const patchIndexHtml = (html: string): string => {
         '        <script src="./sca-hotspot-overlay.js"></script>\n' +
         '        <script src="./sca-region-overlay.js"></script>\n' +
         '        <script src="./sca-region-runtime.js"></script>\n' +
+        '        <script src="./sca-animation-runtime.js"></script>\n' +
         '        <script src="./sca-runtime.js"></script>\n' +
         '        <script src="./sca-host-bridge.js"></script>\n\n' +
         '        <!-- Application Script -->'
@@ -305,6 +308,7 @@ const patchPreviewHtml = (
     overlayJs: string,
     regionOverlayJs: string,
     regionRuntimeJs: string,
+    animationRuntimeJs: string,
     hotspotCss: string,
     runtimeJs: string,
     hostBridgeJs: string,
@@ -328,6 +332,7 @@ const patchPreviewHtml = (
         `<script>\n${overlayJs}\n</script>\n` +
         `<script>\n${regionOverlayJs}\n</script>\n` +
         `<script>\n${regionRuntimeJs}\n</script>\n` +
+        `<script>\n${animationRuntimeJs}\n</script>\n` +
         `<script>\n${runtimeJs}\n</script>\n` +
         `<script>\n${hostBridgeJs}\n</script>\n\n`;
 
@@ -528,6 +533,7 @@ const fetchScaRuntimeAssetsInternal = async (): Promise<ScaRuntimeAssets> => {
         overlayJs,
         regionOverlayJs,
         regionRuntimeJs,
+        animationRuntimeJs,
         hotspotCss,
         runtimeJs,
         hostBridgeJs
@@ -546,6 +552,7 @@ const fetchScaRuntimeAssetsInternal = async (): Promise<ScaRuntimeAssets> => {
         overlayJs,
         regionOverlayJs,
         regionRuntimeJs,
+        animationRuntimeJs,
         hotspotCss,
         runtimeJs,
         hostBridgeJs
@@ -742,6 +749,7 @@ const buildRuntimeViewerPreviewHtml = async (
             runtimeAssets.overlayJs,
             runtimeAssets.regionOverlayJs,
             runtimeAssets.regionRuntimeJs,
+            runtimeAssets.animationRuntimeJs,
             runtimeAssets.hotspotCss,
             runtimeAssets.runtimeJs,
             runtimeAssets.hostBridgeJs,
@@ -883,6 +891,7 @@ const exportScaRuntimePackage = async (
             overlayJs,
             regionOverlayJs,
             regionRuntimeJs,
+            animationRuntimeJs,
             hotspotCss,
             runtimeJs,
             hostBridgeJs
@@ -900,6 +909,7 @@ const exportScaRuntimePackage = async (
         memFs.results.set('sca-hotspot-overlay.js', encoder.encode(overlayJs));
         memFs.results.set('sca-region-overlay.js', encoder.encode(regionOverlayJs));
         memFs.results.set('sca-region-runtime.js', encoder.encode(regionRuntimeJs));
+        memFs.results.set('sca-animation-runtime.js', encoder.encode(animationRuntimeJs));
         memFs.results.set('sca-hotspot-markers.css', encoder.encode(hotspotCss));
         memFs.results.set('sca-runtime.js', encoder.encode(runtimeJs));
         memFs.results.set('sca-host-bridge.js', encoder.encode(hostBridgeJs));

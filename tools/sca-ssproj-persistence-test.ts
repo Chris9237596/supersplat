@@ -10,6 +10,7 @@ import {
     ScaProject,
     SCA_PROJECT_VERSION
 } from '../src/sca/types/project';
+import { createDefaultRigNode } from '../src/sca/rig/rig-defaults';
 import { createDefaultViewerConfig } from '../src/sca/viewer/viewer-config';
 
 const sampleHotspot = (id: string, name: string, position: [number, number, number]): ScaHotspot => ({
@@ -90,6 +91,41 @@ const runPersistenceTests = () => {
     console.log('[sca-ssproj-persistence] module round-trip PASS');
 };
 
+const runAnimationPersistenceTest = () => {
+    const upper = createDefaultRigNode('rig_01', 'Upper');
+    upper.rotation = [-15, 0, 0];
+
+    const source: ScaProject = {
+        version: SCA_PROJECT_VERSION,
+        hotspots: [],
+        regions: [],
+        rig: { version: 1, nodes: [upper], bindings: [] },
+        animations: [{
+            id: 'animation_01',
+            name: 'Claw Test',
+            duration: 2,
+            tracks: [{
+                id: 'track_01',
+                targetType: 'rig-node',
+                nodeId: upper.id,
+                property: 'rotation',
+                keyframes: [
+                    { id: 'keyframe_01', time: 0, value: [-15, 0, 0] },
+                    { id: 'keyframe_02', time: 1, value: [10, 0, 0] }
+                ]
+            }]
+        }]
+    };
+
+    const restored = deserializeSsprojScaBlock(serializeSsprojScaBlock(source));
+    assert.equal(restored.animations?.length, 1);
+    assert.equal(restored.animations![0].name, 'Claw Test');
+    assert.equal(restored.animations![0].tracks[0].keyframes.length, 2);
+    assert.deepEqual(restored.animations![0].tracks[0].keyframes[1].value, [10, 0, 0]);
+
+    console.log('[sca-ssproj-persistence] animation round-trip PASS');
+};
+
 const runDocumentJsonShapeTest = () => {
     const source = createSampleProject();
     const document = {
@@ -116,9 +152,11 @@ const runDocumentJsonShapeTest = () => {
 
 async function main() {
     runPersistenceTests();
+    runAnimationPersistenceTest();
     runDocumentJsonShapeTest();
     console.log('\n========== SCA SSPROJ PERSISTENCE TEST REPORT ==========');
     console.log('Module round-trip: PASS');
+    console.log('Animation round-trip: PASS');
     console.log('Missing SCA block: PASS');
     console.log('Unsupported version: PASS');
     console.log('Runtime project.json equivalence: PASS');

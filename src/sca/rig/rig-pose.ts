@@ -1,7 +1,9 @@
+import { ScaProject } from '../types/project';
 import { ScaRig, ScaRigVec3 } from '../types/rig';
 
-import { applyAnimationToPose } from './rig-animation';
-import { ScaRigAnimationPlaybackState } from './rig-animation-types';
+import { getAnimationEditOverride } from '../animation/animation-edit-state';
+import { applyRigAnimationToPose } from './rig-animation';
+import { ScaAnimationClip, ScaAnimationPlaybackState } from '../types/animation';
 import { cloneVec3 } from './rig-transform';
 
 /** Transient evaluated pose for one rig node (not persisted). */
@@ -15,14 +17,88 @@ type ScaRigEvaluatedPose = {
     nodes: Map<string, ScaRigNodePose>;
 };
 
-let animationPlaybackState: ScaRigAnimationPlaybackState | null = null;
+let animationPlaybackState: ScaAnimationPlaybackState = {
+    activeClipId: null,
+    clip: null,
+    playing: false,
+    previewActive: false,
+    currentTime: 0,
+    selectedTrackId: null,
+    selectedKeyframeId: null,
+    editMode: false
+};
 
-const setRigAnimationPlaybackState = (state: ScaRigAnimationPlaybackState | null) => {
+const setAnimationPlaybackState = (state: ScaAnimationPlaybackState): void => {
     animationPlaybackState = state;
 };
 
-const getRigAnimationPlaybackState = (): ScaRigAnimationPlaybackState | null => {
+const getAnimationPlaybackState = (): ScaAnimationPlaybackState => {
     return animationPlaybackState;
+};
+
+/** @deprecated Use setAnimationPlaybackState */
+const setRigAnimationPlaybackState = (
+    state: ScaAnimationPlaybackState | {
+        clip: ScaAnimationClip | null;
+        playing: boolean;
+        influenceActive?: boolean;
+        previewActive?: boolean;
+        currentTime: number;
+    } | null
+): void => {
+    if (!state) {
+        animationPlaybackState = {
+            activeClipId: null,
+            clip: null,
+            playing: false,
+            previewActive: false,
+            currentTime: 0,
+            selectedTrackId: null,
+            selectedKeyframeId: null,
+            editMode: false
+        };
+        return;
+    }
+
+    if ('activeClipId' in state) {
+        animationPlaybackState = {
+            ...state,
+            clip: state.clip ? structuredClone(state.clip) : null
+        };
+        return;
+    }
+
+    const legacy = state as {
+        clip: ScaAnimationClip | null;
+        playing: boolean;
+        influenceActive?: boolean;
+        previewActive?: boolean;
+        currentTime: number;
+    };
+
+    animationPlaybackState = {
+        activeClipId: legacy.clip?.id ?? null,
+        clip: legacy.clip ? structuredClone(legacy.clip) : null,
+        playing: legacy.playing,
+        previewActive: legacy.previewActive ?? legacy.influenceActive ?? false,
+        currentTime: legacy.currentTime,
+        selectedTrackId: null,
+        selectedKeyframeId: null,
+        editMode: false
+    };
+};
+
+/** @deprecated Use getAnimationPlaybackState */
+const getRigAnimationPlaybackState = (): ScaAnimationPlaybackState => {
+    return getAnimationPlaybackState();
+};
+
+const resolveActiveClip = (project: ScaProject | undefined): ScaAnimationClip | null => {
+    if (!project?.animations || !animationPlaybackState.activeClipId) {
+        return null;
+    }
+
+    return project.animations.find((clip) => clip.id === animationPlaybackState.activeClipId) ?? null;
 };
 
 const evaluateRigPose = (rig: ScaRig): ScaRigEvaluatedPose => {
@@ -38,13 +114,37 @@ const evaluateRigPose = (rig: ScaRig): ScaRigEvaluatedPose => {
     return { nodes };
 };
 
-const evaluateFinalRigPose = (rig: ScaRig): ScaRigEvaluatedPose => {
+const evaluateFinalRigPose = (rig: ScaRig, project?: ScaProject): ScaRigEvaluatedPose => {
     const basePose = evaluateRigPose(rig);
-    if (!animationPlaybackState) {
+    if (!animationPlaybackState.previewActive) {
         return basePose;
     }
 
-    return applyAnimationToPose(basePose, rig, animationPlaybackState);
+    const clip = animationPlaybackState.clip ?? resolveActiveClip(project);
+    if (!clip) {
+        return basePose;
+    }
+
+    let pose = applyRigAnimationToPose(
+        basePose,
+        rig,
+        clip,
+        animationPlaybackState.currentTime
+    );
+
+    const editOverride = getAnimationEditOverride();
+    if (editOverride) {
+        const nodePose = pose.nodes.get(editOverride.nodeId);
+        if (nodePose) {
+            if (editOverride.property === 'position') {
+                nodePose.position = cloneVec3(editOverride.value);
+            } else {
+                nodePose.rotation = cloneVec3(editOverride.value);
+            }
+        }
+    }
+
+    return pose;
 };
 
 const getEvaluatedNodePose = (
@@ -69,8 +169,11 @@ export {
     ScaRigNodePose,
     evaluateFinalRigPose,
     evaluateRigPose,
+    getAnimationPlaybackState,
     getEvaluatedNodePose,
     getRigAnimationPlaybackState,
     requireEvaluatedNodePose,
+    resolveActiveClip,
+    setAnimationPlaybackState,
     setRigAnimationPlaybackState
 };

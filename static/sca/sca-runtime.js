@@ -955,7 +955,9 @@
           'runtimeEvents',
           `[SCA EVENT] hotspotClicked ${target.id} source=${source}`
         )
+        console.log('[SCA RUNTIME ANIM] target clicked', { type: 'hotspot', targetId: target.id })
         window.SCA3D.handleHotspotClick?.(hotspot)
+        window.SCA3D.triggerAnimationForTarget?.('hotspot', target.id)
       }
     } else if (target.type === 'region') {
       const isDirectClick = emitClick || source === 'click'
@@ -988,10 +990,12 @@
           'runtimeEvents',
           `[SCA EVENT] regionClicked ${target.id} source=${source}`
         )
+        console.log('[SCA RUNTIME ANIM] target clicked', { type: 'region', targetId: target.id })
         const region = window.SCA3D.state.regionById?.get?.(target.id)
         if (region) {
           window.SCA3D.handleRegionClick?.(region)
         }
+        window.SCA3D.triggerAnimationForTarget?.('region', target.id)
       }
     }
 
@@ -1740,6 +1744,16 @@
       if (pickerReady && typeof initScaRegionRuntime === 'function') {
         await initScaRegionRuntime(viewer, { project })
       }
+    }
+
+    if (typeof window.SCA3D?.initRuntimeAnimation === 'function') {
+      window.SCA3D.initRuntimeAnimation({
+        getProject: () => window.SCA3D.state?.project ?? project,
+        getViewer: () => viewer,
+        refreshRegionPresentation: () => window.SCA3D.refreshRegionPresentation?.()
+      })
+    } else {
+      console.warn('[SCA3D] animation runtime not available')
     }
 
     initScaNavigationTargets(viewer, project, viewerConfig)

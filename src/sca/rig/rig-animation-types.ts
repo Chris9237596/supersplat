@@ -1,36 +1,40 @@
-import { ScaRigVec3 } from '../types/rig';
+import {
+    ScaAnimationClip,
+    ScaAnimationKeyframeVec3,
+    ScaAnimationPlaybackState,
+    ScaAnimationTrack,
+    ScaRigRotationAnimationTrack
+} from '../types/animation';
 
-/** Editor-only transient animation keyframe (not persisted). */
+/** @deprecated Use ScaAnimationKeyframeVec3 */
 type ScaRigAnimationKeyframe = {
     time: number;
-    rotation: ScaRigVec3;
+    rotation: import('../types/rig').ScaRigVec3;
 };
 
-/** Editor-only transient animation track (not persisted). */
+/** @deprecated Use ScaRigRotationAnimationTrack */
 type ScaRigAnimationTrack = {
     nodeId: string;
     keyframes: ScaRigAnimationKeyframe[];
 };
 
-/** Editor-only transient animation clip (not persisted). */
-type ScaRigAnimationClip = {
-    id: string;
-    name: string;
-    duration: number;
-    tracks: ScaRigAnimationTrack[];
-};
+/** @deprecated Use ScaAnimationClip */
+type ScaRigAnimationClip = ScaAnimationClip;
 
-type ScaRigAnimationPlaybackState = {
-    clip: ScaRigAnimationClip | null;
-    playing: boolean;
-    /** When false, evaluated pose ignores animation even if a clip exists. */
-    influenceActive: boolean;
-    currentTime: number;
+/** @deprecated Use ScaAnimationPlaybackState */
+type ScaRigAnimationPlaybackState = ScaAnimationPlaybackState & {
+    clip?: ScaAnimationClip | null;
+    influenceActive?: boolean;
 };
 
 export {
+    ScaAnimationClip,
+    ScaAnimationKeyframeVec3,
+    ScaAnimationPlaybackState,
+    ScaAnimationTrack,
     ScaRigAnimationClip,
     ScaRigAnimationKeyframe,
     ScaRigAnimationPlaybackState,
-    ScaRigAnimationTrack
+    ScaRigAnimationTrack,
+    ScaRigRotationAnimationTrack
 };

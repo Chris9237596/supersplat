@@ -6,7 +6,7 @@ import { IndexRanges } from '../../index-ranges';
 import { Scene } from '../../scene';
 import { Splat } from '../../splat';
 
-import { resolveRegionVisual } from '../presentation';
+import { resolveRegionVisualWithAnimation } from '../presentation';
 import { ScaRegion } from '../types/region';
 
 import { logEditorRegionHighlight } from '../debug/editor-region-preview-debug';
@@ -77,7 +77,7 @@ const registerScaRegionHighlight = (events: Events, scene: Scene): void => {
         state: 'hover' | 'selected' | 'visited'
     ) => {
         const region = events.invoke('sca.region.get', regionId) as ScaRegion | null;
-        const visual = resolveRegionVisual(region, state);
+        const visual = resolveRegionVisualWithAnimation(region, state);
         if (!region || !visual) {
             return;
         }
@@ -245,6 +245,14 @@ const registerScaRegionHighlight = (events: Events, scene: Scene): void => {
     });
 
     events.on('sca.project.changed', () => {
+        applyCombinedHighlight();
+    });
+
+    events.on('sca.animation.updated', () => {
+        applyCombinedHighlight();
+    });
+
+    events.on('sca.region.highlight.refresh', () => {
         applyCombinedHighlight();
     });
 

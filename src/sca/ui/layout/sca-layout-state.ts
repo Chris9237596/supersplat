@@ -19,13 +19,21 @@ type ScaUILayoutV1 = {
     inspectorVisible: boolean;
     navigatorWidth: number;
     inspectorWidth: number;
+    timelineVisible: boolean;
+    timelineHeight: number;
 };
+
+const TIMELINE_DEFAULT_HEIGHT = 240;
+const TIMELINE_MIN_HEIGHT = 140;
+const TIMELINE_MAX_VIEWPORT_RATIO = 0.5;
 
 const DEFAULT_SCA_UI_LAYOUT: ScaUILayoutV1 = {
     navigatorVisible: true,
     inspectorVisible: true,
     navigatorWidth: NAVIGATOR_DEFAULT_WIDTH,
-    inspectorWidth: INSPECTOR_DEFAULT_WIDTH
+    inspectorWidth: INSPECTOR_DEFAULT_WIDTH,
+    timelineVisible: false,
+    timelineHeight: TIMELINE_DEFAULT_HEIGHT
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -71,13 +79,25 @@ const normalizeLayout = (raw: unknown): ScaUILayoutV1 => {
     if (typeof raw.inspectorWidth === 'number' && Number.isFinite(raw.inspectorWidth)) {
         next.inspectorWidth = raw.inspectorWidth;
     }
+    if (typeof raw.timelineVisible === 'boolean') {
+        next.timelineVisible = raw.timelineVisible;
+    }
+    if (typeof raw.timelineHeight === 'number' && Number.isFinite(raw.timelineHeight)) {
+        next.timelineHeight = raw.timelineHeight;
+    }
 
     return next;
 };
 
+const clampTimelineHeight = (height: number, viewportHeight: number): number => {
+    const maxHeight = Math.max(TIMELINE_MIN_HEIGHT, Math.floor(viewportHeight * TIMELINE_MAX_VIEWPORT_RATIO));
+    return clampNumber(height, TIMELINE_MIN_HEIGHT, maxHeight);
+};
+
 const clampLayoutForViewport = (
     layout: ScaUILayoutV1,
-    viewportWidth: number
+    viewportWidth: number,
+    viewportHeight = window.innerHeight
 ): ScaUILayoutV1 => {
     let navigatorWidth = clampNavigatorWidth(layout.navigatorWidth, viewportWidth);
     let inspectorWidth = clampInspectorWidth(layout.inspectorWidth, viewportWidth);
@@ -115,7 +135,8 @@ const clampLayoutForViewport = (
     return {
         ...layout,
         navigatorWidth,
-        inspectorWidth
+        inspectorWidth,
+        timelineHeight: clampTimelineHeight(layout.timelineHeight, viewportHeight)
     };
 };
 
@@ -152,8 +173,8 @@ class ScaLayoutManager {
         return { ...this.layout };
     }
 
-    getClamped(viewportWidth: number): ScaUILayoutV1 {
-        return clampLayoutForViewport(this.layout, viewportWidth);
+    getClamped(viewportWidth: number, viewportHeight = window.innerHeight): ScaUILayoutV1 {
+        return clampLayoutForViewport(this.layout, viewportWidth, viewportHeight);
     }
 
     setNavigatorVisible(visible: boolean): void {
@@ -199,12 +220,30 @@ class ScaLayoutManager {
 
         if (
             this.layout.navigatorWidth === clamped.navigatorWidth &&
-            this.layout.inspectorWidth === clamped.inspectorWidth
+            this.layout.inspectorWidth === clamped.inspectorWidth &&
+            this.layout.timelineHeight === clamped.timelineHeight
         ) {
             return;
         }
 
         this.layout = clamped;
+        this.persist();
+    }
+
+    setTimelineVisible(visible: boolean): void {
+        if (this.layout.timelineVisible === visible) {
+            return;
+        }
+        this.layout = { ...this.layout, timelineVisible: visible };
+        this.persist();
+    }
+
+    setTimelineHeight(height: number, viewportHeight = window.innerHeight): void {
+        const timelineHeight = clampTimelineHeight(height, viewportHeight);
+        if (this.layout.timelineHeight === timelineHeight) {
+            return;
+        }
+        this.layout = { ...this.layout, timelineHeight };
         this.persist();
     }
 }
@@ -218,7 +257,10 @@ export {
     SCA_UI_LAYOUT_STORAGE_KEY,
     ScaLayoutManager,
     ScaUILayoutV1,
+    TIMELINE_DEFAULT_HEIGHT,
+    TIMELINE_MIN_HEIGHT,
     clampLayoutForViewport,
     clampNavigatorWidth,
-    clampInspectorWidth
+    clampInspectorWidth,
+    clampTimelineHeight
 };

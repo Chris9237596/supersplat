@@ -124,6 +124,7 @@ type ScaHotspot = {
 
 import type { ScaRegion } from './region';
 import type { ScaRig, ScaRigNode } from './rig';
+import type { ScaAnimationClip } from './animation';
 
 type ScaRuntimeSplatRef = {
     scaSplatId: string;
@@ -138,6 +139,7 @@ type ScaProject = {
     splats?: ScaRuntimeSplatRef[];
     viewer?: ScaViewerConfig;
     rig?: ScaRig;
+    animations?: ScaAnimationClip[];
 };
 
 const SCA_PROJECT_VERSION = 1 as const;
@@ -181,5 +183,6 @@ export {
     Vec3
 };
 
+export type { ScaAnimationClip } from './animation';
 export type { ScaRegion } from './region';
 export type { ScaRig, ScaRigBinding, ScaRigNode } from './rig';

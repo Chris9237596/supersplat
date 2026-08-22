@@ -4,10 +4,16 @@ import { Events } from '../../../events';
 import { Tooltips } from '../../../ui/tooltips';
 
 import { ScaPanel } from '../../sca-panel';
+import { ScaAnimationTimelinePanel } from '../sca-animation-timeline-panel';
 import { ScaNavigatorPanel } from '../navigator/sca-navigator-panel';
 
 import { attachHorizontalResizeHandle } from './sca-panel-resize';
-import { ScaLayoutManager, clampNavigatorWidth, clampInspectorWidth } from './sca-layout-state';
+import {
+    ScaLayoutManager,
+    clampNavigatorWidth,
+    clampInspectorWidth,
+    clampTimelineHeight
+} from './sca-layout-state';
 
 type ScaLayoutControllerOptions = {
     events: Events;
@@ -15,9 +21,11 @@ type ScaLayoutControllerOptions = {
     layout: ScaLayoutManager;
     navigator: ScaNavigatorPanel;
     inspector: ScaPanel;
+    timeline: ScaAnimationTimelinePanel;
     workspaceButton: Button;
     navigatorToggleButton: Button;
     inspectorToggleButton: Button;
+    timelineToggleButton: Button;
 };
 
 class ScaLayoutController {
@@ -25,7 +33,15 @@ class ScaLayoutController {
 
     private inspectorWidth = 0;
 
+    private timelineHeight = 0;
+
+    private timelineResizeHandle: HTMLDivElement;
+
     constructor(private options: ScaLayoutControllerOptions) {
+        this.timelineResizeHandle = document.createElement('div');
+        this.timelineResizeHandle.id = 'sca-animation-timeline-resize-handle';
+        document.body.appendChild(this.timelineResizeHandle);
+
         this.bindVisibilityEvents();
         this.bindResizeHandles();
         this.bindToolbarButtons();
@@ -39,19 +55,35 @@ class ScaLayoutController {
         return window.innerWidth;
     }
 
+    private getViewportHeight(): number {
+        return window.innerHeight;
+    }
+
     private applyLayoutFromState(): void {
-        const clamped = this.options.layout.getClamped(this.getViewportWidth());
+        const clamped = this.options.layout.getClamped(this.getViewportWidth(), this.getViewportHeight());
         this.navigatorWidth = clamped.navigatorWidth;
         this.inspectorWidth = clamped.inspectorWidth;
+        this.timelineHeight = clamped.timelineHeight;
 
         this.setNavigatorVisible(clamped.navigatorVisible, false);
         this.setInspectorVisible(clamped.inspectorVisible, false);
+        this.setTimelineVisible(clamped.timelineVisible, false);
         this.applyPanelWidths();
+        this.applyTimelineLayout();
     }
 
     private applyPanelWidths(): void {
         this.options.navigator.dom.style.width = `${this.navigatorWidth}px`;
         this.options.inspector.dom.style.width = `${this.inspectorWidth}px`;
+    }
+
+    private applyTimelineLayout(): void {
+        const visible = !this.options.timeline.hidden;
+        this.options.timeline.setPanelHeight(this.timelineHeight);
+        this.options.timeline.dom.style.height = `${this.timelineHeight}px`;
+        this.timelineResizeHandle.style.display = visible ? 'block' : 'none';
+        this.timelineResizeHandle.style.bottom = `${this.timelineHeight}px`;
+        document.body.style.paddingBottom = visible ? `${this.timelineHeight}px` : '0px';
     }
 
     private clampNavigatorWidth(width: number): number {
@@ -63,10 +95,12 @@ class ScaLayoutController {
     }
 
     private clampBothForViewport(): void {
-        const clamped = this.options.layout.getClamped(this.getViewportWidth());
+        const clamped = this.options.layout.getClamped(this.getViewportWidth(), this.getViewportHeight());
         this.navigatorWidth = clamped.navigatorWidth;
         this.inspectorWidth = clamped.inspectorWidth;
+        this.timelineHeight = clamped.timelineHeight;
         this.applyPanelWidths();
+        this.applyTimelineLayout();
     }
 
     private setNavigatorVisible(visible: boolean, persist: boolean): void {
@@ -108,6 +142,28 @@ class ScaLayoutController {
         this.syncToolbarState();
     }
 
+    private setTimelineVisible(visible: boolean, persist: boolean): void {
+        if (this.options.timeline.hidden === !visible) {
+            if (persist) {
+                this.options.layout.setTimelineVisible(visible);
+            }
+            this.applyTimelineLayout();
+            this.syncToolbarState();
+            return;
+        }
+
+        this.options.timeline.hidden = !visible;
+        this.options.events.fire('scaTimeline.visible', visible);
+
+        if (persist) {
+            this.options.layout.setTimelineVisible(visible);
+        }
+
+        this.applyTimelineLayout();
+        this.syncToolbarState();
+        this.options.timeline.refresh();
+    }
+
     private isWorkspaceVisible(): boolean {
         return !this.options.navigator.hidden || !this.options.inspector.hidden;
     }
@@ -120,6 +176,9 @@ class ScaLayoutController {
         ]('active');
         this.options.inspectorToggleButton.class[
             !this.options.inspector.hidden ? 'add' : 'remove'
+        ]('active');
+        this.options.timelineToggleButton.class[
+            !this.options.timeline.hidden ? 'add' : 'remove'
         ]('active');
     }
 
@@ -148,6 +207,18 @@ class ScaLayoutController {
 
         events.on('scaInspector.toggleVisible', () => {
             this.setInspectorVisible(this.options.inspector.hidden, true);
+        });
+
+        events.function('scaTimeline.visible', () => {
+            return !this.options.timeline.hidden;
+        });
+
+        events.on('scaTimeline.setVisible', (visible: boolean) => {
+            this.setTimelineVisible(visible, true);
+        });
+
+        events.on('scaTimeline.toggleVisible', () => {
+            this.setTimelineVisible(this.options.timeline.hidden, true);
         });
 
         events.on('scaPanel.setVisible', (visible: boolean) => {
@@ -201,14 +272,66 @@ class ScaLayoutController {
                 this.clampBothForViewport();
             }
         });
+
+        let dragging = false;
+        let startY = 0;
+        let startHeight = 0;
+
+        const onPointerMove = (event: PointerEvent) => {
+            if (!dragging) {
+                return;
+            }
+
+            const delta = startY - event.clientY;
+            const nextHeight = clampTimelineHeight(startHeight + delta, this.getViewportHeight());
+            this.timelineHeight = nextHeight;
+            this.applyTimelineLayout();
+            this.options.timeline.refresh();
+        };
+
+        const onPointerUp = (event: PointerEvent) => {
+            if (!dragging) {
+                return;
+            }
+
+            dragging = false;
+            this.timelineResizeHandle.classList.remove('is-dragging');
+            document.body.classList.remove('sca-ui-timeline-resizing');
+            this.timelineResizeHandle.releasePointerCapture(event.pointerId);
+            layout.setTimelineHeight(this.timelineHeight, this.getViewportHeight());
+        };
+
+        this.timelineResizeHandle.addEventListener('pointerdown', (event) => {
+            if (this.options.timeline.hidden) {
+                return;
+            }
+
+            dragging = true;
+            startY = event.clientY;
+            startHeight = this.timelineHeight;
+            this.timelineResizeHandle.classList.add('is-dragging');
+            document.body.classList.add('sca-ui-timeline-resizing');
+            this.timelineResizeHandle.setPointerCapture(event.pointerId);
+        });
+
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointercancel', onPointerUp);
     }
 
     private bindToolbarButtons(): void {
-        const { workspaceButton, navigatorToggleButton, inspectorToggleButton, tooltips } = this.options;
+        const {
+            workspaceButton,
+            navigatorToggleButton,
+            inspectorToggleButton,
+            timelineToggleButton,
+            tooltips
+        } = this.options;
 
         tooltips.register(workspaceButton, () => 'Toggle SCA workspace', 'left');
         tooltips.register(navigatorToggleButton, () => 'Toggle Navigator', 'left');
         tooltips.register(inspectorToggleButton, () => 'Toggle Inspector', 'left');
+        tooltips.register(timelineToggleButton, () => 'Toggle Animation Timeline', 'left');
 
         workspaceButton.on('click', () => {
             this.options.events.fire('scaPanel.toggleVisible');
@@ -220,6 +343,10 @@ class ScaLayoutController {
 
         inspectorToggleButton.on('click', () => {
             this.options.events.fire('scaInspector.toggleVisible');
+        });
+
+        timelineToggleButton.on('click', () => {
+            this.options.events.fire('scaTimeline.toggleVisible');
         });
     }
 

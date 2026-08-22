@@ -43,7 +43,11 @@ class HotspotMarkerManager {
 
     private createView(): HotspotMarkerView {
         return new HotspotMarkerView(this.overlay, (hotspotId) => {
+            const wasSelected = this.selectedId === hotspotId;
             this.events.fire('sca.hotspot.select', hotspotId);
+            if (!wasSelected) {
+                this.events.fire('sca.animation.previewTriggerFromTarget', 'hotspot', hotspotId);
+            }
         });
     }
 

@@ -8,12 +8,15 @@ import { Splat } from '../../splat';
 import { findSplatByScaSplatId } from '../regions/splat-identity';
 import {
     buildNodeWorldMatrix,
+    buildNodeWorldMatrixFromPose,
     buildParentWorldMatrix,
     getNodeHandleWorldEuler,
     getNodeHandleWorldPosition,
+    getNodeHandleWorldPositionFromPose,
     localTransformFromWorldHandle,
     localTransformFromWorldMatrix
 } from './rig-hierarchy';
+import { evaluateFinalRigPose, requireEvaluatedNodePose, ScaRigEvaluatedPose } from './rig-pose';
 import { matrixMaxAbsError, matricesNearEqual } from './rig-transform';
 import { ScaRig, ScaRigNode, ScaRigVec3 } from '../types/rig';
 import { ScaRegion } from '../types/region';
@@ -132,6 +135,27 @@ const syncHelperFromNode = (entity: Entity, rig: ScaRig, node: ScaRigNode, _spla
     nodeWorldMatrixToHelperHandle(rig, node, matEntity);
     entity.setLocalPosition(localPivot.x, localPivot.y, localPivot.z);
     entity.setLocalRotation(quatA);
+};
+
+const syncHelperFromEvaluatedPose = (
+    entity: Entity,
+    rig: ScaRig,
+    node: ScaRigNode,
+    pose: ScaRigEvaluatedPose
+): void => {
+    buildNodeWorldMatrixFromPose(rig, pose, node, matNodeWorld);
+    getNodeHandleWorldPositionFromPose(rig, pose, node, localPivot);
+    quatA.setFromMat4(matNodeWorld);
+    entity.setLocalPosition(localPivot.x, localPivot.y, localPivot.z);
+    entity.setLocalRotation(quatA);
+};
+
+const syncHelperFromEvaluatedRig = (
+    entity: Entity,
+    rig: ScaRig,
+    node: ScaRigNode
+): void => {
+    syncHelperFromEvaluatedPose(entity, rig, node, evaluateFinalRigPose(rig));
 };
 
 const entityHandleMatchesNode = (
@@ -321,6 +345,8 @@ export {
     readNodePatchFromHelper,
     resolveSplatForNode,
     rigNodePatchMatchesNode,
+    syncHelperFromEvaluatedPose,
+    syncHelperFromEvaluatedRig,
     syncHelperFromNode,
     transformSplatLocalDirectionToWorld
 };

@@ -4,6 +4,7 @@ import { i18n } from '../ui/localization';
 
 import { createDefaultHotspot } from './hotspot-defaults';
 import { registerScaHistory } from './edit/register-sca-history';
+import { registerScaAnimationEvents } from './animation/register-sca-animation-events';
 import { registerScaDocEvents } from './persistence/register-sca-doc-events';
 import { registerScaFocusEvents } from './focus/sca-focus-events';
 import { registerScaViewerEvents } from './viewer/sca-viewer-events';
@@ -22,6 +23,7 @@ const registerScaEvents = (events: Events): HotspotStore => {
     const store = new HotspotStore(createEmptyProject());
     const assetStore = new ScaAssetStore();
     const history = registerScaHistory(events, store, assetStore);
+    registerScaAnimationEvents(events, store, history);
 
     const notifyProjectChanged = () => {
         logRigTraceStage('project.changed', { reason: 'notifyProjectChanged' });

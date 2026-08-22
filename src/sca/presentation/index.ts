@@ -15,7 +15,8 @@ export {
 export {
     RegionVisualState,
     ResolvedRegionVisual,
-    resolveRegionVisual
+    resolveRegionVisual,
+    resolveRegionVisualWithAnimation
 } from './region-visual';
 
 export {

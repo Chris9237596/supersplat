@@ -204,21 +204,25 @@ const registerScaViewerInteractionPreview = (
                 const regionId = regionHit?.regionId ?? null;
                 const selectedId = events.invoke('sca.region.getSelected') as string | null;
 
-                if (clickContext) {
-                    let action: 'select' | 'deselect' | 'ignore' = 'ignore';
-                    if (regionId === null) {
-                        action = selectedId ? 'deselect' : 'ignore';
-                    } else if (regionId === selectedId) {
-                        action = 'deselect';
-                    } else {
-                        action = 'select';
-                    }
+                let action: 'select' | 'deselect' | 'ignore' = 'ignore';
+                if (regionId === null) {
+                    action = selectedId ? 'deselect' : 'ignore';
+                } else if (regionId === selectedId) {
+                    action = 'deselect';
+                } else {
+                    action = 'select';
+                }
 
+                if (clickContext) {
                     logEditorRegionClick({
                         ...clickContext,
                         resolvedRegionId: regionId,
                         action
                     });
+                }
+
+                if (action === 'select' && regionId) {
+                    events.fire('sca.animation.previewTriggerFromTarget', 'region', regionId);
                 }
 
                 core.activateRegion(regionId, 'click');

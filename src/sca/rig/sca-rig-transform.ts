@@ -16,9 +16,14 @@ import { TransformHandler } from '../../transform-handler';
 
 
 
+import {
+    clearAnimationEditOverride,
+    setAnimationEditOverride
+} from '../animation/animation-edit-state';
+import { ScaRigNodeAnimationProperty } from '../types/animation';
 import { ScaProject } from '../types/project';
 
-import { ScaRig, ScaRigNode } from '../types/rig';
+import { ScaRig, ScaRigNode, ScaRigVec3 } from '../types/rig';
 
 
 
@@ -42,11 +47,17 @@ import { matricesNearEqual } from './rig-transform';
 
 import { pickRigNodeIdAtScreen } from './rig-node-pick';
 import {
+    evaluateFinalRigPose,
+    getAnimationPlaybackState,
+    requireEvaluatedNodePose
+} from './rig-pose';
+import {
     entityHandleMatchesNode,
     getNodeWorldPivotPosition,
     logScaRigFirstMoveValues,
     readNodePatchFromHelper,
     resolveSplatForNode,
+    syncHelperFromEvaluatedRig,
     syncHelperFromNode
 } from './rig-node-space';
 
@@ -147,7 +158,9 @@ class ScaRigTransformController {
             lowerBoundScale: this.entity.getLocalScale(),
 
             onTransformStart: () => {
-                this.events.fire('sca.rig.animation.reset');
+                if (!this.isAnimationEditMode()) {
+                    this.events.fire('sca.animation.disablePreview');
+                }
 
                 if (!this.dragState.beginDrag()) {
                     return;
@@ -417,7 +430,12 @@ class ScaRigTransformController {
         this.logDragStage('end-before-commit');
         logRigTraceStage('transform:end-before-commit', { reason }, this.buildTraceContext('transform:end-before-commit'));
 
-        this.events.invoke('sca.history.commitTransaction');
+        const animationEditMode = this.isAnimationEditMode();
+        if (animationEditMode) {
+            this.commitAnimationEditDrag();
+        } else {
+            this.events.invoke('sca.history.commitTransaction');
+        }
 
         this.logDragStage('end-after-commit');
         logRigTraceStage('transform:end-after-commit', { reason }, this.buildTraceContext('transform:end-after-commit'));
@@ -445,6 +463,7 @@ class ScaRigTransformController {
 
         this.gizmo.resetDragActive();
         this.events.invoke('sca.history.cancelTransaction');
+        clearAnimationEditOverride();
         this.dragState.endDrag();
         setRigTraceDragFlags({ dragging: false, gizmoEngaged: false });
         this.releasePointerCapture();
@@ -482,6 +501,20 @@ class ScaRigTransformController {
 
         return project?.rig ?? null;
 
+    }
+
+    private isAnimationEditMode(): boolean {
+        return this.events.invoke('sca.animation.getEditMode') as boolean;
+    }
+
+    private getAnimationEditProperty(): ScaRigNodeAnimationProperty | null {
+        if (this.gizmoMode === 'translate') {
+            return 'position';
+        }
+        if (this.gizmoMode === 'rotate') {
+            return 'rotation';
+        }
+        return null;
     }
 
 
@@ -541,7 +574,11 @@ class ScaRigTransformController {
 
         this.reparentHelper(splat, 'prepare-for-drag');
         this.syncing = true;
-        syncHelperFromNode(this.entity, rig, node, splat);
+        if (this.isAnimationEditMode()) {
+            syncHelperFromEvaluatedRig(this.entity, rig, node);
+        } else {
+            syncHelperFromNode(this.entity, rig, node, splat);
+        }
         this.syncing = false;
     }
 
@@ -753,6 +790,42 @@ class ScaRigTransformController {
 
 
 
+    private commitAnimationEditDrag(): void {
+        this.events.invoke('sca.history.cancelTransaction');
+
+        if (this.dragMoveCount <= 0) {
+            clearAnimationEditOverride();
+            this.events.fire('sca.animation.updated');
+            return;
+        }
+
+        const node = this.getSelectedNode();
+        const rig = this.getSelectedRig();
+        const property = this.getAnimationEditProperty();
+        const playback = getAnimationPlaybackState();
+
+        if (!node || !rig || !property || !playback.activeClipId || !playback.clip) {
+            clearAnimationEditOverride();
+            return;
+        }
+
+        const patch = readNodePatchFromHelper(this.entity, rig, node);
+        const value = property === 'position' ?
+            (patch.position ?? requireEvaluatedNodePose(evaluateFinalRigPose(rig), node).position) :
+            (patch.rotation ?? requireEvaluatedNodePose(evaluateFinalRigPose(rig), node).rotation);
+
+        clearAnimationEditOverride();
+
+        this.events.fire(
+            'sca.animation.keyframe.addRig',
+            playback.activeClipId,
+            node.id,
+            property,
+            playback.currentTime,
+            [...value] as ScaRigVec3
+        );
+    }
+
     private applyHelperToNode() {
 
         const node = this.getSelectedNode();
@@ -763,6 +836,11 @@ class ScaRigTransformController {
 
             return;
 
+        }
+
+        if (this.isAnimationEditMode()) {
+            this.applyAnimationEditHelperToNode(node, rig);
+            return;
         }
 
         matDragCurrent.copy(this.entity.getLocalTransform());
@@ -832,6 +910,35 @@ class ScaRigTransformController {
         logRigTraceStage('project-update-after', {}, this.buildTraceContext('sca.rig.node.update'));
     }
 
+    private applyAnimationEditHelperToNode(node: ScaRigNode, rig: ScaRig): void {
+        const property = this.getAnimationEditProperty();
+        if (!property) {
+            return;
+        }
+
+        matDragCurrent.copy(this.entity.getLocalTransform());
+        const matchesDragBaseline = this.dragBaselineCaptured &&
+            matricesNearEqual(matDragCurrent, matDragBaseline);
+
+        if (matchesDragBaseline) {
+            return;
+        }
+
+        const patch = readNodePatchFromHelper(this.entity, rig, node);
+        const value = property === 'position' ? patch.position : patch.rotation;
+        if (!value) {
+            return;
+        }
+
+        setAnimationEditOverride({
+            nodeId: node.id,
+            property,
+            value: [...value] as ScaRigVec3
+        });
+
+        this.events.fire('sca.animation.updated');
+    }
+
 
 
     private syncHelperFromProject() {
@@ -850,7 +957,12 @@ class ScaRigTransformController {
 
         this.syncing = true;
 
-        syncHelperFromNode(this.entity, rig, node, this.splat);
+        const playback = getAnimationPlaybackState();
+        if (this.isAnimationEditMode() && playback.previewActive) {
+            syncHelperFromEvaluatedRig(this.entity, rig, node);
+        } else {
+            syncHelperFromNode(this.entity, rig, node, this.splat);
+        }
 
         this.syncing = false;
 
