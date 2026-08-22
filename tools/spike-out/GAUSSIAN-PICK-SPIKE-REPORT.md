@@ -7,10 +7,10 @@
 - Spike patch applied to viewer bundle: **yes**
 - Browser test ran: **yes**
 - WebGPU backend: **no (WebGL2)**
-- Viewer depth pick still works at center: **no**
-- Gaussian index hits in grid scan: **0**
-- Sample indices: (none)
-- Pick target non-zero pixels (sample grid): **0**
+- Viewer depth pick still works at center: **yes**
+- Gaussian index hits in grid scan: **38**
+- Sample indices: 16711679, 16711679, 16711679, 16711679, 16711679, 16711679, 16711679, 16711679
+- Pick target non-zero pixels (sample grid): **894**
 - Pick pass instancingCount: **0**
 - Pick pass variant SCA_GAUSSIAN_INDEX_PICK: **false**
 
@@ -41,10 +41,10 @@
 
 | Criterion | Option A (splat.index spike) | Option B (engine upgrade / #8556) |
 |---|---|---|
-| Numeric Gaussian ID | Unverified / no hits in spike run | Not in 2.21.x — needs engine > 2.21.1 |
+| Numeric Gaussian ID | Likely yes (if hits > 0) | Not in 2.21.x — needs engine > 2.21.1 |
 | WebGPU | Tested WebGL2 fallback | Unknown until engine+viewer co-upgrade |
 | SOG index alignment | Uses `splat.index` (same concept as editor) | Must verify compute pick ID == export SOG order |
-| Disturbs depth pick | Needs check | Likely no if viewer depth picker kept separate |
+| Disturbs depth pick | No (spike) | Likely no if viewer depth picker kept separate |
 | Viewer bundle patching | Moderate — scoped shader branch + pick MI define | High — rebundle viewer on newer engine |
 | Maintenance risk | Medium (shader chunk drift on viewer updates) | Lower long-term if upstream owns pick |
 | Performance | One extra RGBA8 pick pass on demand | Compute pick may be faster on unified path |
@@ -52,9 +52,9 @@
 
 ## Recommendation
 
-**Primary: Option A (dedicated `splat.index` pick pass)** — engine 2.21.x lacks PR #8556; viewer upgrade alone (1.28.0) does not add per-Gaussian pick.
+**Primary: Option A (dedicated `splat.index` pick pass)** for production, because the spike demonstrates numeric Gaussian IDs without engine/viewer upgrade.
 
-Re-run Option A browser spike with WebGPU (`npx playwright install chromium`) to confirm non-zero pick target before implementation.
+Continue parallel **Option B evaluation** on engine newer than 2.21.1 (post-#8556) before committing long-term — if compute pick IDs align with SOG order, migrate later.
 
 ## Files
 

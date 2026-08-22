@@ -2,6 +2,9 @@ import { strict as assert } from 'node:assert';
 
 import { Events } from '../src/events';
 import { IndexRanges } from '../src/index-ranges';
+import { decodeRuntimePickPixel } from '../src/sca/runtime/runtime-webgpu-picker';
+import { resolveRegion, isClickableRegion } from '../src/sca/interaction/sca-region-core';
+import { createStorageRegionMaskLookup } from '../src/sca/interaction/sca-storage-mask-lookup';
 import { ScaRegionMembershipOp } from '../src/sca/edit/sca-region-ops';
 import { ScaProjectOp } from '../src/sca/edit/sca-edit-ops';
 import { generateRegionId } from '../src/sca/ids/generate-region-id';
@@ -357,6 +360,59 @@ const runRuntimeExportRemapTests = () => {
     console.log('[sca-regions] runtime export mask remap PASS');
 };
 
+const runRegionCoreTests = () => {
+    const store = new HotspotStore(createEmptyProject());
+    const assetStore = new ScaAssetStore();
+    const scaSplatId = 'splat_01';
+
+    const regionA = sampleRegion('region_01', 'Alpha', scaSplatId, 10);
+    const regionB = sampleRegion('region_02', 'Beta', scaSplatId, 10);
+    store.addRegion(regionA);
+    store.addRegion(regionB);
+
+    assetStore.set(
+        'regions/region_01.mask',
+        encodeRegionMask(IndexRanges.fromPredicate(10, (i) => i === 2), 10),
+        'application/x-sca-region-mask'
+    );
+    assetStore.set(
+        'regions/region_02.mask',
+        encodeRegionMask(IndexRanges.fromPredicate(10, (i) => i === 2 || i === 5), 10),
+        'application/x-sca-region-mask'
+    );
+
+    const lookup = createStorageRegionMaskLookup(store, assetStore);
+
+    assert.equal(resolveRegion(2, scaSplatId, lookup)?.regionId, 'region_01');
+    assert.equal(resolveRegion(5, scaSplatId, lookup)?.regionId, 'region_02');
+    assert.equal(resolveRegion(0, scaSplatId, lookup), null);
+    assert.equal(resolveRegion(null, scaSplatId, lookup), null);
+
+    const nonClickable = {
+        ...regionA,
+        interaction: { clickable: false }
+    };
+    assert.equal(isClickableRegion(nonClickable), false);
+    assert.equal(isClickableRegion(regionA), true);
+
+    console.log('[sca-regions] shared region core PASS');
+};
+
+const runRuntimePickDecodeTests = () => {
+    const miss = decodeRuntimePickPixel([0, 0, 0, 0]);
+    assert.equal(miss.gaussianIndex, null);
+
+    const encoded = 33961;
+    const r = encoded & 0xff;
+    const g = (encoded >> 8) & 0xff;
+    const b = (encoded >> 16) & 0xff;
+    const a = (encoded >> 24) & 0xff;
+    const hit = decodeRuntimePickPixel([r, g, b, a]);
+    assert.equal(hit.gaussianIndex, 33960);
+
+    console.log('[sca-regions] runtime pick decode PASS');
+};
+
 async function main() {
     runIdTests();
     runMaskFormatTests();
@@ -368,6 +424,8 @@ async function main() {
     runInteractionDefaultsTests();
     runIndexRangeSetOpsTests();
     runRuntimeExportRemapTests();
+    runRegionCoreTests();
+    runRuntimePickDecodeTests();
     await runHistoryTests();
 
     console.log('\n========== SCA REGIONS PHASE 1 REWORK TEST REPORT ==========');
@@ -381,6 +439,8 @@ async function main() {
     console.log('Interaction defaults: PASS');
     console.log('IndexRanges union/subtract: PASS');
     console.log('Runtime export mask remap: PASS');
+    console.log('Shared region core: PASS');
+    console.log('Runtime pick decode: PASS');
     console.log('Membership op undo/redo: PASS');
     console.log('===========================================================\n');
 }

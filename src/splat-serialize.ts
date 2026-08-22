@@ -21,7 +21,8 @@ import {
     type ReadRequest,
     type Renderer,
     type SHBands,
-    type Writer
+    type Writer,
+    type DeviceCreator
 } from '@playcanvas/splat-transform';
 import {
     GSplatData,
@@ -781,13 +782,65 @@ class WebGPUUnavailableError extends Error {
 // Cached WebGPU device for SOG compression
 let cachedGpuDevice: WebgpuGraphicsDevice | null = null;
 let cachedBackbuffer: Texture | null = null;
+let cachedAdapterProbe: Promise<GPUAdapter | null> | null = null;
+
+const SOG_COMPRESSION_FORMATS = new Set<OutputFormat>([
+    'sog',
+    'sog-bundle',
+    'html',
+    'html-bundle'
+]);
+
+const GPU_REQUIRED_FORMATS = new Set<OutputFormat>([
+    'voxel',
+    'image'
+]);
+
+const CPU_SOG_NOTICE =
+    'WebGPU unavailable — exporting with CPU compression. This may take longer.';
+
+type SogCompressionMode = 'automatic' | 'prefer-webgpu' | 'force-cpu';
+
+const DEFAULT_SOG_COMPRESSION_MODE: SogCompressionMode = 'automatic';
+
+const logSogCompressionBackend = (
+    backend: 'webgpu' | 'cpu',
+    reason?: string,
+    events?: Events
+): void => {
+    const detail = backend === 'cpu' && reason ? ` (${reason})` : '';
+    const message = `[SCA EXPORT] SOG compression: ${backend}${detail}`;
+    console.log(message);
+    events?.fire('progressUpdate', {
+        text: message,
+        progress: 0
+    });
+};
+
+const probeWebGpuAdapter = (): Promise<GPUAdapter | null> => {
+    if (!cachedAdapterProbe) {
+        cachedAdapterProbe = (async () => {
+            if (!navigator.gpu) {
+                return null;
+            }
+            try {
+                return await navigator.gpu.requestAdapter();
+            } catch (err) {
+                console.warn('[SCA EXPORT] WebGPU adapter probe failed:', err);
+                return null;
+            }
+        })();
+    }
+    return cachedAdapterProbe;
+};
 
 const createGpuDevice = async (): Promise<WebgpuGraphicsDevice> => {
     if (cachedGpuDevice) {
         return cachedGpuDevice;
     }
 
-    if (!navigator.gpu) {
+    const adapter = await probeWebGpuAdapter();
+    if (!adapter) {
         throw new WebGPUUnavailableError();
     }
 
@@ -805,8 +858,7 @@ const createGpuDevice = async (): Promise<WebgpuGraphicsDevice> => {
     try {
         await graphicsDevice.createDevice();
     } catch (err) {
-        // createDevice fails with an obscure internal error when no adapter
-        // is available (e.g. blocklisted GPU or missing drivers)
+        // createDevice fails when drivers are blocklisted or device init fails
         console.error(err);
         throw new WebGPUUnavailableError();
     }
@@ -834,6 +886,48 @@ const createGpuDevice = async (): Promise<WebgpuGraphicsDevice> => {
     return graphicsDevice;
 };
 
+const notifyCpuSogFallback = (events?: Events): void => {
+    console.warn(`[SCA EXPORT] ${CPU_SOG_NOTICE}`);
+    events?.fire('progressUpdate', {
+        text: CPU_SOG_NOTICE,
+        progress: 0
+    });
+};
+
+const resolveSogCreateDevice = async (
+    mode: SogCompressionMode = DEFAULT_SOG_COMPRESSION_MODE,
+    events?: Events
+): Promise<DeviceCreator | undefined> => {
+    if (mode === 'force-cpu') {
+        logSogCompressionBackend('cpu', undefined, events);
+        return undefined;
+    }
+
+    const adapter = await probeWebGpuAdapter();
+    if (!adapter) {
+        logSogCompressionBackend('cpu', 'WebGPU adapter unavailable', events);
+        notifyCpuSogFallback(events);
+        return undefined;
+    }
+
+    logSogCompressionBackend('webgpu', undefined, events);
+    return createGpuDevice;
+};
+
+const resolveWriteSourceCreateDevice = async (
+    outputFormat: OutputFormat,
+    events?: Events,
+    sogCompressionMode: SogCompressionMode = DEFAULT_SOG_COMPRESSION_MODE
+): Promise<DeviceCreator | undefined> => {
+    if (SOG_COMPRESSION_FORMATS.has(outputFormat)) {
+        return resolveSogCreateDevice(sogCompressionMode, events);
+    }
+    if (GPU_REQUIRED_FORMATS.has(outputFormat)) {
+        return createGpuDevice;
+    }
+    return undefined;
+};
+
 /**
  * Stream the given splats to a file via splat-transform's writeSource. Streaming
  * formats (ply/sog/splat) never build a whole-scene copy; the rest materialize a
@@ -845,7 +939,9 @@ const writeSplatFile = async (
     outputFormat: OutputFormat,
     filename: string,
     options: Options,
-    fs: FileSystem
+    fs: FileSystem,
+    events?: Events,
+    sogCompressionMode: SogCompressionMode = DEFAULT_SOG_COMPRESSION_MODE
 ): Promise<void> => {
     const built = createExportSource(splats, settings);
     if (!built) {
@@ -853,7 +949,22 @@ const writeSplatFile = async (
     }
     const { source, pool } = built;
     try {
-        await writeSource({ filename, outputFormat, source, pool, options, createDevice: createGpuDevice }, fs);
+        const createDevice = await resolveWriteSourceCreateDevice(
+            outputFormat,
+            events,
+            sogCompressionMode
+        );
+        const writeOptions = {
+            filename,
+            outputFormat,
+            source,
+            pool,
+            options
+        };
+        if (createDevice) {
+            Object.assign(writeOptions, { createDevice });
+        }
+        await writeSource(writeOptions, fs);
     } finally {
         await source.close();
         pool.destroy();
@@ -925,14 +1036,14 @@ const serializeViewer = async (splats: Splat[], serializeSettings: SerializeSett
             await writeSplatFile(splats, serializeSettings, 'html-bundle', 'output.html', {
                 viewerSettingsJson: experienceSettings,
                 iterations: 10
-            }, fs);
+            }, fs, events);
         } else {
             // Package - write unbundled into a MemoryFileSystem, then ZIP
             const memFs = new MemoryFileSystem();
             await writeSplatFile(splats, serializeSettings, 'html', 'index.html', {
                 viewerSettingsJson: experienceSettings,
                 iterations: 10
-            }, memFs);
+            }, memFs, events);
 
             // Create ZIP from memory filesystem results. The try/finally
             // ensures zipFs (and its underlying writer) is closed even if a
@@ -974,7 +1085,7 @@ const serializeSog = async (splats: Splat[], settings: SogSettings, fs: FileSyst
     // renderer. That fires `progressEnd` and dismisses the dialog before
     // any error popup is shown.
     try {
-        await writeSplatFile(splats, settings, 'sog-bundle', 'output.sog', { iterations }, fs);
+        await writeSplatFile(splats, settings, 'sog-bundle', 'output.sog', { iterations }, fs, events);
     } catch (err) {
         splatTransformLogger.unwindAll(true);
         throw err;
@@ -1018,5 +1129,7 @@ export {
     SogSettings,
     SpzSettings,
     ViewerExportSettings,
-    WebGPUUnavailableError
+    WebGPUUnavailableError,
+    SogCompressionMode,
+    DEFAULT_SOG_COMPRESSION_MODE
 };

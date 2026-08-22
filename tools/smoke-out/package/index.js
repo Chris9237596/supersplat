@@ -63403,7 +63403,7 @@ void main(void) {
 	#endif
 	#ifdef PICK_PASS
 		#ifdef GSPLAT_UNIFIED_ID
-			pcFragColor0 = encodePickOutput(vPickId);
+			pcFragColor0 = encodePickOutput(vPickId + 1u);
 		#else
 			pcFragColor0 = getPickOutput();
 		#endif
@@ -63460,7 +63460,6 @@ var gsplat_default$2 = `
 #include "gsplatCommonVS"
 varying mediump vec2 gaussianUV;
 varying mediump vec4 gaussianColor;
-flat varying float scaGaussianIndex;
 flat varying float scaGaussianIndex;
 #ifndef DITHER_NONE
 	varying float id;
@@ -64347,7 +64346,7 @@ fn fragmentMain(input: FragmentInput) -> FragmentOutput {
 	#endif
 	#ifdef PICK_PASS
 		#ifdef GSPLAT_UNIFIED_ID
-			output.color = encodePickOutput(vPickId);
+			output.color = encodePickOutput(vPickId + 1u);
 		#else
 			output.color = getPickOutput();
 		#endif
@@ -78520,7 +78519,9 @@ class KeyboardMouseSource extends InputSource {
 			window.dispatchEvent(new CustomEvent('sca:interruptCameraAnimation'));
 		}
 		scaDiagWheelFrameCount = 3;
-		console.log('[SCA3D CAMERA MOVE] wheel event', JSON.stringify({ deltaY: event.deltaY }));
+		if (window.SCA3D?.cameraDebugVerbose) {
+			console.log('[SCA3D CAMERA MOVE] wheel event', JSON.stringify({ deltaY: event.deltaY }));
+		}
 		this.deltas.wheel.append([event.deltaY]);
 	}
 	_onPointerDown(event) {
@@ -84376,30 +84377,32 @@ const scaDiagMaybeLogMove = (cam, state, transitionTimer) => {
     const lookAnimT = scaLookAnim ?
         Math.min(1, scaLookAnim.elapsed / scaLookAnim.duration) :
         null;
-    console.log('[SCA3D CAMERA MOVE]', JSON.stringify({
-        source: scaDiagClassifySource(state, transitionTimer),
-        positionBefore: [scaDiagPrevPos.x, scaDiagPrevPos.y, scaDiagPrevPos.z],
-        positionAfter: [cam.position.x, cam.position.y, cam.position.z],
-        distanceBefore: scaDiagPrevDist,
-        distanceAfter: cam.distance,
-        animationState: {
-            cameraMode: state.cameraMode,
-            transitionTimer,
-            homeAnimActive: !!scaHomeAnim,
-            homeAnimT,
-            lookAnimActive: !!scaLookAnim,
-            lookAnimT,
-            startupFlyAnimActive: !!scaStartupFlyAnim,
-            startupFlyAnimT: scaStartupFlyAnim ?
-                Math.min(1, scaStartupFlyAnim.elapsed / scaStartupFlyAnim.duration) :
-                null,
-            flyToActive: !!ext.flyToActive,
-            flyToT: ext.flyToT ?? null,
-            flyToStartCount: ext.flyToStartCount ?? 0,
-            startupAnimationType: ext.startupAnimationType ?? null,
-            startupAnimationDuration: ext.startupAnimationDuration ?? null
-        }
-    }));
+    if (window.SCA3D?.cameraDebugVerbose) {
+        console.log('[SCA3D CAMERA MOVE]', JSON.stringify({
+            source: scaDiagClassifySource(state, transitionTimer),
+            positionBefore: [scaDiagPrevPos.x, scaDiagPrevPos.y, scaDiagPrevPos.z],
+            positionAfter: [cam.position.x, cam.position.y, cam.position.z],
+            distanceBefore: scaDiagPrevDist,
+            distanceAfter: cam.distance,
+            animationState: {
+                cameraMode: state.cameraMode,
+                transitionTimer,
+                homeAnimActive: !!scaHomeAnim,
+                homeAnimT,
+                lookAnimActive: !!scaLookAnim,
+                lookAnimT,
+                startupFlyAnimActive: !!scaStartupFlyAnim,
+                startupFlyAnimT: scaStartupFlyAnim ?
+                    Math.min(1, scaStartupFlyAnim.elapsed / scaStartupFlyAnim.duration) :
+                    null,
+                flyToActive: !!ext.flyToActive,
+                flyToT: ext.flyToT ?? null,
+                flyToStartCount: ext.flyToStartCount ?? 0,
+                startupAnimationType: ext.startupAnimationType ?? null,
+                startupAnimationDuration: ext.startupAnimationDuration ?? null
+            }
+        }));
+    }
     scaDiagPrevPos.copy(cam.position);
     scaDiagPrevDist = cam.distance;
     if (scaDiagWheelFrameCount > 0) {
@@ -87581,10 +87584,10 @@ const safeChunkReplace = (s, find, repl) => {
     return out;
 };
 const patchGsplatPickGlsl = (chunk) => {
-    return safeChunkReplace(safeChunkReplace(chunk, /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/, pickPassChunkInjected), 'pcFragColor0 = encodePickOutput(vPickId);', 'pcFragColor0 = getPickOutput();');
+    return safeChunkReplace(safeChunkReplace(chunk, /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/, pickPassChunkInjected), 'pcFragColor0 = encodePickOutput(vPickId + 1u);', 'pcFragColor0 = getPickOutput();');
 };
 const patchGsplatPickWgsl = (chunk) => {
-    return safeChunkReplace(safeChunkReplace(chunk, /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/, pickPassChunkInjected), 'output.color = encodePickOutput(vPickId);', 'output.color = getPickOutput();');
+    return safeChunkReplace(safeChunkReplace(chunk, /#ifdef PICK_PASS\s*#include "pickPS"\s*#endif/, pickPassChunkInjected), 'output.color = encodePickOutput(vPickId + 1u);', 'output.color = getPickOutput();');
 };
 /** Per-device original chunk strings + refcount so we can restore after the last Picker releases. */
 const pickerShaderPatchState = new WeakMap();
@@ -88110,6 +88113,81 @@ class Picker {
         let scaIdCacheHeight = 0;
         let scaIdPickIdsEnabled = false;
         let scaLastPickPassDiag = null;
+        let scaLastPickExec = null;
+        const scaInstrumentPickPass = (pass) => {
+            if (pass._scaPickExecWrapped) {
+                return;
+            }
+            pass._scaPickExecWrapped = true;
+            const origBefore = pass.before.bind(pass);
+            const origExecute = pass.execute.bind(pass);
+            const origRender = pass.render.bind(pass);
+            pass.before = function scaPickPassBefore() {
+                scaLastPickExec = {
+                    passCalled: false,
+                    beforeCalled: true,
+                    executeCalled: false,
+                    targetBound: !!this.renderTarget,
+                    drawCalls: 0,
+                    meshInstances: 0,
+                    qualifiedLayers: 0,
+                    pickMeshInstances: 0,
+                    cameraEnabled: !!this.camera?.camera,
+                    layerId: this.layers?.[0]?.id ?? null,
+                    layerName: this.layers?.[0]?.name ?? null,
+                    submitted: false,
+                    readbackAfterSubmit: false
+                };
+                origBefore();
+                scaLastPickExec.qualifiedLayers = this._qualifiedLayerIndices?.length ?? 0;
+                scaLastPickExec.pickMeshInstances = this._pickMeshInstances?.size ?? 0;
+                scaLastPickExec.meshInstances = scaLastPickExec.pickMeshInstances;
+            };
+            pass.execute = function scaPickPassExecute() {
+                scaLastPickExec = scaLastPickExec ?? {};
+                scaLastPickExec.executeCalled = true;
+                const drawBefore = graphicsDevice._drawCallsPerFrame ?? 0;
+                origExecute();
+                scaLastPickExec.drawCalls = (graphicsDevice._drawCallsPerFrame ?? 0) - drawBefore;
+            };
+            pass.render = function scaPickPassRender() {
+                scaLastPickExec = scaLastPickExec ?? { passCalled: true };
+                scaLastPickExec.passCalled = true;
+                scaLastPickExec.targetBound = !!this.renderTarget;
+                origRender();
+            };
+        };
+        const scaLogPickExecSummary = (exec, worldLayer) => {
+            const layerIndex = worldLayer ? app.scene.layers.layerList.indexOf(worldLayer) : -1;
+            const subLayerEnabled = layerIndex >= 0 ? !!app.scene.layers.subLayerEnabled[layerIndex] : false;
+            const lines = [
+                '[SCA PICK EXEC]',
+                `passCalled=${!!exec?.passCalled}`,
+                `targetBound=${!!exec?.targetBound}`,
+                `drawCalls=${exec?.drawCalls ?? 0}`,
+                `meshInstances=${exec?.meshInstances ?? 0}`,
+                `qualifiedLayers=${exec?.qualifiedLayers ?? 0}`,
+                `pickMeshInstances=${exec?.pickMeshInstances ?? 0}`,
+                `cameraEnabled=${!!exec?.cameraEnabled}`,
+                `layerId=${exec?.layerId ?? 'null'}`,
+                `layerName=${exec?.layerName ?? 'null'}`,
+                `subLayerEnabled=${subLayerEnabled}`,
+                `executeCalled=${!!exec?.executeCalled}`,
+                `submitted=${!!exec?.submitted}`,
+                `readbackAfterSubmit=${!!exec?.readbackAfterSubmit}`,
+                `cacheHit=${!!exec?.cacheHit}`
+            ];
+            if ((exec?.drawCalls ?? 0) <= 0 && exec?.passCalled) {
+                if ((exec?.qualifiedLayers ?? 0) <= 0) {
+                    lines.push('filterReason="no qualified layers (layer disabled, subLayer off, or camera not on layer)"');
+                } else if ((exec?.pickMeshInstances ?? 0) <= 0) {
+                    lines.push('filterReason="qualified layer but prepareForPicking returned null in pass.before()"');
+                } else {
+                    lines.push('filterReason="pick MeshInstance queued but renderForward issued 0 draw calls"');
+                }
+            }
+            console.log(lines.join('\n'));
+        };
         let idPickQueue = Promise.resolve();
         const serializeIdPick = (op) => {
             const next = idPickQueue.then(() => op());
@@ -88138,7 +88216,7 @@ class Picker {
             if (storedId === 0 || storedId === 0xffffffff) {
                 return { gaussianIndex: null, rawRGBA: [r, g, b, a] };
             }
-            return { gaussianIndex: storedId, rawRGBA: [r, g, b, a] };
+            return { gaussianIndex: storedId - 1, rawRGBA: [r, g, b, a] };
         };
         const scaCollectPickPassDiagnostics = (worldLayer, width, height, pickMI) => {
             const sceneCam = scaGetSceneCamera();
@@ -88245,6 +88323,9 @@ class Picker {
                 scaIdCacheWidth === width &&
                 scaIdCacheHeight === height &&
                 cameraMatches(width, height)) {
+                if (scaLastPickExec) {
+                    scaLastPickExec = { ...scaLastPickExec, cacheHit: true };
+                }
                 return scaLastPickPassDiag;
             }
             const depthPickerPatchesActive = !!pickerShaderPatchState.get(graphicsDevice);
@@ -88274,6 +88355,7 @@ class Picker {
                     });
                     scaIdPickPass = new RenderPassPicker(graphicsDevice, app.renderer);
                     scaIdPickPass.blendState = BlendState.NOBLEND;
+                    scaInstrumentPickPass(scaIdPickPass);
                 } else if (scaIdCacheWidth !== width || scaIdCacheHeight !== height) {
                     scaIdCacheValid = false;
                     scaIdPickTarget.resize(width, height);
@@ -88300,7 +88382,14 @@ class Picker {
                 scaIdPickPass.update(scaGetCameraComponent(), app.scene, [worldLayer], new Map(), false);
                 scaIdPickPass.render();
                 if (graphicsDevice.isWebGPU) {
+                    graphicsDevice.submit();
+                    if (scaLastPickExec) {
+                        scaLastPickExec.submitted = true;
+                    }
                     await new Promise((resolve) => app.once('frameend', resolve));
+                    if (scaLastPickExec) {
+                        scaLastPickExec.readbackAfterSubmit = true;
+                    }
                 }
                 diag = {
                     ...diag,
@@ -88318,12 +88407,72 @@ class Picker {
             }
             scaLastPickPassDiag = diag;
             scaLogPickPassDiagnostics(diag);
+            scaLogPickExecSummary(scaLastPickExec, worldLayer);
             if (window.SCA3D?.pickPassDebug || window.SCA3D?.pickDebugLog) {
                 const grid = await scaCountPickTargetNonZero(width, height);
                 console.log('[SCA PICK PASS] pick target grid:', grid);
                 diag.pickTargetGrid = grid;
             }
             return diag;
+        };
+        const scaResolvePickMissReason = (diag, nonZeroPixels, gaussianIndex) => {
+            if (gaussianIndex !== null && gaussianIndex !== undefined) {
+                return null;
+            }
+            if (!diag) {
+                return 'pick diagnostics unavailable';
+            }
+            if (!diag.gsplatDirectorPresent) {
+                return 'gsplatDirector missing';
+            }
+            if (!diag.gsplatManagerPresent) {
+                return 'gsplatManager not initialized for camera/world layer';
+            }
+            if (!diag.usesGpuSort) {
+                return 'engine prepareForPicking requires GPU-sort renderer (usesGpuSort=false; GSplatQuadRenderer has no pick path)';
+            }
+            if (!diag.sortedBefore) {
+                return 'splats not marked sorted yet (sortedBefore=false)';
+            }
+            if (!diag.cameraInWorldLayer) {
+                return 'scene camera not registered on World layer';
+            }
+            if (!diag.gsplatIncluded) {
+                return 'prepareForPicking returned null (no pick MeshInstance for RenderPassPicker)';
+            }
+            if ((diag.gsplatInstancingCount ?? 0) <= 0) {
+                return 'pick MeshInstance instancingCount=0';
+            }
+            if (!diag.renderPassExecuted) {
+                return 'SCA id pick render pass did not execute';
+            }
+            if (nonZeroPixels <= 0) {
+                return 'pick render target has zero non-zero pixels (nothing drawn or alpha-clipped)';
+            }
+            return 'pick target has pixels but clicked sample decoded as miss';
+        };
+        const scaLogPickDebugSummary = (diag, nonZeroPixels, gaussianIndex, rawRGBA) => {
+            const meshInstance = !!diag?.gsplatIncluded;
+            const gsplatIncluded = !!diag?.gsplatIncluded;
+            const instancingCount = diag?.gsplatInstancingCount ?? 0;
+            const reason = scaResolvePickMissReason(diag, nonZeroPixels, gaussianIndex);
+            const lines = [
+                '[SCA PICK DEBUG]',
+                `meshInstance=${meshInstance}`,
+                `gsplatIncluded=${gsplatIncluded}`,
+                `usesGpuSort=${!!diag?.usesGpuSort}`,
+                `sortedBefore=${!!diag?.sortedBefore}`,
+                `instancingCount=${instancingCount}`,
+                `nonZeroPixels=${nonZeroPixels}`,
+                gaussianIndex !== null && gaussianIndex !== undefined ?
+                    `gaussianIndex=${gaussianIndex}` :
+                    'gaussianIndex=null',
+                `rawRGBA=[${(rawRGBA ?? []).join(',')}]`
+            ];
+            if (reason) {
+                lines.push(`reason="${reason}"`);
+            }
+            console.log(lines.join('\n'));
         };
         const pickGaussianId = async (nx, ny) => {
             const width = Math.floor(graphicsDevice.width);
@@ -88338,6 +88487,10 @@ class Picker {
             const screenX = Math.min(width - 1, Math.max(0, Math.floor(nx * width)));
             const screenY = Math.min(height - 1, Math.max(0, Math.floor(ny * height)));
             await scaEnsureIdPickRendered(width, height, worldLayer);
+            const sceneCam = scaGetSceneCamera();
+            const pickMI = app.renderer.gsplatDirector?.prepareForPicking(sceneCam, width, height, worldLayer) ?? null;
+            const pickDiag = scaCollectPickPassDiagnostics(worldLayer, width, height, pickMI);
+            const pickTargetGrid = await scaCountPickTargetNonZero(width, height);
             const flipY = graphicsDevice.isWebGL2 || graphicsDevice.isWebGPU;
             const texY = flipY ? scaIdPickTarget.height - screenY - 1 : screenY;
             const pixels = await scaIdPickBuffer.read(screenX, texY, 1, 1, {
@@ -88345,6 +88498,14 @@ class Picker {
                 immediate: true
             });
             const decoded = scaDecodePickPixel(pixels);
+            const mergedDiag = { ...pickDiag, ...scaLastPickPassDiag };
+            scaLogPickDebugSummary(
+                mergedDiag,
+                pickTargetGrid.nonZeroPixels,
+                decoded.gaussianIndex,
+                decoded.rawRGBA
+            );
+            scaLogPickExecSummary(scaLastPickExec, worldLayer);
             const base = {
                 position: null,
                 screenX,
@@ -88352,7 +88513,7 @@ class Picker {
                 width,
                 height,
                 rawRGBA: decoded.rawRGBA,
-                pickPassDiag: scaLastPickPassDiag
+                pickPassDiag: { ...mergedDiag, pickTargetGrid, pickExec: scaLastPickExec }
             };
             if (decoded.gaussianIndex === null) {
                 return { gaussianIndex: null, ...base };
@@ -89525,6 +89686,7 @@ class Viewer {
                 };
             };
             window.SCA3D = window.SCA3D || {};
+            window.SCA3D.cameraDebugVerbose = window.SCA3D.cameraDebugVerbose ?? false;
             window.SCA3D.pickDebugLog = window.SCA3D.pickDebugLog ?? false;
             window.SCA3D.pickPassDebug = window.SCA3D.pickPassDebug ?? false;
             window.SCA3D.pickDebugForceClear = window.SCA3D.pickDebugForceClear ?? false;

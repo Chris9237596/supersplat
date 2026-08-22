@@ -381,6 +381,42 @@ class ScaViewerPanel extends Container {
             hidden: true
         });
 
+        const viewerInteractionPreviewRow = new Container({ class: 'sca-export-preview-row' });
+        const viewerInteractionPreviewInput = new BooleanInput({
+            class: 'sca-export-preview-checkbox',
+            type: 'checkbox',
+            value: false
+        });
+        const viewerInteractionPreviewLabel = new Label({
+            class: 'sca-export-preview-label',
+            text: 'Authoring Interaction Preview'
+        });
+        viewerInteractionPreviewRow.append(viewerInteractionPreviewInput);
+        viewerInteractionPreviewRow.append(viewerInteractionPreviewLabel);
+
+        const authoringPreviewNote = new Label({
+            class: 'sca-viewer-preview-note',
+            text: 'Authoring preview uses storage-index region pick (Centers or Rings). Runtime preview runs the exported viewer.'
+        });
+
+        const runtimePreviewSpikeRow = new Container({ class: 'sca-export-preview-row' });
+        const runtimePreviewSpikeInput = new BooleanInput({
+            class: 'sca-export-preview-checkbox',
+            type: 'checkbox',
+            value: false
+        });
+        const runtimePreviewSpikeLabel = new Label({
+            class: 'sca-export-preview-label',
+            text: 'Runtime preview: Gaussian Pick Spike'
+        });
+        runtimePreviewSpikeRow.append(runtimePreviewSpikeInput);
+        runtimePreviewSpikeRow.append(runtimePreviewSpikeLabel);
+
+        const runtimePreviewButton = new Button({
+            class: ['sca-hotspot-form-button', 'sca-viewer-action-button'],
+            text: 'Open Runtime Viewer Preview'
+        });
+
         this.append(title);
         this.append(initialTitle);
         this.append(captureButton);
@@ -422,6 +458,20 @@ class ScaViewerPanel extends Container {
         this.append(this.backgroundImageRow);
         this.append(this.previewButton);
         this.append(this.exitPreviewButton);
+        this.append(viewerInteractionPreviewRow);
+        this.append(authoringPreviewNote);
+        this.append(runtimePreviewSpikeRow);
+        this.append(runtimePreviewButton);
+
+        runtimePreviewButton.on('click', () => {
+            this.events.fire('sca.runtimeViewerPreview.open', {
+                useGaussianPickSpike: runtimePreviewSpikeInput.value
+            });
+        });
+
+        viewerInteractionPreviewInput.on('change', (value: boolean) => {
+            this.events.fire('sca.viewerInteractionPreview.setEnabled', value);
+        });
 
         captureButton.on('click', () => {
             this.events.fire('sca.viewer.captureCurrentView');

@@ -8,7 +8,7 @@ import { registerScaDocEvents } from './persistence/register-sca-doc-events';
 import { registerScaFocusEvents } from './focus/sca-focus-events';
 import { registerScaViewerEvents } from './viewer/sca-viewer-events';
 import { exportScaRuntime } from './export/export-sca-runtime';
-import { exportScaRuntimePackage, WebGPUUnavailableError } from './export/export-sca-runtime-package';
+import { exportScaRuntimePackage, ScaRuntimePackageOptions, WebGPUUnavailableError } from './export/export-sca-runtime-package';
 import { stringifyProjectJson } from './serialize/project-json';
 import { HotspotStore } from './store/hotspot-store';
 import { mimeTypeForFilename, ScaAssetStore } from './store/sca-asset-store';
@@ -152,7 +152,10 @@ const registerScaEvents = (events: Events): HotspotStore => {
         exportScaRuntime(store.getProject());
     });
 
-    events.on('sca.export.runtimePackage', async (includePreview = true) => {
+    events.on('sca.export.runtimePackage', async (payload: boolean | ScaRuntimePackageOptions = true) => {
+        const options: ScaRuntimePackageOptions = typeof payload === 'boolean'
+            ? { includePreview: payload }
+            : payload;
         const splats = events.invoke('scene.splats') as Splat[] | undefined;
 
         if (!Array.isArray(splats) || splats.length === 0) {
@@ -165,7 +168,7 @@ const registerScaEvents = (events: Events): HotspotStore => {
         }
 
         try {
-            await exportScaRuntimePackage(splats, store.getProject(), events, { includePreview });
+            await exportScaRuntimePackage(splats, store.getProject(), events, options);
         } catch (error) {
             if (error instanceof WebGPUUnavailableError) {
                 await events.invoke('showPopup', {

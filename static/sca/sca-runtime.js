@@ -1259,6 +1259,32 @@
     if (typeof viewer?.pickGaussian === 'function') {
       return true
     }
+
+    const runtimePicker = window.SCA3D?.runtimePicker
+    if (runtimePicker?.pick) {
+      viewer.pickGaussian = async (clientX, clientY) => {
+        const coords = clientToPickNormalized(viewer, clientX, clientY)
+        if (!coords) {
+          return null
+        }
+        const gaussianIndex = await runtimePicker.pick(coords.nx, coords.ny)
+        window.SCA3D.state = window.SCA3D.state || {}
+        window.SCA3D.state.lastPickGaussianIndex = gaussianIndex
+        if (gaussianIndex === null || gaussianIndex === undefined) {
+          return null
+        }
+        return {
+          gaussianIndex,
+          scaSplatId: window.SCA3D?.state?.defaultScaSplatId ?? 'splat_01',
+          screenX: coords.pixelX,
+          screenY: coords.pixelY,
+          clientX,
+          clientY,
+        }
+      }
+      return true
+    }
+
     if (typeof viewer?.picker?.pickGaussianId === 'function') {
       viewer.pickGaussian = async (clientX, clientY) => {
         const coords = clientToPickNormalized(viewer, clientX, clientY)

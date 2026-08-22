@@ -1,4 +1,4 @@
-import { Button, BooleanInput, Container, Label } from '@playcanvas/pcui';
+import { Button, BooleanInput, Container, Label, SelectInput } from '@playcanvas/pcui';
 
 import { Events } from '../events';
 import { Tooltips } from '../ui/tooltips';
@@ -114,13 +114,51 @@ class ScaPanel extends Container {
         includePreviewRow.append(includePreviewInput);
         includePreviewRow.append(includePreviewLabel);
 
+        const useGaussianPickSpikeRow = new Container({ class: 'sca-export-preview-row' });
+        const useGaussianPickSpikeInput = new BooleanInput({
+            class: 'sca-export-gaussian-pick-spike-checkbox',
+            type: 'checkbox',
+            value: false
+        });
+        const useGaussianPickSpikeLabel = new Label({
+            class: 'sca-export-preview-label',
+            text: 'Use Gaussian Pick Spike (debug)'
+        });
+
+        useGaussianPickSpikeRow.append(useGaussianPickSpikeInput);
+        useGaussianPickSpikeRow.append(useGaussianPickSpikeLabel);
+
+        const sogCompressionRow = new Container({ class: 'sca-export-compression-row' });
+        const sogCompressionLabel = new Label({
+            class: 'sca-export-preview-label',
+            text: 'SOG compression'
+        });
+        const sogCompressionSelect = new SelectInput({
+            class: 'sca-export-compression-select',
+            defaultValue: 'automatic',
+            options: [
+                { v: 'automatic', t: 'Automatic' },
+                { v: 'prefer-webgpu', t: 'Prefer WebGPU' },
+                { v: 'force-cpu', t: 'Force CPU' }
+            ]
+        });
+
+        sogCompressionRow.append(sogCompressionLabel);
+        sogCompressionRow.append(sogCompressionSelect);
+
         exportSection.append(exportTitle);
         exportSection.append(includePreviewRow);
+        exportSection.append(useGaussianPickSpikeRow);
+        exportSection.append(sogCompressionRow);
         exportSection.append(exportRuntimePackageButton);
         body.append(exportSection);
 
         exportRuntimePackageButton.on('click', () => {
-            events.fire('sca.export.runtimePackage', includePreviewInput.value);
+            events.fire('sca.export.runtimePackage', {
+                includePreview: includePreviewInput.value,
+                useGaussianPickSpike: useGaussianPickSpikeInput.value,
+                sogCompressionMode: sogCompressionSelect.value as 'automatic' | 'prefer-webgpu' | 'force-cpu'
+            });
         });
 
         this.append(header);

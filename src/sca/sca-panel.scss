@@ -268,6 +268,17 @@
         margin-top: 8px;
     }
 
+    .sca-export-compression-row {
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+    }
+
+    .sca-export-compression-select {
+        flex-grow: 1;
+        margin: 0;
+    }
+
     .sca-export-preview-label {
         font-size: 12px;
         color: $clr-default;
@@ -384,4 +395,70 @@
     &.active {
         color: $clr-hilight;
     }
+}
+
+.sca-viewer-preview-note {
+    font-size: 10px;
+    line-height: 1.35;
+    color: $text-secondary;
+    margin: 4px 0 10px;
+}
+
+.sca-runtime-viewer-preview-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    background: rgba(0, 0, 0, 0.92);
+}
+
+.sca-runtime-viewer-preview-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    color: $text-primary;
+}
+
+.sca-runtime-viewer-preview-title {
+    font-weight: bold;
+    font-size: 13px;
+}
+
+.sca-runtime-viewer-preview-subtitle {
+    flex: 1;
+    font-size: 10px;
+    color: $text-secondary;
+}
+
+.sca-runtime-viewer-preview-close {
+    padding: 4px 10px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.sca-runtime-viewer-preview-frame {
+    flex: 1;
+    width: 100%;
+    border: 0;
+    background: #000;
+}
+
+.sca-runtime-viewer-preview-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-family: monospace;
+    color: $text-primary;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.sca-runtime-viewer-preview-status-item {
+    white-space: nowrap;
 }

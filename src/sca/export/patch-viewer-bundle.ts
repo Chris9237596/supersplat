@@ -3,6 +3,8 @@
  * Applied to index.js (and inlined JS in html-bundle exports) at package build time.
  */
 
+import { SCA_VIEWER_PICK_SEAM } from './sca-viewer-pick-seam';
+
 const replaceOnce = (source: string, search: string, replacement: string, label: string): string => {
     if (!source.includes(search)) {
         throw new Error(`[SCA] viewer patch failed: missing anchor "${label}"`);
@@ -92,30 +94,32 @@ const scaDiagMaybeLogMove = (cam, state, transitionTimer) => {
     const lookAnimT = scaLookAnim ?
         Math.min(1, scaLookAnim.elapsed / scaLookAnim.duration) :
         null;
-    console.log('[SCA3D CAMERA MOVE]', JSON.stringify({
-        source: scaDiagClassifySource(state, transitionTimer),
-        positionBefore: [scaDiagPrevPos.x, scaDiagPrevPos.y, scaDiagPrevPos.z],
-        positionAfter: [cam.position.x, cam.position.y, cam.position.z],
-        distanceBefore: scaDiagPrevDist,
-        distanceAfter: cam.distance,
-        animationState: {
-            cameraMode: state.cameraMode,
-            transitionTimer,
-            homeAnimActive: !!scaHomeAnim,
-            homeAnimT,
-            lookAnimActive: !!scaLookAnim,
-            lookAnimT,
-            startupFlyAnimActive: !!scaStartupFlyAnim,
-            startupFlyAnimT: scaStartupFlyAnim ?
-                Math.min(1, scaStartupFlyAnim.elapsed / scaStartupFlyAnim.duration) :
-                null,
-            flyToActive: !!ext.flyToActive,
-            flyToT: ext.flyToT ?? null,
-            flyToStartCount: ext.flyToStartCount ?? 0,
-            startupAnimationType: ext.startupAnimationType ?? null,
-            startupAnimationDuration: ext.startupAnimationDuration ?? null
-        }
-    }));
+    if (window.SCA3D?.cameraDebugVerbose) {
+        console.log('[SCA3D CAMERA MOVE]', JSON.stringify({
+            source: scaDiagClassifySource(state, transitionTimer),
+            positionBefore: [scaDiagPrevPos.x, scaDiagPrevPos.y, scaDiagPrevPos.z],
+            positionAfter: [cam.position.x, cam.position.y, cam.position.z],
+            distanceBefore: scaDiagPrevDist,
+            distanceAfter: cam.distance,
+            animationState: {
+                cameraMode: state.cameraMode,
+                transitionTimer,
+                homeAnimActive: !!scaHomeAnim,
+                homeAnimT,
+                lookAnimActive: !!scaLookAnim,
+                lookAnimT,
+                startupFlyAnimActive: !!scaStartupFlyAnim,
+                startupFlyAnimT: scaStartupFlyAnim ?
+                    Math.min(1, scaStartupFlyAnim.elapsed / scaStartupFlyAnim.duration) :
+                    null,
+                flyToActive: !!ext.flyToActive,
+                flyToT: ext.flyToT ?? null,
+                flyToStartCount: ext.flyToStartCount ?? 0,
+                startupAnimationType: ext.startupAnimationType ?? null,
+                startupAnimationDuration: ext.startupAnimationDuration ?? null
+            }
+        }));
+    }
     scaDiagPrevPos.copy(cam.position);
     scaDiagPrevDist = cam.distance;
     if (scaDiagWheelFrameCount > 0) {
@@ -633,7 +637,7 @@ const SKYBOX_ASSIGN = `    const skyboxLoad = config.skyboxUrl &&
 const PICKER_PATCH_MARKERS = [
     'SCA_PICK_GAUSSIAN',
     'pickGaussianId',
-    'this.pickGaussian = async',
+    'installRuntimePicker',
     'scaPickerReady'
 ] as const;
 
@@ -642,6 +646,9 @@ const verifyPickerPatch = (source: string): void => {
         if (!source.includes(marker)) {
             throw new Error(`[SCA] viewer picker patch failed: missing "${marker}"`);
         }
+    }
+    if (source.includes('this.pickGaussian = async')) {
+        console.warn('[SCA] viewer bundle still contains legacy inline pickGaussian; Phase 2 uses modular runtime picker');
     }
 };
 
@@ -666,8 +673,24 @@ const verifyGlslHighlightPatch = (source: string): void => {
     if (!source.includes('texelFetch(scaRegionHighlight')) {
         throw new Error('[SCA] viewer GLSL highlight patch failed: missing texelFetch(scaRegionHighlight');
     }
+    if (!source.includes('scaRegionHighlightTexWidth')) {
+        throw new Error('[SCA] viewer GLSL highlight patch failed: missing scaRegionHighlightTexWidth uniform');
+    }
+    if (source.includes('texelFetch(scaRegionHighlight') && source.includes('splatTextureSize')) {
+        const highlightFetch = source.match(/texelFetch\(scaRegionHighlight[\s\S]{0,200}\)/);
+        if (highlightFetch?.[0]?.includes('splatTextureSize')) {
+            throw new Error('[SCA] viewer GLSL highlight patch failed: fragment shader references splatTextureSize');
+        }
+    }
     if (!source.includes('flat varying float scaGaussianIndex')) {
         throw new Error('[SCA] viewer GLSL highlight patch failed: missing flat varying scaGaussianIndex');
+    }
+    const vsChunk = source.match(/var gsplat_default\$2 = `([\s\S]*?)`;/);
+    if (vsChunk) {
+        const declCount = (vsChunk[1].match(/flat varying float scaGaussianIndex/g) || []).length;
+        if (declCount > 1) {
+            throw new Error('[SCA] viewer GLSL highlight patch failed: duplicate flat varying float scaGaussianIndex in vertex shader');
+        }
     }
 };
 
@@ -692,7 +715,7 @@ const applyScaRegionHighlightGlslPatches = (source: string): RegionHighlightShad
                 `vec4 fragColor = vec4(gaussianColor.xyz, alpha);
         #ifdef SCA_REGION_HIGHLIGHT
         if (scaRegionHighlightActive > 0.5) {
-            float regionMask = texelFetch(scaRegionHighlight, ivec2(int(scaGaussianIndex) % int(splatTextureSize), int(scaGaussianIndex) / int(splatTextureSize)), 0).r;
+            float regionMask = texelFetch(scaRegionHighlight, ivec2(int(scaGaussianIndex) % int(scaRegionHighlightTexWidth), int(scaGaussianIndex) / int(scaRegionHighlightTexWidth)), 0).r;
             if (regionMask > 0.0) {
                 fragColor.xyz = mix(fragColor.xyz, scaRegionHighlightClr.xyz, scaRegionHighlightClr.a * regionMask);
             }
@@ -701,14 +724,9 @@ const applyScaRegionHighlightGlslPatches = (source: string): RegionHighlightShad
             );
         }
 
-        if (trial.includes('varying mediump vec4 gaussianColor;\n#ifndef DITHER_NONE')) {
-            trial = trial.replace(
-                'varying mediump vec4 gaussianColor;\n#ifndef DITHER_NONE',
-                'varying mediump vec4 gaussianColor;\nflat varying float scaGaussianIndex;\n#ifndef DITHER_NONE'
-            );
-        }
-
-        if (trial.includes('#ifndef DITHER_NONE\n\tvarying float id;\n#endif\nmediump vec4 discardVec')) {
+        // VS-only: declare scaGaussianIndex once (do not also inject via gaussianColor/#ifndef — that duplicates in VS).
+        if (trial.includes('#ifndef DITHER_NONE\n\tvarying float id;\n#endif\nmediump vec4 discardVec') &&
+            !trial.includes('flat varying float scaGaussianIndex;\n#ifndef DITHER_NONE')) {
             trial = trial.replace(
                 '#ifndef DITHER_NONE\n\tvarying float id;\n#endif\nmediump vec4 discardVec',
                 'flat varying float scaGaussianIndex;\n#ifndef DITHER_NONE\n\tvarying float id;\n#endif\nmediump vec4 discardVec'
@@ -729,6 +747,8 @@ const applyScaRegionHighlightGlslPatches = (source: string): RegionHighlightShad
 uniform sampler2D scaRegionHighlight;
 uniform vec4 scaRegionHighlightClr;
 uniform float scaRegionHighlightActive;
+uniform float scaRegionHighlightTexWidth;
+uniform float scaRegionHighlightTexHeight;
 flat varying float scaGaussianIndex;
 #endif
 varying mediump vec2 gaussianUV;
@@ -962,7 +982,9 @@ const patchViewerBundle = (source: string): string => {
 \t\t\twindow.dispatchEvent(new CustomEvent('sca:interruptCameraAnimation'));
 \t\t}
 \t\tscaDiagWheelFrameCount = 3;
-\t\tconsole.log('[SCA3D CAMERA MOVE] wheel event', JSON.stringify({ deltaY: event.deltaY }));
+\t\tif (window.SCA3D?.cameraDebugVerbose) {
+\t\t\tconsole.log('[SCA3D CAMERA MOVE] wheel event', JSON.stringify({ deltaY: event.deltaY }));
+\t\t}
 \t\tthis.deltas.wheel.append([event.deltaY]);
 \t}`,
         'SCA wheel interrupt'
@@ -1033,284 +1055,15 @@ const patchViewerBundle = (source: string): string => {
         'skybox cubemap assignment'
     );
 
-    patched = replaceOnce(
-        patched,
-        'this.pickSurface = (x, y) => serializePick(() => pickSurface(x, y));',
-        `this.pickSurface = (x, y) => serializePick(() => pickSurface(x, y));
-        let scaIdPickPass = null;
-        let scaIdPickTarget = null;
-        let scaIdPickBuffer = null;
-        let scaIdCacheValid = false;
-        let scaIdCacheWidth = 0;
-        let scaIdCacheHeight = 0;
-        let scaIdPickIdsEnabled = false;
-        let scaLastPickPassDiag = null;
-        let idPickQueue = Promise.resolve();
-        const serializeIdPick = (op) => {
-            const next = idPickQueue.then(() => op());
-            idPickQueue = next.catch(() => {});
-            return next;
-        };
-        const scaIdClearColor = new Color(0, 0, 0, 0);
-        const scaGetSceneCamera = () => camera.camera.camera;
-        const scaGetCameraComponent = () => camera.camera;
-        const scaPickChannel = (value) => {
-            const n = Number(value);
-            if (!Number.isFinite(n)) {
-                return 0;
-            }
-            return n <= 1 ? Math.round(n * 255) : Math.round(n);
-        };
-        const scaDecodePickPixel = (pixels) => {
-            const r = scaPickChannel(pixels[0]);
-            const g = scaPickChannel(pixels[1]);
-            const b = scaPickChannel(pixels[2]);
-            const a = scaPickChannel(pixels[3]);
-            if (r === 0 && g === 0 && b === 0 && a === 0) {
-                return { gaussianIndex: null, rawRGBA: [r, g, b, a] };
-            }
-            const storedId = (r | (g << 8) | (b << 16) | (a << 24)) >>> 0;
-            if (storedId === 0 || storedId === 0xffffffff) {
-                return { gaussianIndex: null, rawRGBA: [r, g, b, a] };
-            }
-            return { gaussianIndex: storedId - 1, rawRGBA: [r, g, b, a] };
-        };
-        const scaCollectPickPassDiagnostics = (worldLayer, width, height, pickMI) => {
-            const sceneCam = scaGetSceneCamera();
-            const camComp = scaGetCameraComponent();
-            const director = app.renderer.gsplatDirector;
-            const cameraData = director?.camerasMap?.get(sceneCam);
-            const layerData = cameraData?.layersMap?.get(worldLayer);
-            const manager = layerData?.gsplatManager;
-            const worldState = manager?.world?.getState(manager.world.currentVersion);
-            const pickMaterial = pickMI?.material;
-            return {
-                renderPassExecuted: false,
-                cameraEntity: camera?.name ?? 'camera',
-                cameraLayers: camComp?.layers ? camComp.layers.slice() : [],
-                worldLayerId: worldLayer?.id,
-                worldLayerName: worldLayer?.name,
-                worldLayerEnabled: !!worldLayer?.enabled,
-                cameraInWorldLayer: !!worldLayer?.camerasSet?.has(sceneCam),
-                gsplatDirectorPresent: !!director,
-                gsplatManagerPresent: !!manager,
-                gsplatIncluded: !!pickMI,
-                gsplatVisible: pickMI?.visible !== false,
-                gsplatInstancingCount: pickMI?.instancingCount ?? 0,
-                gsplatEnableIdsBefore: scaIdPickIdsEnabled,
-                gsplatEnableIdsDuring: app.scene.gsplat.enableIds,
-                sortedBefore: !!worldState?.sortedBefore,
-                totalActiveSplats: worldState?.totalActiveSplats ?? 0,
-                usesGpuSort: !!manager?.renderer?.usesGpuSort,
-                pickUnifiedIdDefine: !!pickMaterial?.getDefine?.('GSPLAT_UNIFIED_ID'),
-                pickCustomIdDefine: !!pickMaterial?.getDefine?.('PICK_CUSTOM_ID'),
-                pickPassVariant: !!pickMaterial?.getDefine?.('GSPLAT_UNIFIED_ID'),
-                gsplatPlacementCount: worldLayer?.gsplatPlacements?.length ?? 0,
-                clearColor: [scaIdClearColor.r, scaIdClearColor.g, scaIdClearColor.b, scaIdClearColor.a],
-                targetWidth: width,
-                targetHeight: height
-            };
-        };
-        const scaLogPickPassDiagnostics = (diag) => {
-            if (!window.SCA3D?.pickPassDebug && !window.SCA3D?.pickDebugLog) {
-                return;
-            }
-            console.log('[SCA PICK PASS]');
-            console.log('drawCalls:', diag.drawCallsEstimate ?? 0);
-            console.log('gsplatIncluded:', diag.gsplatIncluded);
-            console.log('pickPassVariant:', diag.pickPassVariant);
-            console.log('renderPassExecuted:', diag.renderPassExecuted);
-            console.log('cameraInWorldLayer:', diag.cameraInWorldLayer);
-            console.log('sortedBefore:', diag.sortedBefore);
-            console.log('enableIds:', diag.gsplatEnableIdsDuring);
-            console.log('instancingCount:', diag.gsplatInstancingCount);
-            console.log('placements:', diag.gsplatPlacementCount);
-            console.log('detail:', diag);
-        };
-        const scaEnsureCameraOnWorldLayer = (worldLayer) => {
-            const sceneCam = scaGetSceneCamera();
-            if (!worldLayer?.camerasSet?.has(sceneCam)) {
-                worldLayer.addCamera(scaGetCameraComponent());
-            }
-        };
-        const scaWaitForUnifiedGsplatPick = async (worldLayer, width, height) => {
-            const sceneCam = scaGetSceneCamera();
-            const director = app.renderer.gsplatDirector;
-            if (!director) {
-                return null;
-            }
-            scaEnsureCameraOnWorldLayer(worldLayer);
-            if (!app.scene.gsplat.enableIds) {
-                app.scene.gsplat.enableIds = true;
-                scaIdPickIdsEnabled = true;
-            }
-            for (let attempt = 0; attempt < 40; attempt++) {
-                app.renderNextFrame = true;
-                await new Promise((resolve) => app.once('frameend', resolve));
-                const pickMI = director.prepareForPicking(sceneCam, width, height, worldLayer);
-                if (pickMI && pickMI.instancingCount > 0) {
-                    return pickMI;
-                }
-            }
-            return director.prepareForPicking(sceneCam, width, height, worldLayer);
-        };
-        const scaCountPickTargetNonZero = async (width, height) => {
-            const step = Math.max(8, Math.floor(Math.min(width, height) / 32));
-            const flipY = graphicsDevice.isWebGL2 || graphicsDevice.isWebGPU;
-            let nonZeroPixels = 0;
-            let samples = 0;
-            for (let y = 0; y < height; y += step) {
-                for (let x = 0; x < width; x += step) {
-                    const texY = flipY ? height - y - 1 : y;
-                    const px = await scaIdPickBuffer.read(x, texY, 1, 1, {
-                        renderTarget: scaIdPickTarget,
-                        immediate: true
-                    });
-                    samples++;
-                    if (scaPickChannel(px[0]) > 0 || scaPickChannel(px[1]) > 0 ||
-                        scaPickChannel(px[2]) > 0 || scaPickChannel(px[3]) > 0) {
-                        nonZeroPixels++;
-                    }
-                }
-            }
-            return { nonZeroPixels, samples, step, targetWidth: width, targetHeight: height };
-        };
-        const scaEnsureIdPickRendered = async (width, height, worldLayer) => {
-            if (scaIdCacheValid &&
-                scaIdCacheWidth === width &&
-                scaIdCacheHeight === height &&
-                cameraMatches(width, height)) {
-                return scaLastPickPassDiag;
-            }
-            const depthPickerPatchesActive = !!pickerShaderPatchState.get(graphicsDevice);
-            if (!app.scene.gsplat.enableIds) {
-                app.scene.gsplat.enableIds = true;
-                scaIdPickIdsEnabled = true;
-            }
-            scaEnsureCameraOnWorldLayer(worldLayer);
-            const pickMI = await scaWaitForUnifiedGsplatPick(worldLayer, width, height);
-            let diag = scaCollectPickPassDiagnostics(worldLayer, width, height, pickMI);
-            try {
-                if (!scaIdPickPass) {
-                    scaIdPickBuffer = new Texture(graphicsDevice, {
-                        format: PIXELFORMAT_RGBA8,
-                        width,
-                        height,
-                        mipmaps: false,
-                        minFilter: FILTER_NEAREST,
-                        magFilter: FILTER_NEAREST,
-                        addressU: ADDRESS_CLAMP_TO_EDGE,
-                        addressV: ADDRESS_CLAMP_TO_EDGE,
-                        name: 'sca-picker-id'
-                    });
-                    scaIdPickTarget = new RenderTarget({
-                        colorBuffer: scaIdPickBuffer,
-                        depth: true
-                    });
-                    scaIdPickPass = new RenderPassPicker(graphicsDevice, app.renderer);
-                    scaIdPickPass.blendState = BlendState.NOBLEND;
-                } else if (scaIdCacheWidth !== width || scaIdCacheHeight !== height) {
-                    scaIdCacheValid = false;
-                    scaIdPickTarget.resize(width, height);
-                }
-                if (depthPickerPatchesActive) {
-                    unregisterPickerShaderPatches(app);
-                }
-                if (window.SCA3D?.pickDebugForceClear) {
-                    scaIdPickPass.init(scaIdPickTarget);
-                    scaIdPickPass.setClearColor(new Color(1, 0, 0, 1));
-                    scaIdPickPass.update(scaGetCameraComponent(), app.scene, [], new Map(), false);
-                    scaIdPickPass.render();
-                    if (graphicsDevice.isWebGPU) {
-                        await new Promise((resolve) => app.once('frameend', resolve));
-                    }
-                    diag = { ...diag, renderPassExecuted: true, drawCallsEstimate: 0, debugForceClear: true };
-                    scaLastPickPassDiag = diag;
-                    scaLogPickPassDiagnostics(diag);
-                    return diag;
-                }
-                app.renderNextFrame = true;
-                scaIdPickPass.init(scaIdPickTarget);
-                scaIdPickPass.setClearColor(scaIdClearColor);
-                scaIdPickPass.update(scaGetCameraComponent(), app.scene, [worldLayer], new Map(), false);
-                scaIdPickPass.render();
-                if (graphicsDevice.isWebGPU) {
-                    await new Promise((resolve) => app.once('frameend', resolve));
-                }
-                diag = {
-                    ...diag,
-                    renderPassExecuted: true,
-                    drawCallsEstimate: pickMI ? (pickMI.instancingCount > 0 ? 1 : 0) : 0,
-                    gsplatEnableIdsDuring: app.scene.gsplat.enableIds
-                };
-                scaIdCacheWidth = width;
-                scaIdCacheHeight = height;
-                scaIdCacheValid = true;
-            } finally {
-                if (depthPickerPatchesActive) {
-                    registerPickerShaderPatches(app);
-                }
-            }
-            scaLastPickPassDiag = diag;
-            scaLogPickPassDiagnostics(diag);
-            if (window.SCA3D?.pickPassDebug || window.SCA3D?.pickDebugLog) {
-                const grid = await scaCountPickTargetNonZero(width, height);
-                console.log('[SCA PICK PASS] pick target grid:', grid);
-                diag.pickTargetGrid = grid;
-            }
-            return diag;
-        };
-        const pickGaussianId = async (nx, ny) => {
-            const width = Math.floor(graphicsDevice.width);
-            const height = Math.floor(graphicsDevice.height);
-            if (width <= 0 || height <= 0) {
-                return null;
-            }
-            const worldLayer = app.scene.layers.getLayerByName('World');
-            if (!worldLayer) {
-                return null;
-            }
-            const screenX = Math.min(width - 1, Math.max(0, Math.floor(nx * width)));
-            const screenY = Math.min(height - 1, Math.max(0, Math.floor(ny * height)));
-            await scaEnsureIdPickRendered(width, height, worldLayer);
-            const flipY = graphicsDevice.isWebGL2 || graphicsDevice.isWebGPU;
-            const texY = flipY ? scaIdPickTarget.height - screenY - 1 : screenY;
-            const pixels = await scaIdPickBuffer.read(screenX, texY, 1, 1, {
-                renderTarget: scaIdPickTarget,
-                immediate: true
-            });
-            const decoded = scaDecodePickPixel(pixels);
-            const base = {
-                position: null,
-                screenX,
-                screenY,
-                width,
-                height,
-                rawRGBA: decoded.rawRGBA,
-                pickPassDiag: scaLastPickPassDiag
-            };
-            if (decoded.gaussianIndex === null) {
-                return { gaussianIndex: null, ...base };
-            }
-            return { gaussianIndex: decoded.gaussianIndex, ...base };
-        };
-        this.pickGaussianId = (nx, ny) => serializeIdPick(() => pickGaussianId(nx, ny));
-        this.dumpPickTarget = async () => {
-            const width = Math.floor(graphicsDevice.width);
-            const height = Math.floor(graphicsDevice.height);
-            const worldLayer = app.scene.layers.getLayerByName('World');
-            if (!worldLayer || width <= 0 || height <= 0) {
-                return { error: 'pick target unavailable' };
-            }
-            scaIdCacheValid = false;
-            const passDiag = await scaEnsureIdPickRendered(width, height, worldLayer);
-            const grid = await scaCountPickTargetNonZero(width, height);
-            const summary = { ...grid, pickPassDiag: passDiag };
-            console.log('[SCA PICK PASS] dumpPickTarget:', summary);
-            return summary;
-        };`,
-        'SCA pickGaussianId'
-    );
+    if (!patched.includes('scaInstallRuntimePicker')) {
+        patched = replaceOnce(
+            patched,
+            'this.pickSurface = (x, y) => serializePick(() => pickSurface(x, y));',
+            `this.pickSurface = (x, y) => serializePick(() => pickSurface(x, y));
+        ${SCA_VIEWER_PICK_SEAM}`,
+            'SCA modular runtime picker'
+        );
+    }
 
     patched = replaceOnce(
         patched,
@@ -1371,7 +1124,7 @@ const patchViewerBundle = (source: string): string => {
                         return false;
                     }
                     if (!scaRegionHighlightShaderReady) {
-                        console.error('[SCA REGION] highlight init failed: GLSL shader patch unavailable', {
+                        console.warn('[SCA REGION] highlight skipped on WebGL2 (unsupported shader variant)', {
                             stage,
                             gaussianCount,
                             renderer: 'webgl',
@@ -1430,6 +1183,8 @@ const patchViewerBundle = (source: string): string => {
                     material.setParameter('scaRegionHighlight', scaRegionHighlightTexture);
                     material.setParameter('scaRegionHighlightClr', [1, 0.4, 0, 0.5]);
                     material.setParameter('scaRegionHighlightActive', 0);
+                    material.setParameter('scaRegionHighlightTexWidth', layout.width);
+                    material.setParameter('scaRegionHighlightTexHeight', layout.height);
                     material.update();
                     app.renderNextFrame = true;
                     console.log('[SCA REGION] highlight texture created', {
@@ -1478,110 +1233,10 @@ const patchViewerBundle = (source: string): string => {
             this.clearScaRegionHighlight = () => {
                 this.setScaRegionHighlight(null, [0, 0, 0, 0], false);
             };
-            const scaResolveClientPickCoords = (clientX, clientY) => {
-                const canvas = app.graphicsDevice.canvas;
-                const rect = canvas.getBoundingClientRect();
-                const width = Math.floor(app.graphicsDevice.width);
-                const height = Math.floor(app.graphicsDevice.height);
-                if (!rect.width || !rect.height || width <= 0 || height <= 0) {
-                    return null;
-                }
-                const scaleX = width / rect.width;
-                const scaleY = height / rect.height;
-                const pixelX = Math.min(width - 1, Math.max(0, Math.floor((clientX - rect.left) * scaleX)));
-                const pixelY = Math.min(height - 1, Math.max(0, Math.floor((clientY - rect.top) * scaleY)));
-                return {
-                    clientX,
-                    clientY,
-                    canvasRect: {
-                        left: rect.left,
-                        top: rect.top,
-                        width: rect.width,
-                        height: rect.height
-                    },
-                    dpr: window.devicePixelRatio || 1,
-                    pixelX,
-                    pixelY,
-                    targetWidth: width,
-                    targetHeight: height,
-                    nx: pixelX / width,
-                    ny: pixelY / height
-                };
-            };
-            let scaLastPickDebugKey = '';
-            const scaLogPickDebug = (coords, rawRGBA, decodedIndex) => {
-                if (!window.SCA3D?.pickDebugLog) {
-                    return;
-                }
-                const key = [
-                    coords.pixelX,
-                    coords.pixelY,
-                    decodedIndex ?? 'miss',
-                    rawRGBA?.join?.(',') ?? ''
-                ].join('|');
-                if (key === scaLastPickDebugKey) {
-                    return;
-                }
-                scaLastPickDebugKey = key;
-                console.log('[SCA PICK DEBUG]');
-                console.log('clientX:', coords.clientX);
-                console.log('clientY:', coords.clientY);
-                console.log('canvasRect:', coords.canvasRect);
-                console.log('dpr:', coords.dpr);
-                console.log('pixelX:', coords.pixelX);
-                console.log('pixelY:', coords.pixelY);
-                console.log('targetWidth:', coords.targetWidth);
-                console.log('targetHeight:', coords.targetHeight);
-                console.log('rawRGBA:', rawRGBA);
-                console.log('decodedIndex:', decodedIndex);
-            };
-            // viewer.pickGaussian(clientX, clientY) — client/viewport coordinates; converts to render-target pixels internally.
-            this.pickGaussian = async (clientX, clientY) => {
-                const coords = scaResolveClientPickCoords(clientX, clientY);
-                if (!coords) {
-                    return null;
-                }
-                const result = await this.picker.pickGaussianId(coords.nx, coords.ny);
-                scaLogPickDebug(coords, result?.rawRGBA ?? null, result?.gaussianIndex ?? null);
-                if (!result || result.gaussianIndex === null || result.gaussianIndex === undefined) {
-                    return null;
-                }
-                return {
-                    gaussianIndex: result.gaussianIndex,
-                    position: result.position,
-                    scaSplatId: window.SCA3D?.state?.defaultScaSplatId ?? 'splat_01',
-                    screenX: coords.pixelX,
-                    screenY: coords.pixelY,
-                    clientX: coords.clientX,
-                    clientY: coords.clientY
-                };
-            };
             window.SCA3D = window.SCA3D || {};
-            window.SCA3D.pickDebugLog = window.SCA3D.pickDebugLog ?? false;
-            window.SCA3D.pickPassDebug = window.SCA3D.pickPassDebug ?? false;
-            window.SCA3D.pickDebugForceClear = window.SCA3D.pickDebugForceClear ?? false;
-            window.SCA3D.debugPick = async (clientX, clientY) => {
-                const prev = window.SCA3D.pickDebugLog;
-                const prevPass = window.SCA3D.pickPassDebug;
-                window.SCA3D.pickDebugLog = true;
-                window.SCA3D.pickPassDebug = true;
-                scaLastPickDebugKey = '';
-                const result = await this.pickGaussian(clientX, clientY);
-                window.SCA3D.pickDebugLog = prev;
-                window.SCA3D.pickPassDebug = prevPass;
-                return result;
-            };
             window.SCA3D.dumpPickTarget = () => this.picker?.dumpPickTarget?.();
-            window.SCA3D.debugPickReadback = async () => {
-                const prev = window.SCA3D.pickDebugForceClear;
-                window.SCA3D.pickDebugForceClear = true;
-                window.SCA3D.pickPassDebug = true;
-                const summary = await this.picker?.dumpPickTarget?.();
-                window.SCA3D.pickDebugForceClear = prev;
-                return summary;
-            };
             events.fire('scaPickerReady'); // SCA_PICK_GAUSSIAN`,
-        'SCA region highlight and pickGaussian'
+        'SCA region highlight and modular picker ready'
     );
 
     patched = replaceOnce(

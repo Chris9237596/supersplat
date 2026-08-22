@@ -14,7 +14,7 @@
     "license": "MIT",
     "main": "index.js",
     "scripts": {
-        "build": "rollup -c",
+        "build": "rollup -c rollup.sca-runtime.config.mjs && rollup -c",
         "watch": "rollup -c -w",
         "serve": "serve dist -C",
         "develop": "cross-env BUILD_TYPE=debug concurrently --kill-others \"npm run watch\" \"npm run serve\"",

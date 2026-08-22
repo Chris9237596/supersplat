@@ -12,7 +12,7 @@
 
 ;(function () {
 
-  const HOVER_THROTTLE_MS = 32
+  const HOVER_THROTTLE_MS = 250
 
 
 
@@ -311,65 +311,61 @@
 
     let hoverPickToken = 0
 
-    let lastPickDiag = { kind: 'none' }
+    let lastPickDiag = { key: '' }
+
+    let lastClickCoords = null
+
+    const defaultScaSplatId = window.SCA3D?.state?.defaultScaSplatId ?? 'splat_01'
+
+    const createRuntimeRegionInteraction = window.SCA3D?.createRuntimeRegionInteraction
+
+    const regionCore = typeof createRuntimeRegionInteraction === 'function' ?
+      createRuntimeRegionInteraction(ctx.lookup, defaultScaSplatId, {
+        getRegion: (regionId) =>
+          ctx.lookup.entries.find((entry) => entry.regionId === regionId)?.region ?? null,
+        getSelectedRegionId: () => activeRegionId,
+        onHoverChange: () => {},
+        onSelectionChange: (regionId) => {
+          if (!regionId) {
+            if (activeRegionId) {
+              console.log(`[SCA REGION CARD] hide ${activeRegionId}`)
+            }
+            applyActiveVisual(null)
+            hoverRegionId = null
+            updateHoverCursor(null)
+            applyHoverVisual(null)
+            return
+          }
+
+          const entry = ctx.lookup.entries.find((item) => item.regionId === regionId)
+          if (!entry || !isClickableRegion(entry.region)) {
+            return
+          }
+
+          applyActiveVisual(entry, lastClickCoords)
+          window.SCA3D.activateRegion?.(entry.region)
+          window.SCA3D.handleRegionClick?.(entry.region)
+        },
+      }) :
+      null
 
 
 
-    const logPickTransition = (pick, regionEntry) => {
-
-      if (!pick || pick.gaussianIndex === null || pick.gaussianIndex === undefined) {
-
-        if (lastPickDiag.kind !== 'miss') {
-
-          console.log('[SCA PICK] miss')
-
-          lastPickDiag = { kind: 'miss' }
-
-        }
-
+    const logRuntimePick = (backend, gaussianIndex, regionId) => {
+      const key = `${backend}:${gaussianIndex ?? 'null'}:${regionId ?? 'null'}`
+      if (lastPickDiag.key === key) {
         return
-
       }
-
-
-
-      const idx = pick.gaussianIndex
-
-      if (lastPickDiag.kind !== 'hit' || lastPickDiag.index !== idx) {
-
-        console.log(`[SCA PICK] hit ${idx}`)
-
-        lastPickDiag = { kind: 'hit', index: idx }
-
-      }
-
-
-
-      const regionId = regionEntry?.regionId ?? null
-
-      if (regionId) {
-
-        const key = `region:${regionId}`
-
-        if (lastPickDiag.kind !== 'region' || lastPickDiag.key !== key) {
-
-          console.log(`[SCA PICK] gaussian ${idx} -> ${regionId}`)
-
-          lastPickDiag = { kind: 'region', key, index: idx }
-
-        }
-
-      } else if (lastPickDiag.kind !== 'no-region' || lastPickDiag.index !== idx) {
-
-        console.log(`[SCA PICK] gaussian ${idx} -> no region`)
-
-        lastPickDiag = { kind: 'no-region', index: idx }
-
-      }
-
+      lastPickDiag = { key }
+      console.log([
+        '[SCA RUNTIME PICK]',
+        `backend=${backend}`,
+        gaussianIndex !== null && gaussianIndex !== undefined ?
+          `gaussianIndex=${gaussianIndex}` :
+          'gaussianIndex=null',
+        regionId ? `regionId=${regionId}` : 'regionId=null',
+      ].join('\n'))
     }
-
-
 
     const isHotspotTarget = (target) => {
 
@@ -534,43 +530,30 @@
 
 
     const pickRegionAt = async (clientX, clientY) => {
-
       if (typeof viewer.pickGaussian !== 'function') {
-
         return null
-
       }
-
-
 
       const pick = await viewer.pickGaussian(clientX, clientY)
-
-      if (!pick || pick.gaussianIndex === null || pick.gaussianIndex === undefined) {
-
-        const coords = clientToNormalized(clientX, clientY)
-
-        return { regionEntry: null, pick, coords }
-
-      }
-
-
-
+      const gaussianIndex = pick?.gaussianIndex ?? null
+      const backend = window.SCA3D?.runtimePicker?.backendId ?? 'webgpu'
       const coords = clientToNormalized(clientX, clientY)
 
+      let regionEntry = null
+      if (regionCore && gaussianIndex !== null) {
+        const hit = regionCore.resolveClickableRegionHit(
+          gaussianIndex,
+          pick?.scaSplatId ?? defaultScaSplatId
+        )
+        if (hit) {
+          regionEntry = ctx.lookup.entries.find((entry) => entry.regionId === hit.regionId) ?? null
+        }
+      } else if (gaussianIndex !== null) {
+        regionEntry = window.SCA3D.regionMask.resolveRegionAtGaussian(ctx.lookup, gaussianIndex)
+      }
 
-
-      const regionEntry = window.SCA3D.regionMask.resolveRegionAtGaussian(
-
-        ctx.lookup,
-
-        pick.gaussianIndex
-
-      )
-
-
-
+      logRuntimePick(backend, gaussianIndex, regionEntry?.regionId ?? null)
       return { regionEntry, pick, coords }
-
     }
 
 
@@ -617,7 +600,7 @@
 
 
 
-      logPickTransition(result?.pick ?? null, result?.regionEntry ?? null)
+      // hover pick logged in pickRegionAt
 
 
 
@@ -640,6 +623,9 @@
 
 
       hoverRegionId = nextId
+
+      window.SCA3D.state = window.SCA3D.state || {}
+      window.SCA3D.state.hoverRegionId = nextId
 
 
 
@@ -799,58 +785,36 @@
 
 
 
-      const { regionEntry, coords, pick } = await pickRegionAt(event.clientX, event.clientY)
+      const { regionEntry, coords } = await pickRegionAt(event.clientX, event.clientY)
 
+      lastClickCoords = {
+        x: coords.screenX,
+        y: coords.screenY,
+      }
 
-
-      logPickTransition(pick ?? null, regionEntry ?? null)
-
-
+      if (regionCore) {
+        regionCore.activateRegion(regionEntry?.regionId ?? null, 'click')
+        return
+      }
 
       if (!regionEntry) {
-
         if (activeRegionId) {
-
           console.log(`[SCA REGION CARD] hide ${activeRegionId}`)
-
         }
-
         applyActiveVisual(null)
-
         hoverRegionId = null
-
         updateHoverCursor(null)
-
         applyHoverVisual(null)
-
         return
-
       }
-
-
 
       if (!isClickableRegion(regionEntry.region)) {
-
         return
-
       }
 
-
-
       hoverRegionId = regionEntry.regionId
-
-      applyActiveVisual(regionEntry, {
-
-        x: coords.screenX,
-
-        y: coords.screenY,
-
-      })
-
-
-
+      applyActiveVisual(regionEntry, lastClickCoords)
       window.SCA3D.activateRegion?.(regionEntry.region)
-
       window.SCA3D.handleRegionClick?.(regionEntry.region)
 
     })

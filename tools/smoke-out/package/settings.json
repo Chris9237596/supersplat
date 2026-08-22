@@ -119,6 +119,6 @@
     "startMode": "default",
     "navigation": {
         "disableAnnotationCameraNavigation": true,
-        "navigationTargetsEnabled": false
+        "navigationTargetsEnabled": true
     }
 }

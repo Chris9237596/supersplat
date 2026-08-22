@@ -5,6 +5,7 @@ import { Tooltips } from '../ui/tooltips';
 
 import { ScaPanel } from './sca-panel';
 import { registerScaBackgroundPreview } from './ui/register-sca-background-preview';
+import { registerScaRuntimeViewerPreviewUi } from './ui/sca-runtime-viewer-preview-ui';
 import { ScaAssetStore } from './store/sca-asset-store';
 
 const registerScaUi = (
@@ -19,6 +20,7 @@ const registerScaUi = (
     const scaPanel = new ScaPanel(events, tooltips);
     canvasContainer.append(scaPanel);
     registerScaBackgroundPreview(events, canvasContainer, assetStore);
+    registerScaRuntimeViewerPreviewUi(events, canvasContainer);
     console.log('[SCA UI] panel appended');
 
     const scaButton = new Button({

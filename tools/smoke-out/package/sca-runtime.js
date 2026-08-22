@@ -17,7 +17,7 @@
 
   const SCA_NAVIGATION_SETTINGS = {
     disableAnnotationCameraNavigation: true,
-    navigationTargetsEnabled: false,
+    navigationTargetsEnabled: true,
   }
 
   /**
@@ -371,6 +371,7 @@
         allowedModes
       },
       navigationTargets: {
+        enabled: rawNavTargets.enabled !== false,
         hotspots: rawNavTargets.hotspots !== false,
         regions: rawNavTargets.regions !== false,
       },
@@ -421,7 +422,12 @@
    * @param {ReturnType<typeof normalizeViewerConfig>} viewerConfig
    */
   function initScaNavigationTargets(viewer, project, viewerConfig) {
-    const navConfig = viewerConfig.navigationTargets ?? { hotspots: true, regions: true }
+    const navConfig = viewerConfig.navigationTargets ?? { enabled: true, hotspots: true, regions: true }
+
+    if (navConfig.enabled === false) {
+      return
+    }
+
     const targets = []
 
     if (navConfig.hotspots !== false) {
@@ -430,10 +436,13 @@
         if (hotspot?.enabled === false) {
           continue
         }
+        if (hotspot?.interaction?.showInNavigation === false) {
+          continue
+        }
         targets.push({
           type: 'hotspot',
           id: hotspot.id,
-          title: hotspot.title || hotspot.id || 'Hotspot',
+          title: hotspot.name || hotspot.title || hotspot.id || 'Hotspot',
           data: hotspot,
         })
       }
@@ -442,13 +451,16 @@
     if (navConfig.regions !== false) {
       const regions = Array.isArray(project?.regions) ? project.regions : []
       for (const region of regions) {
-        if (!region?.enabled) {
+        if (region?.enabled === false) {
+          continue
+        }
+        if (region?.interaction?.showInNavigation === false) {
           continue
         }
         targets.push({
           type: 'region',
           id: region.id,
-          title: region.title || region.id || 'Region',
+          title: region.name || region.title || region.id || 'Region',
           data: region,
         })
       }
@@ -679,11 +691,13 @@
   /**
    * @param {object} settingsJson
    */
-  function applyScaNavigationSettings(settingsJson) {
+  function applyScaNavigationSettings(settingsJson, viewerConfig) {
     const clone = JSON.parse(JSON.stringify(settingsJson))
+    const navTargets = viewerConfig?.navigationTargets ?? { enabled: true, hotspots: true, regions: true }
     clone.navigation = {
-      ...(clone.navigation || {}),
       ...SCA_NAVIGATION_SETTINGS,
+      ...(clone.navigation || {}),
+      navigationTargetsEnabled: navTargets.enabled !== false,
     }
     return clone
   }
@@ -1335,7 +1349,7 @@
     const project = await loadProject()
     const viewerConfig = normalizeViewerConfig(project, settingsJson)
     const hotspotById = buildHotspotById(project.hotspots)
-    const settingsForViewer = applyScaNavigationSettings(settingsJson)
+    const settingsForViewer = applyScaNavigationSettings(settingsJson, viewerConfig)
 
     if (viewerConfig.background.type === 'panorama') {
       const filename = viewerConfig.background.image?.filename

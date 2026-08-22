@@ -98,7 +98,8 @@
       },
       "interaction": {
         "clickable": true,
-        "showCard": true
+        "showCard": true,
+        "showInNavigation": true
       },
       "visual": {
         "hoverTint": "#ff6600",
@@ -154,6 +155,11 @@
     },
     "hotspots": {
       "showCards": true
+    },
+    "navigationTargets": {
+      "enabled": true,
+      "hotspots": true,
+      "regions": true
     }
   },
   "splats": [
