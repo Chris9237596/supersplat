@@ -28,7 +28,9 @@ import { ScaRegion, ScaRegionPatch } from '../types/region';
 
 import { DEFAULT_ACTIVE_TINT, DEFAULT_HOVER_TINT, DEFAULT_PULSE_SPEED, DEFAULT_PULSE_STRENGTH } from '../region-defaults';
 import { RegionAuthoringPreviewState } from '../regions/region-authoring-preview-state';
+import { CollapsibleSection } from './components/collapsible-section';
 import { createRegionTintControls } from './region-tint-controls';
+import { ScaSectionLayoutManager } from './sca-section-layout-state';
 
 
 
@@ -68,8 +70,6 @@ class ScaRegionsPanel extends Container {
 
     private activeStrengthInput: SliderInput;
 
-    private pulseSectionLabel: Label;
-
     private pulseEnabledInput: BooleanInput;
 
     private pulseTintControls: ReturnType<typeof createRegionTintControls>;
@@ -99,7 +99,7 @@ class ScaRegionsPanel extends Container {
         selected: 0
     };
 
-    constructor(private events: Events, args = {}) {
+    constructor(private events: Events, private sectionLayout: ScaSectionLayoutManager, args = {}) {
 
         args = {
 
@@ -123,16 +123,6 @@ class ScaRegionsPanel extends Container {
 
 
 
-        const listTitle = new Label({
-
-            class: 'sca-panel-section-label',
-
-            text: 'Regions'
-
-        });
-
-
-
         const addButton = new Button({
 
             class: 'sca-hotspot-add-button',
@@ -143,7 +133,7 @@ class ScaRegionsPanel extends Container {
 
 
 
-        listHeader.append(listTitle);
+        listHeader.append(new Label({ class: 'sca-panel-section-spacer' }));
 
         listHeader.append(addButton);
 
@@ -349,16 +339,6 @@ class ScaRegionsPanel extends Container {
 
 
 
-        this.pulseSectionLabel = new Label({
-
-            class: ['sca-hotspot-form-label', 'sca-region-section-label'],
-
-            text: 'PULSE / ATTENTION'
-
-        });
-
-
-
         const pulseEnabledRow = new Container({ class: 'sca-hotspot-form-row' });
 
         const pulseEnabledLabel = new Label({ class: 'sca-hotspot-form-label', text: 'Enable Pulse' });
@@ -533,55 +513,70 @@ class ScaRegionsPanel extends Container {
 
 
 
+        const generalSection = new CollapsibleSection({
+            sectionId: 'regionGeneral',
+            title: 'GENERAL',
+            layout: this.sectionLayout,
+            class: 'sca-region-form-section'
+        });
+        generalSection.body.append(idRow);
+        generalSection.body.append(nameRow);
+        generalSection.body.append(textRow);
+        generalSection.body.append(enabledRow);
+
+        const interactionSection = new CollapsibleSection({
+            sectionId: 'regionInteraction',
+            title: 'INTERACTION',
+            layout: this.sectionLayout,
+            class: 'sca-region-form-section'
+        });
+        interactionSection.body.append(clickableRow);
+        interactionSection.body.append(showCardRow);
+        interactionSection.body.append(showInNavigationRow);
+
+        const visualSection = new CollapsibleSection({
+            sectionId: 'regionVisual',
+            title: 'VISUAL',
+            layout: this.sectionLayout,
+            class: 'sca-region-form-section'
+        });
+        visualSection.body.append(this.hoverTintControls.row);
+        visualSection.body.append(hoverStrengthRow);
+        visualSection.body.append(this.activeTintControls.row);
+        visualSection.body.append(activeStrengthRow);
+
+        const pulseSection = new CollapsibleSection({
+            sectionId: 'regionPulse',
+            title: 'PULSE / ATTENTION',
+            layout: this.sectionLayout,
+            class: 'sca-region-form-section'
+        });
+        pulseSection.body.append(pulseEnabledRow);
+        pulseSection.body.append(this.pulseTintControls.row);
+        pulseSection.body.append(pulseStrengthRow);
+        pulseSection.body.append(pulseSpeedRow);
+        pulseSection.body.append(pulseModeRow);
+        pulseSection.body.append(pulseStopOnInteractionRow);
+        pulseSection.body.append(this.previewPulseButton);
+
+        const membershipSection = new CollapsibleSection({
+            sectionId: 'regionMembership',
+            title: 'REGION MEMBERSHIP',
+            layout: this.sectionLayout,
+            class: 'sca-region-form-section'
+        });
+        membershipSection.body.append(this.addSelectionButton);
+        membershipSection.body.append(this.selectRegionGaussiansButton);
+        membershipSection.body.append(this.replaceWithSelectionButton);
+        membershipSection.body.append(this.removeSelectionButton);
+        membershipSection.body.append(this.deleteButton);
+
         this.formContainer.append(formTitle);
-
-        this.formContainer.append(idRow);
-
-        this.formContainer.append(nameRow);
-
-        this.formContainer.append(textRow);
-
-        this.formContainer.append(enabledRow);
-
-        this.formContainer.append(clickableRow);
-
-        this.formContainer.append(showCardRow);
-
-        this.formContainer.append(showInNavigationRow);
-
-        this.formContainer.append(this.hoverTintControls.row);
-
-        this.formContainer.append(hoverStrengthRow);
-
-        this.formContainer.append(this.activeTintControls.row);
-
-        this.formContainer.append(activeStrengthRow);
-
-        this.formContainer.append(this.pulseSectionLabel);
-
-        this.formContainer.append(pulseEnabledRow);
-
-        this.formContainer.append(this.pulseTintControls.row);
-
-        this.formContainer.append(pulseStrengthRow);
-
-        this.formContainer.append(pulseSpeedRow);
-
-        this.formContainer.append(pulseModeRow);
-
-        this.formContainer.append(pulseStopOnInteractionRow);
-
-        this.formContainer.append(this.previewPulseButton);
-
-        this.formContainer.append(this.addSelectionButton);
-
-        this.formContainer.append(this.selectRegionGaussiansButton);
-
-        this.formContainer.append(this.replaceWithSelectionButton);
-
-        this.formContainer.append(this.removeSelectionButton);
-
-        this.formContainer.append(this.deleteButton);
+        this.formContainer.append(generalSection);
+        this.formContainer.append(interactionSection);
+        this.formContainer.append(visualSection);
+        this.formContainer.append(pulseSection);
+        this.formContainer.append(membershipSection);
 
 
 

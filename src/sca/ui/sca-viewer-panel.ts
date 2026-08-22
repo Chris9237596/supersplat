@@ -23,6 +23,8 @@ import { computeCameraDistance, buildNavigationPreview } from '../viewer/viewer-
 import { parseHexColor, rgbToHex } from '../viewer/viewer-background';
 
 class ScaViewerPanel extends Container {
+    readonly debugSection: Container;
+
     private syncing = false;
 
     private positionInput: VectorInput;
@@ -72,11 +74,6 @@ class ScaViewerPanel extends Container {
         };
 
         super(args);
-
-        const title = new Label({
-            class: 'sca-panel-section-label',
-            text: 'Viewer'
-        });
 
         const initialTitle = new Label({
             class: 'sca-panel-subsection-label',
@@ -417,7 +414,6 @@ class ScaViewerPanel extends Container {
             text: 'Open Runtime Viewer Preview'
         });
 
-        this.append(title);
         this.append(initialTitle);
         this.append(captureButton);
         this.append(this.makeRow('Camera Position', this.positionInput));
@@ -461,20 +457,14 @@ class ScaViewerPanel extends Container {
         this.append(viewerInteractionPreviewRow);
         this.append(authoringPreviewNote);
 
-        const debugSection = new Container({ class: 'sca-debug-section' });
-        const debugTitle = new Label({
-            class: 'sca-panel-subsection-label',
-            text: 'Debug / Advanced'
-        });
+        this.debugSection = new Container({ class: 'sca-debug-section' });
         const debugNote = new Label({
             class: 'sca-viewer-preview-note',
             text: 'Runtime viewer preview and spike picker — for engineering validation only.'
         });
-        debugSection.append(debugTitle);
-        debugSection.append(debugNote);
-        debugSection.append(runtimePreviewSpikeRow);
-        debugSection.append(runtimePreviewButton);
-        this.append(debugSection);
+        this.debugSection.append(debugNote);
+        this.debugSection.append(runtimePreviewSpikeRow);
+        this.debugSection.append(runtimePreviewButton);
 
         runtimePreviewButton.on('click', () => {
             this.events.fire('sca.runtimeViewerPreview.open', {

@@ -24,17 +24,12 @@ class ScaFocusPanel extends Container {
         super(args);
 
         const header = new Container({ class: 'sca-focus-panel-header' });
-        const title = new Label({
-            class: 'sca-panel-section-label',
-            text: 'Focus'
-        });
 
         this.modeButton = new Button({
             class: ['sca-focus-mode-button'],
             text: 'Focus Mode: OFF'
         });
 
-        header.append(title);
         header.append(this.modeButton);
 
         const positionRow = new Container({ class: 'sca-hotspot-form-row' });

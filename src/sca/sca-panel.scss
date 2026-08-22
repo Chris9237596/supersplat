@@ -12,11 +12,89 @@
     }
 
     .sca-panel-body {
-        padding: 12px;
+        padding: 8px;
         color: $text-primary;
         flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
         max-height: calc(100vh - 120px);
         overflow-y: auto;
+        overflow-x: hidden;
+        gap: 4px;
+    }
+
+    .sca-collapsible-section {
+        flex-direction: column;
+        margin-bottom: 2px;
+
+        &.sca-export-section,
+        &.sca-debug-section {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: none;
+        }
+    }
+
+    .sca-collapsible-section-header {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 2px;
+        cursor: pointer;
+        user-select: none;
+        border-radius: 3px;
+
+        &:hover {
+            background-color: rgba(255, 255, 255, 0.04);
+        }
+
+        &.is-open {
+            margin-bottom: 2px;
+        }
+    }
+
+    .sca-collapsible-section-marker {
+        width: 12px;
+        flex-shrink: 0;
+        font-size: 10px;
+        color: $text-darkest;
+        margin: 0;
+    }
+
+    .sca-collapsible-section-title {
+        font-size: 11px;
+        font-weight: bold;
+        color: $text-primary;
+        text-transform: uppercase;
+        margin: 0;
+    }
+
+    .sca-collapsible-section-body {
+        flex-direction: column;
+        padding: 0 0 4px 4px;
+        gap: 2px;
+    }
+
+    .sca-region-form-section {
+        margin-top: 2px;
+
+        .sca-collapsible-section-header {
+            padding: 2px 2px;
+        }
+
+        .sca-collapsible-section-title {
+            font-size: 10px;
+            color: $text-darkest;
+        }
+
+        .sca-collapsible-section-body {
+            padding-left: 8px;
+        }
+    }
+
+    .sca-panel-section-spacer {
+        flex: 1;
     }
 
     .sca-hotspot-list-header {
@@ -46,8 +124,8 @@
         display: flex;
         flex-direction: column;
         gap: 2px;
-        padding: 8px 12px;
-        border-bottom: 1px solid $bcg-darkest;
+        padding: 4px 2px 6px;
+        border-bottom: none;
 
         .sca-project-bar-label {
             font-size: 10px;
@@ -71,10 +149,10 @@
     .sca-reopen-banner {
         display: flex;
         flex-direction: column;
-        gap: 8px;
-        padding: 10px 12px;
-        background: $bcg-dark;
-        border-bottom: 1px solid $bcg-darkest;
+        gap: 6px;
+        padding: 4px 2px 6px;
+        background: transparent;
+        border-bottom: none;
 
         &:not(.pcui-hidden) {
             display: flex;
@@ -143,8 +221,8 @@
 
     .sca-hotspot-form {
         flex-direction: column;
-        margin-top: 12px;
-        padding-top: 12px;
+        margin-top: 6px;
+        padding-top: 6px;
         border-top: 1px solid $bcg-lighter;
     }
 
@@ -210,8 +288,8 @@
 
     .sca-focus-panel {
         flex-direction: column;
-        margin-bottom: 12px;
-        padding-bottom: 12px;
+        margin-bottom: 6px;
+        padding-bottom: 6px;
         border-bottom: 1px solid $bcg-lighter;
     }
 
@@ -219,8 +297,8 @@
         display: flex;
         flex-direction: row;
         align-items: center;
-        justify-content: space-between;
-        margin-bottom: 6px;
+        justify-content: flex-end;
+        margin-bottom: 4px;
 
         .sca-panel-section-label {
             margin-bottom: 0;
@@ -247,9 +325,9 @@
 
     .sca-viewer-panel {
         flex-direction: column;
-        margin-bottom: 12px;
-        padding-bottom: 12px;
-        border-bottom: 1px solid $bcg-lighter;
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: none;
     }
 
     .sca-panel-subsection-label {
@@ -309,21 +387,21 @@
 
     .sca-export-section {
         flex-direction: column;
-        margin-top: 12px;
-        padding-top: 12px;
-        border-top: 1px solid $bcg-lighter;
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
     }
 
     .sca-export-preview-row {
         align-items: center;
         gap: 8px;
-        margin-top: 8px;
+        margin-top: 4px;
     }
 
     .sca-export-compression-row {
         align-items: center;
         gap: 8px;
-        margin-top: 8px;
+        margin-top: 4px;
     }
 
     .sca-export-compression-select {

@@ -5,9 +5,11 @@ import { Events } from '../events';
 import { Tooltips } from '../ui/tooltips';
 
 import { ScaHotspot } from './types/project';
+import { CollapsibleSection } from './ui/components/collapsible-section';
 import { ScaFocusPanel } from './ui/sca-focus-panel';
 import { ScaHotspotForm } from './ui/sca-hotspot-form';
 import { ScaRegionsPanel } from './ui/sca-regions-panel';
+import { ScaSectionLayoutManager } from './ui/sca-section-layout-state';
 import { ScaViewerPanel } from './ui/sca-viewer-panel';
 
 class ScaPanel extends Container {
@@ -80,26 +82,34 @@ class ScaPanel extends Container {
         reopenBanner.append(reopenBannerText);
         reopenBanner.append(reopenBannerButton);
 
+        const sectionLayout = new ScaSectionLayoutManager();
+
         const body = new Container({
             class: 'sca-panel-body'
         });
 
-        const subtitle = new Label({
-            class: 'sca-panel-subtitle',
-            text: 'SCA Authoring'
-        });
-
         const focusPanel = new ScaFocusPanel(events);
         const viewerPanel = new ScaViewerPanel(events);
-        const regionsPanel = new ScaRegionsPanel(events);
+        const regionsPanel = new ScaRegionsPanel(events, sectionLayout);
+
+        const projectSection = new CollapsibleSection({
+            sectionId: 'project',
+            title: 'PROJECT',
+            layout: sectionLayout
+        });
+        projectSection.body.append(projectBar);
+        projectSection.body.append(reopenBanner);
+
+        const viewerSection = new CollapsibleSection({
+            sectionId: 'viewer',
+            title: 'SCENE / VIEWER',
+            layout: sectionLayout
+        });
+        viewerSection.body.append(focusPanel);
+        viewerSection.body.append(viewerPanel);
 
         const listHeader = new Container({
             class: 'sca-hotspot-list-header'
-        });
-
-        const listTitle = new Label({
-            class: 'sca-panel-section-label',
-            text: 'Hotspots'
         });
 
         const addButton = new Button({
@@ -107,7 +117,7 @@ class ScaPanel extends Container {
             text: '+ Hotspot'
         });
 
-        listHeader.append(listTitle);
+        listHeader.append(new Label({ class: 'sca-panel-section-spacer' }));
         listHeader.append(addButton);
 
         const listContainer = new Container({
@@ -116,19 +126,22 @@ class ScaPanel extends Container {
 
         const hotspotForm = new ScaHotspotForm(events);
 
-        body.append(subtitle);
-        body.append(focusPanel);
-        body.append(viewerPanel);
-        body.append(regionsPanel);
-        body.append(listHeader);
-        body.append(listContainer);
-        body.append(hotspotForm);
-
-        const exportSection = new Container({ class: 'sca-export-section' });
-        const exportTitle = new Label({
-            class: 'sca-panel-section-label',
-            text: 'Export'
+        const hotspotsSection = new CollapsibleSection({
+            sectionId: 'hotspots',
+            title: 'HOTSPOTS',
+            layout: sectionLayout
         });
+        hotspotsSection.body.append(listHeader);
+        hotspotsSection.body.append(listContainer);
+        hotspotsSection.body.append(hotspotForm);
+
+        const regionsSection = new CollapsibleSection({
+            sectionId: 'regions',
+            title: 'REGIONS',
+            layout: sectionLayout
+        });
+        regionsSection.body.append(regionsPanel);
+
         const exportRuntimePackageButton = new Button({
             class: ['sca-hotspot-form-button', 'sca-export-runtime-package-button'],
             text: 'Export SCA Runtime Package'
@@ -146,20 +159,6 @@ class ScaPanel extends Container {
 
         includePreviewRow.append(includePreviewInput);
         includePreviewRow.append(includePreviewLabel);
-
-        const useGaussianPickSpikeRow = new Container({ class: 'sca-export-preview-row' });
-        const useGaussianPickSpikeInput = new BooleanInput({
-            class: 'sca-export-gaussian-pick-spike-checkbox',
-            type: 'checkbox',
-            value: false
-        });
-        const useGaussianPickSpikeLabel = new Label({
-            class: 'sca-export-preview-label',
-            text: 'Use Gaussian Pick Spike (debug)'
-        });
-
-        useGaussianPickSpikeRow.append(useGaussianPickSpikeInput);
-        useGaussianPickSpikeRow.append(useGaussianPickSpikeLabel);
 
         const sogCompressionRow = new Container({ class: 'sca-export-compression-row' });
         const sogCompressionLabel = new Label({
@@ -179,33 +178,57 @@ class ScaPanel extends Container {
         sogCompressionRow.append(sogCompressionLabel);
         sogCompressionRow.append(sogCompressionSelect);
 
-        exportSection.append(exportTitle);
-        exportSection.append(includePreviewRow);
-        exportSection.append(sogCompressionRow);
-
         const exportStatusLabel = new Label({
             class: 'sca-export-status-label',
             text: '',
             hidden: true
         });
 
-        exportSection.append(exportStatusLabel);
-        exportSection.append(exportRuntimePackageButton);
-
-        const debugSection = new Container({ class: 'sca-debug-section' });
-        const debugTitle = new Label({
-            class: 'sca-panel-section-label',
-            text: 'Debug / Advanced'
+        const exportSection = new CollapsibleSection({
+            sectionId: 'export',
+            title: 'EXPORT',
+            layout: sectionLayout,
+            class: 'sca-export-section'
         });
-        const debugNote = new Label({
+        exportSection.body.append(includePreviewRow);
+        exportSection.body.append(sogCompressionRow);
+        exportSection.body.append(exportStatusLabel);
+        exportSection.body.append(exportRuntimePackageButton);
+
+        const useGaussianPickSpikeRow = new Container({ class: 'sca-export-preview-row' });
+        const useGaussianPickSpikeInput = new BooleanInput({
+            class: 'sca-export-gaussian-pick-spike-checkbox',
+            type: 'checkbox',
+            value: false
+        });
+        const useGaussianPickSpikeLabel = new Label({
+            class: 'sca-export-preview-label',
+            text: 'Use Gaussian Pick Spike (debug)'
+        });
+
+        useGaussianPickSpikeRow.append(useGaussianPickSpikeInput);
+        useGaussianPickSpikeRow.append(useGaussianPickSpikeLabel);
+
+        const advancedSection = new CollapsibleSection({
+            sectionId: 'advanced',
+            title: 'ADVANCED / DEBUG',
+            layout: sectionLayout,
+            class: 'sca-debug-section'
+        });
+        const advancedNote = new Label({
             class: 'sca-export-preview-label',
             text: 'Experimental tools — not used in normal export workflow.'
         });
-        debugSection.append(debugTitle);
-        debugSection.append(debugNote);
-        debugSection.append(useGaussianPickSpikeRow);
+        advancedSection.body.append(advancedNote);
+        advancedSection.body.append(useGaussianPickSpikeRow);
+        advancedSection.body.append(viewerPanel.debugSection);
+
+        body.append(projectSection);
+        body.append(viewerSection);
+        body.append(hotspotsSection);
+        body.append(regionsSection);
         body.append(exportSection);
-        body.append(debugSection);
+        body.append(advancedSection);
 
         exportRuntimePackageButton.on('click', () => {
             if (events.invoke('sca.export.runtimePackage.inProgress') as boolean) {
@@ -240,8 +263,6 @@ class ScaPanel extends Container {
         });
 
         this.append(header);
-        this.append(projectBar);
-        this.append(reopenBanner);
         this.append(body);
 
         const hideReopenBanner = () => {
