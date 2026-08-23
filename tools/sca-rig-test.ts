@@ -31,6 +31,7 @@ import {
     computeKeepWorldBindOffsetMatrix,
     computeReparentLocalKeepWorld,
     createKeepWorldBindOffset,
+    createKeepWorldBindOffsetFromAuthoredRest,
     localTransformFromWorldHandle,
     localTransformFromWorldMatrix,
     normalizeRigHierarchy,
@@ -81,6 +82,7 @@ import {
 import { ScaAssetStore } from '../src/sca/store/sca-asset-store';
 import { HotspotStore } from '../src/sca/store/hotspot-store';
 import { createEmptyProject, ScaProject, SCA_PROJECT_VERSION } from '../src/sca/types/project';
+import { ScaAnimationClip } from '../src/sca/types/animation';
 import { stringifyProjectJson } from '../src/sca/serialize/project-json';
 import { normalizeProject } from '../src/sca/viewer/viewer-config';
 
@@ -766,6 +768,82 @@ const runBindModeTests = () => {
     assert.ok(isZeroPose(rebound!.bindOffset!));
 
     console.log('[sca-rig] bind mode PASS');
+};
+
+const runRebindAtAuthoredRestTests = () => {
+    const node = createDefaultRigNode('rig_01');
+    node.position = [0.055274967101571815, -0.1997850908589504, 0.5557502273607791];
+    node.rotation = [-12.030724549603798, 0, 0];
+
+    const clip: ScaAnimationClip = {
+        id: 'animation_01',
+        name: 'Animation 1',
+        duration: 2,
+        tracks: [{
+            id: 'track_01',
+            targetType: 'rig-node',
+            nodeId: node.id,
+            property: 'rotation',
+            keyframes: [
+                { id: 'keyframe_01', time: 0, value: [29.53, 0, 0] },
+                { id: 'keyframe_02', time: 0.944, value: [-24.96, 0, 0] }
+            ]
+        }]
+    };
+
+    const project = sampleProject();
+    project.animations = [clip];
+
+    const store = new HotspotStore(project);
+    store.addRigNode(node);
+    store.setRigBinding('region_06', node.id, { bindMode: 'keep-world' });
+
+    setRigAnimationPlaybackState({
+        clip,
+        playing: false,
+        previewActive: true,
+        currentTime: 0.944
+    });
+
+    store.rebindRegion('region_06', 'keep-world');
+    const rigAfterPreviewRebind = store.getProject().rig!;
+    const authoredPose = evaluateRigPose(rigAfterPreviewRebind);
+    const rigNode = rigAfterPreviewRebind.nodes.find((entry) => entry.id === node.id)!;
+    const previewBinding = rigAfterPreviewRebind.bindings.find((entry) => entry.regionId === 'region_06')!;
+    const effectiveAfterPreviewRebind = buildEffectiveRigWorldMatrixFromPose(
+        rigAfterPreviewRebind,
+        authoredPose,
+        rigNode,
+        previewBinding,
+        new Mat4()
+    );
+    assert.ok(
+        matrixMaxAbsError(effectiveAfterPreviewRebind, new Mat4()) > 0.1,
+        'preview rebind should not align effective matrix at authored rest'
+    );
+
+    store.rebindRegionAtAuthoredRest('region_06');
+    const rigAfterRestRebind = store.getProject().rig!;
+    const restBinding = rigAfterRestRebind.bindings.find((entry) => entry.regionId === 'region_06')!;
+    assert.equal(restBinding.bindMode, 'keep-world');
+    assert.ok(restBinding.bindOffsetMatrix);
+
+    const restNode = rigAfterRestRebind.nodes.find((entry) => entry.id === node.id)!;
+    const effectiveAtAuthoredRest = buildEffectiveRigWorldMatrixFromPose(
+        rigAfterRestRebind,
+        evaluateRigPose(rigAfterRestRebind),
+        restNode,
+        restBinding,
+        new Mat4()
+    );
+    assert.ok(
+        matrixMaxAbsError(effectiveAtAuthoredRest, new Mat4()) < 1e-4,
+        'authored-rest rebind should make effective matrix identity at authored rest'
+    );
+
+    setRigAnimationPlaybackState(null);
+
+    console.log('[sca-rig] rebind at authored rest PASS');
 };
 
 const runBindOffsetPersistenceTests = () => {
@@ -2860,6 +2938,7 @@ async function main() {
     await runPoseOnlyUpdateTests();
     runRestPoseTests();
     runBindModeTests();
+    runRebindAtAuthoredRestTests();
     runBindOffsetPersistenceTests();
     await runBindPreserveNodeAnchorTests();
     runHierarchyTests();

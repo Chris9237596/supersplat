@@ -9,6 +9,7 @@ import { syncAnimationTargets } from '../animation/animation-store';
 import { DEFAULT_RIG_BIND_MODE, ensureProjectRig, normalizeRig } from '../rig/rig-defaults';
 import {
     createKeepWorldBindOffset,
+    createKeepWorldBindOffsetFromAuthoredRest,
     promoteDirectChildrenOnDelete,
     ScaRigReparentMode,
     computeReparentLocalKeepWorld,
@@ -612,6 +613,25 @@ class HotspotStore {
             binding.bindOffset = computeSnapBindOffset();
             delete binding.bindOffsetMatrix;
         }
+        this.project.rig = rig;
+    }
+
+    rebindRegionAtAuthoredRest(regionId: string): void {
+        const rig = ensureProjectRig(this.project);
+        const binding = rig.bindings.find((entry) => entry.regionId === regionId);
+        if (!binding) {
+            throw new Error(`[SCA] region is not rig-bound: ${regionId}`);
+        }
+
+        const node = rig.nodes.find((entry) => entry.id === binding.nodeId);
+        if (!node) {
+            throw new Error(`[SCA] unknown rig node id: ${binding.nodeId}`);
+        }
+
+        binding.bindMode = 'keep-world';
+        const keepWorldOffset = createKeepWorldBindOffsetFromAuthoredRest(rig, node);
+        binding.bindOffset = keepWorldOffset.bindOffset;
+        binding.bindOffsetMatrix = keepWorldOffset.bindOffsetMatrix;
         this.project.rig = rig;
     }
 

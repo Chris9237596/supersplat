@@ -1,0 +1,151 @@
+{
+    "version": 2,
+    "tonemapping": "none",
+    "highPrecisionRendering": false,
+    "background": {
+        "color": [
+            0,
+            0,
+            0
+        ]
+    },
+    "postEffectSettings": {
+        "sharpness": {
+            "enabled": false,
+            "amount": 0
+        },
+        "bloom": {
+            "enabled": false,
+            "intensity": 1,
+            "blurLevel": 2
+        },
+        "grading": {
+            "enabled": false,
+            "brightness": 1,
+            "contrast": 1,
+            "saturation": 1,
+            "tint": [
+                1,
+                1,
+                1
+            ]
+        },
+        "vignette": {
+            "enabled": false,
+            "intensity": 0.5,
+            "inner": 0.3,
+            "outer": 0.75,
+            "curvature": 1
+        },
+        "fringing": {
+            "enabled": false,
+            "intensity": 0.5
+        }
+    },
+    "animTracks": [],
+    "cameras": [
+        {
+            "initial": {
+                "position": [
+                    -3.748030185699463,
+                    1.4473371505737305,
+                    -3.020763397216797
+                ],
+                "target": [
+                    -0.1477848789442202,
+                    0.3483173519475312,
+                    0.15823179622568428
+                ],
+                "fov": 75
+            }
+        }
+    ],
+    "annotations": [
+        {
+            "position": [
+                -0.20278702686759553,
+                0.20487681311617845,
+                -0.6808178684572732
+            ],
+            "title": "New Hotspotfddf",
+            "text": "afadfadfsadffffffffffffffff",
+            "extras": {
+                "id": "hotspot_01"
+            },
+            "camera": {
+                "initial": {
+                    "position": [
+                        0,
+                        1,
+                        -1
+                    ],
+                    "target": [
+                        -0.20278702686759553,
+                        0.20487681311617845,
+                        -0.6808178684572732
+                    ],
+                    "fov": 60
+                }
+            }
+        },
+        {
+            "position": [
+                -0.4989234004934049,
+                0.9136036882386671,
+                0.5189630068100657
+            ],
+            "title": "New Hotspot",
+            "text": "",
+            "extras": {
+                "id": "hotspot_02"
+            },
+            "camera": {
+                "initial": {
+                    "position": [
+                        0,
+                        1,
+                        -1
+                    ],
+                    "target": [
+                        -0.4989234004934049,
+                        0.9136036882386671,
+                        0.5189630068100657
+                    ],
+                    "fov": 60
+                }
+            }
+        },
+        {
+            "position": [
+                -0.12350852110560528,
+                0.2729367056612708,
+                0.4066410013332624
+            ],
+            "title": "New Hotspot",
+            "text": "afdasdf",
+            "extras": {
+                "id": "hotspot_03"
+            },
+            "camera": {
+                "initial": {
+                    "position": [
+                        0,
+                        1,
+                        -1
+                    ],
+                    "target": [
+                        -0.12350852110560528,
+                        0.2729367056612708,
+                        0.4066410013332624
+                    ],
+                    "fov": 60
+                }
+            }
+        }
+    ],
+    "startMode": "default",
+    "navigation": {
+        "disableAnnotationCameraNavigation": true,
+        "navigationTargetsEnabled": true
+    }
+}

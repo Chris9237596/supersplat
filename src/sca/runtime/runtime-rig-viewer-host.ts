@@ -8,6 +8,13 @@ import {
 } from 'playcanvas';
 
 import { buildEffectiveRigWorldMatrixFromPose } from '../rig/rig-hierarchy';
+import {
+    findFirstGaussianIndexForRegion,
+    registerRuntimeTransformOrderProbe,
+    resetRuntimeTransformOrderProbe,
+    TARGET_REGION_ID
+} from '../rig/rig-transform-order-check';
+import { maybeLogRuntimeRigDataParity } from '../rig/rig-data-parity-check';
 import { evaluateRuntimeRigPose } from './runtime-rig-pose';
 import { RuntimeRigHost, RuntimeRigPaletteBinding } from './runtime-rig-applier';
 import { createRuntimeRigSortCentersState, RuntimeRigSortCentersState } from './runtime-rig-sort-centers';
@@ -16,14 +23,15 @@ import { ScaRig, ScaRigBinding, ScaRigNode } from '../types/rig';
 
 const SCA_RIG_TRANSFORM_INDEX_UNIFORM = 'uScaRigTransformIndex';
 const SCA_RIG_TRANSFORM_PALETTE_UNIFORM = 'uScaRigTransformPalette';
+const SCA_RIG_TRANSFORM_INDEX_TEX_WIDTH_UNIFORM = 'scaRigTransformIndexTexWidth';
 
 const RIG_CENTER_UNIFORMS = `
 uniform highp usampler2D ${SCA_RIG_TRANSFORM_INDEX_UNIFORM};
 uniform highp sampler2D ${SCA_RIG_TRANSFORM_PALETTE_UNIFORM};
-uniform float scaRegionHighlightTexWidth;
+uniform float ${SCA_RIG_TRANSFORM_INDEX_TEX_WIDTH_UNIFORM};
 
 mat4 applyPaletteTransform(mat4 model) {
-    uint transformIndex = texelFetch(${SCA_RIG_TRANSFORM_INDEX_UNIFORM}, ivec2(int(splat.index) % int(scaRegionHighlightTexWidth), int(splat.index) / int(scaRegionHighlightTexWidth)), 0).r;
+    uint transformIndex = texelFetch(${SCA_RIG_TRANSFORM_INDEX_UNIFORM}, ivec2(int(splat.index) % int(${SCA_RIG_TRANSFORM_INDEX_TEX_WIDTH_UNIFORM}), int(splat.index) / int(${SCA_RIG_TRANSFORM_INDEX_TEX_WIDTH_UNIFORM})), 0).r;
     if (transformIndex == 0u) {
         return model;
     }
@@ -425,6 +433,9 @@ type GsplatMaterial = {
 
 type GsplatComponent = {
     unified?: boolean;
+    entity?: {
+        getWorldTransform?: () => Mat4;
+    };
     material?: GsplatMaterial | null;
     resource?: { textureDimensions?: { x: number; y: number }; streams?: { textureDimensions?: { x: number; y: number } } };
     _resource?: { textureDimensions?: { x: number; y: number } };
@@ -675,6 +686,19 @@ const takeFirstLast = (values: number[], count: number): { first: number[]; last
     };
 };
 
+const gaussianIndexToTexel = (
+    gaussianIndex: number,
+    width: number
+): { x: number; y: number; linear: number } => {
+    const x = gaussianIndex % width;
+    const y = Math.floor(gaussianIndex / width);
+    return {
+        x,
+        y,
+        linear: y * width + x
+    };
+};
+
 let rigIndexCheckLogged = false;
 
 const resetRigIndexCheckDiagnostic = (): void => {
@@ -768,9 +792,9 @@ const logRigIndexCheck = (
         regionPaletteIndicesMatch: indicesMatch,
         transformIndexLayout: layout,
         highlightIndexSource: 'regionLookup.entry.bitset (same as setScaRegionHighlightCombined selectedBitset)',
-        cpuTransformIndexTexelKey: 'gaussianIndex (runtime mask / SOG index)',
-        highlightShaderTexelKey: 'scaGaussianIndex → ivec2(index % texWidth, index / texWidth)',
-        rigShaderTexelKey: 'splat.index → ivec2(index % scaRegionHighlightTexWidth, index / scaRegionHighlightTexWidth) (same as region highlight scaGaussianIndex)'
+        cpuTransformIndexTexelKey: 'indices[gaussianIndex] (linear row-major, width = rigTransformIndexTexture.width)',
+        highlightShaderTexelKey: 'scaGaussianIndex → ivec2(index % scaRegionHighlightTexWidth, index / scaRegionHighlightTexWidth)',
+        rigShaderTexelKey: `splat.index → ivec2(index % ${SCA_RIG_TRANSFORM_INDEX_TEX_WIDTH_UNIFORM}, index / ${SCA_RIG_TRANSFORM_INDEX_TEX_WIDTH_UNIFORM})`
     });
 
     if (!indicesMatch || transformIndexMismatchCount > 0 || exportMemberCount !== regionMemberCount) {
@@ -953,6 +977,32 @@ const createRuntimeRigViewerHost = (
         slots.map((slot) => ({ gaussianIndices: slot.gaussianIndices }))
     );
 
+    const region06Slot = slots.find((slot) => slot.regionId === TARGET_REGION_ID);
+    const region06GaussianIndex = region06Slot ?
+        findFirstGaussianIndexForRegion(region06Slot.gaussianIndices) :
+        null;
+    if (region06Slot && region06GaussianIndex !== null && sortCentersState) {
+        registerRuntimeTransformOrderProbe({
+            regionId: TARGET_REGION_ID,
+            gaussianIndex: region06GaussianIndex,
+            paletteIndex: region06Slot.paletteIndex,
+            textureWidth: layout.width,
+            getLocalCenter: () => sortCentersState.readSourceCenter(region06GaussianIndex) ?? [0, 0, 0],
+            getEntityMatrix: () => component?.entity?.getWorldTransform?.() ?? new Mat4(),
+            getResourceCenter: () => {
+                const offset = region06GaussianIndex * 3;
+                const centers = sortCentersState.resource.centers;
+                if (offset + 2 >= centers.length) {
+                    return null;
+                }
+                return [centers[offset], centers[offset + 1], centers[offset + 2]];
+            },
+            getSortCenterModelSpace: () => sortCentersState.readSortCenter(region06GaussianIndex)
+        });
+    } else {
+        registerRuntimeTransformOrderProbe(null);
+    }
+
     const hostBindings: RuntimeRigPaletteBinding[] = slots.map((slot) => ({
         regionId: slot.regionId,
         nodeId: slot.nodeId,
@@ -1007,9 +1057,41 @@ const createRuntimeRigViewerHost = (
     material.update?.();
     material.setParameter(SCA_RIG_TRANSFORM_INDEX_UNIFORM, rigTransformIndexTexture);
     material.setParameter(SCA_RIG_TRANSFORM_PALETTE_UNIFORM, transformPalette.texture);
+    material.setParameter(SCA_RIG_TRANSFORM_INDEX_TEX_WIDTH_UNIFORM, layout.width);
     material.update?.();
     logRuntimeRigTextureIdentityDiagnostic(device, rigTransformIndexTexture, transformPalette.texture, textureSeam);
     logRuntimeRigUniformDiagnostic(material, rigTransformIndexTexture, transformPalette.texture);
+
+    const highlightTexWidthParam = material.getParameter?.('scaRegionHighlightTexWidth')?.data;
+    const highlightTexWidth = typeof highlightTexWidthParam === 'number' ? highlightTexWidthParam : null;
+    const sampleGaussianIndex = slots[0]?.gaussianIndices[0] ?? 0;
+    console.log('[SCA RUNTIME RIG TRANSFORM INDEX LAYOUT]', {
+        rigTransformIndexTexture: {
+            width: layout.width,
+            height: layout.height,
+            allocatedWidth: rigTransformIndexTexture.width,
+            allocatedHeight: rigTransformIndexTexture.height
+        },
+        scaRegionHighlightTexWidth: highlightTexWidth,
+        scaRigTransformIndexTexWidth: layout.width,
+        highlightWidthMatchesRigIndexWidth: highlightTexWidth === null ? null : highlightTexWidth === layout.width,
+        beforeShaderMapping: {
+            widthUniform: 'scaRegionHighlightTexWidth',
+            texel: 'ivec2(splat.index % scaRegionHighlightTexWidth, splat.index / scaRegionHighlightTexWidth)'
+        },
+        afterShaderMapping: {
+            widthUniform: SCA_RIG_TRANSFORM_INDEX_TEX_WIDTH_UNIFORM,
+            texel: `ivec2(splat.index % ${SCA_RIG_TRANSFORM_INDEX_TEX_WIDTH_UNIFORM}, splat.index / ${SCA_RIG_TRANSFORM_INDEX_TEX_WIDTH_UNIFORM})`
+        },
+        cpuWriteMapping: {
+            buffer: 'indices[gaussianIndex] = paletteIndex',
+            texelCoordinate: 'linear gaussianIndex (row-major width = rigTransformIndexTexture.width)'
+        },
+        sampleGaussianIndex,
+        sampleCpuTexel: gaussianIndexToTexel(sampleGaussianIndex, layout.width),
+        sampleShaderTexel: gaussianIndexToTexel(sampleGaussianIndex, layout.width),
+        cpuShaderLinearIndexMatch: gaussianIndexToTexel(sampleGaussianIndex, layout.width).linear === sampleGaussianIndex
+    });
 
     const paletteSize = hostBindings.reduce(
         (max, entry) => Math.max(max, entry.paletteIndex),
@@ -1021,9 +1103,14 @@ const createRuntimeRigViewerHost = (
         paletteSize
     });
 
+    maybeLogRuntimeRigDataParity(rig);
+
     const host: RuntimeRigHost = {
         bindings: hostBindings,
-        requestRender
+        requestRender,
+        applyPose: (rigToApply, pose) => {
+            applyPose(rigToApply, pose);
+        }
     };
 
     return {
@@ -1032,6 +1119,7 @@ const createRuntimeRigViewerHost = (
             applyPose(rigToApply, evaluateRuntimeRigPose(rigToApply, null, 0));
         },
         destroy: () => {
+            resetRuntimeTransformOrderProbe();
             const locked = rigTransformIndexTexture.lock() as Uint16Array;
             const freedPalette = new Set<number>();
             for (const slot of slots) {
@@ -1051,6 +1139,7 @@ const createRuntimeRigViewerHost = (
             sortCentersState?.destroy();
             material.deleteParameter?.(SCA_RIG_TRANSFORM_INDEX_UNIFORM);
             material.deleteParameter?.(SCA_RIG_TRANSFORM_PALETTE_UNIFORM);
+            material.deleteParameter?.(SCA_RIG_TRANSFORM_INDEX_TEX_WIDTH_UNIFORM);
         }
     };
 };

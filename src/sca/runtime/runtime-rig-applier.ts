@@ -15,6 +15,8 @@ type RuntimeRigPaletteBinding = {
 type RuntimeRigHost = {
     bindings: RuntimeRigPaletteBinding[];
     requestRender: () => void;
+    /** Full host pose application (palette, sort centers, index upload). */
+    applyPose?: (rig: ScaRig, pose: ScaRigEvaluatedPose) => void;
 };
 
 const rigMat = new Mat4();
@@ -36,7 +38,16 @@ class RuntimeRigApplier {
 
     applyPose(rig: ScaRig, pose: ScaRigEvaluatedPose): void {
         const host = this.host;
-        if (!host || host.bindings.length === 0) {
+        if (!host) {
+            return;
+        }
+
+        if (host.applyPose) {
+            host.applyPose(rig, pose);
+            return;
+        }
+
+        if (host.bindings.length === 0) {
             return;
         }
 

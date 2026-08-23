@@ -3,6 +3,12 @@ import { ScaProject } from '../types/project';
 import { ScaRig } from '../types/rig';
 
 import { applyRegionAnimationOverrides } from '../animation/region-animation-presentation';
+import { maybeLogRigMatrixCheck, resetRuntimeRigMatrixCheckDiagnostic } from '../rig/rig-matrix-check';
+import {
+    maybeLogRuntimeTransformOrderCheck,
+    TARGET_REGION_ID
+} from '../rig/rig-transform-order-check';
+import { maybeLogRuntimeRigDataParity } from '../rig/rig-data-parity-check';
 
 import { evaluateRuntimeRigPose } from './runtime-rig-pose';
 import { RuntimeRigApplier } from './runtime-rig-applier';
@@ -66,6 +72,7 @@ class ScaRuntimeAnimationController {
         }
 
         this.stopAnimationInternal(false);
+        resetRuntimeRigMatrixCheckDiagnostic();
         this.playback = {
             clipId: clip.id,
             clip,
@@ -209,7 +216,37 @@ class ScaRuntimeAnimationController {
 
         const rig = project.rig;
         if (rig) {
+            maybeLogRuntimeRigDataParity(rig);
             const pose = evaluateRuntimeRigPose(rig, playback.clip, playback.currentTime);
+            const primaryBinding = rig.bindings[0];
+            const primaryNode = primaryBinding ?
+                rig.nodes.find((node) => node.id === primaryBinding.nodeId) ?? null :
+                null;
+            if (primaryBinding && primaryNode) {
+                maybeLogRigMatrixCheck(
+                    'runtime',
+                    playback.currentTime,
+                    rig,
+                    primaryNode,
+                    primaryBinding,
+                    (sampleTime) => evaluateRuntimeRigPose(rig, playback.clip, sampleTime)
+                );
+            }
+
+            const region06Binding = rig.bindings.find((binding) => binding.regionId === TARGET_REGION_ID);
+            const region06Node = region06Binding ?
+                rig.nodes.find((node) => node.id === region06Binding.nodeId) ?? null :
+                null;
+            if (region06Binding && region06Node) {
+                maybeLogRuntimeTransformOrderCheck(
+                    playback.currentTime,
+                    rig,
+                    pose,
+                    region06Node,
+                    region06Binding
+                );
+            }
+
             this.host.rigApplier.applyPose(rig, pose);
             if (this.host.rigApplier.hasHost()) {
                 console.log('[SCA RUNTIME RIG] apply', {

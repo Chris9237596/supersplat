@@ -10,7 +10,15 @@ import { ScaRig, ScaRigBinding, ScaRigNode } from '../types/rig';
 import { ScaRegion } from '../types/region';
 
 import { buildEffectiveRigWorldMatrixFromPose, collectRigSubtreeNodeIds } from './rig-hierarchy';
-import { evaluateFinalRigPose, ScaRigEvaluatedPose } from './rig-pose';
+import { evaluateFinalRigPose, getAnimationPlaybackState, ScaRigEvaluatedPose } from './rig-pose';
+import { maybeLogRigMatrixCheck, evaluateEditorRigPoseAtTime } from './rig-matrix-check';
+import {
+    findFirstGaussianIndexForRegion,
+    maybeLogEditorTransformOrderCheck,
+    TARGET_REGION_ID
+} from './rig-transform-order-check';
+import { maybeLogEditorGaussianRenderTrace } from './rig-gaussian-trace';
+import { maybeLogEditorRigDataParity } from './rig-data-parity-check';
 import { findSplatByScaSplatId } from '../regions/splat-identity';
 import {
     logScaRigRestore,
@@ -31,6 +39,23 @@ type RigSplatSlot = {
 };
 
 const rigMat = new Mat4();
+
+const canUpdateSortCenters = (splat: Splat): boolean => {
+    return !!splat.entity?.gsplat?.instance?.sorter;
+};
+
+const safeUpdateSortCentersForIndices = async (
+    splat: Splat,
+    indices: Iterable<number>,
+    context: string
+): Promise<void> => {
+    if (!canUpdateSortCenters(splat)) {
+        console.warn(`[SCA RIG] skipped sort center update (${context}): gsplat instance unavailable`);
+        return;
+    }
+
+    await splat.updateSortCentersForIndices(indices);
+};
 
 const computeRegionPivotLocal = (
     events: Events,
@@ -121,7 +146,7 @@ class RegionRigApplier {
         });
 
         for (const [splat, indices] of restore.restoredBySplat) {
-            await splat.updateSortCentersForIndices(indices);
+            await safeUpdateSortCentersForIndices(splat, indices, 'restore');
         }
 
         scene.forceRender = true;
@@ -149,6 +174,23 @@ class RegionRigApplier {
             rig.nodes.map((node) => [node.id, node])
         );
         const pose = evaluateFinalRigPose(rig);
+        const playback = getAnimationPlaybackState();
+        const primarySlot = this.slots[0];
+        if (playback.previewActive && primarySlot) {
+            const primaryNode = nodeById.get(primarySlot.nodeId);
+            const primaryBinding = resolveSlotBinding(rig, primarySlot);
+            if (primaryNode) {
+                maybeLogRigMatrixCheck(
+                    'editor',
+                    playback.currentTime,
+                    rig,
+                    primaryNode,
+                    primaryBinding,
+                    (sampleTime) => evaluateEditorRigPoseAtTime(rig, sampleTime)
+                );
+            }
+        }
+
         const affectedNodeIds = nodeIds ?
             new Set(nodeIds.flatMap((nodeId) => collectRigSubtreeNodeIds(rig, nodeId))) :
             null;
@@ -169,6 +211,7 @@ class RegionRigApplier {
             const binding = resolveSlotBinding(rig, slot);
             const slotBefore = slot.paletteIndex;
             writeSlotEffectiveMatrix(rig, pose, slot, node, binding);
+
             if (isRigTraceEnabled()) {
                 const paletteMatrix = new Mat4();
                 slot.splat.transformPalette.getTransform(slot.paletteIndex, paletteMatrix);
@@ -201,7 +244,40 @@ class RegionRigApplier {
         }
 
         for (const [splat, indices] of indicesBySplat) {
-            await splat.updateSortCentersForIndices(indices);
+            await safeUpdateSortCentersForIndices(splat, indices, 'updateNodePoses');
+        }
+
+        if (playback.previewActive) {
+            const region06Slot = this.slots.find((slot) => slot.regionId === TARGET_REGION_ID);
+            const region06GaussianIndex = region06Slot ?
+                findFirstGaussianIndexForRegion(region06Slot.gaussianIndices) :
+                null;
+            if (region06Slot && region06GaussianIndex !== null) {
+                const region06Node = nodeById.get(region06Slot.nodeId);
+                const region06Binding = resolveSlotBinding(rig, region06Slot);
+                if (region06Node && region06Binding) {
+                    const region06Pose = evaluateEditorRigPoseAtTime(rig, 0);
+                    maybeLogEditorGaussianRenderTrace({
+                        playbackTime: playback.currentTime,
+                        rig,
+                        pose: region06Pose,
+                        splat: region06Slot.splat,
+                        gaussianIndex: region06GaussianIndex,
+                        paletteIndex: region06Slot.paletteIndex,
+                        node: region06Node,
+                        binding: region06Binding
+                    });
+                    maybeLogEditorTransformOrderCheck(
+                        playback.currentTime,
+                        rig,
+                        region06Pose,
+                        region06Slot.splat,
+                        region06GaussianIndex,
+                        region06Node,
+                        region06Binding
+                    );
+                }
+            }
         }
 
         if (affectedGaussians > 0) {
@@ -234,6 +310,7 @@ class RegionRigApplier {
         const nodeById = new Map<string, ScaRigNode>(
             rig.nodes.map((node) => [node.id, node])
         );
+        maybeLogEditorRigDataParity(rig);
         const pose = evaluateFinalRigPose(rig);
 
         const bindings = [...rig.bindings].sort((left, right) => (
@@ -322,7 +399,7 @@ class RegionRigApplier {
 
         for (const [splat, indices] of indicesBySplat) {
             newRigAssigned += indices.length;
-            await splat.updateSortCentersForIndices(indices);
+            await safeUpdateSortCentersForIndices(splat, indices, 'apply');
         }
 
         logScaRigUpdate({

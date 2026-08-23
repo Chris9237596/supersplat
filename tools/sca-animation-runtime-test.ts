@@ -12,6 +12,12 @@ import {
 } from '../src/sca/runtime/sca-animation-runtime';
 import { patchGsplatCenterForRig, isRuntimeRigHostReady, projectNeedsRuntimeRigHost, resolveRuntimeGsplatMaterial, resolveViewerTextureSeam } from '../src/sca/runtime/runtime-rig-viewer-host';
 import { transformPoint } from '../src/sca/runtime/runtime-rig-sort-centers';
+import {
+    applyPaletteToLocalCenter,
+    buildShaderModelView,
+    compareGaussianRenderTraces,
+    gaussianIndexToTexel
+} from '../src/sca/rig/rig-gaussian-trace';
 import { Mat4 } from 'playcanvas';
 import { ScaAnimationClip } from '../src/sca/types/animation';
 import { createEmptyProject, ScaProject, SCA_PROJECT_VERSION } from '../src/sca/types/project';
@@ -183,8 +189,9 @@ const runRigHostTests = () => {
     assert.ok(patched.patchApplied);
     assert.ok(patched.chunk.includes('applyPaletteTransform'));
     assert.ok(patched.chunk.includes('uniform highp usampler2D uScaRigTransformIndex'));
-    assert.ok(patched.chunk.includes('int(splat.index) % int(scaRegionHighlightTexWidth)'));
+    assert.ok(patched.chunk.includes('int(splat.index) % int(scaRigTransformIndexTexWidth)'));
     assert.ok(!patched.chunk.includes('texelFetch(uScaRigTransformIndex, splat.uv'));
+    assert.ok(!patched.chunk.includes('scaRegionHighlightTexWidth'));
 
     const emptyMaterialChunks = new Map<string, string>();
     const fallbackPatch = patchGsplatCenterForRig(emptyMaterialChunks.get('gsplatCenterVS') ?? `
@@ -339,6 +346,44 @@ const runTriggerBehaviorTests = () => {
     console.log('[sca-animation-runtime] trigger behavior PASS');
 };
 
+const runGaussianRenderTraceTests = () => {
+    const width = 512;
+    const gaussianIndex = 1234;
+    const texel = gaussianIndexToTexel(gaussianIndex, width);
+    assert.equal(texel.x + texel.y * width, gaussianIndex);
+
+    const localCenter: [number, number, number] = [0.12, -0.34, 0.56];
+    const paletteMatrix = new Mat4().setFromEulerAngles(29.53, 0, 0);
+    const matrixModel = Mat4.IDENTITY;
+    const matrixView = new Mat4().setFromEulerAngles(-15, 45, 0);
+
+    const centerAfterPalette = applyPaletteToLocalCenter(paletteMatrix, localCenter);
+    const modelView = buildShaderModelView(matrixModel, paletteMatrix, matrixView);
+    const viewCenter = transformPoint(modelView, ...localCenter);
+
+    const stage = {
+        gaussianIndex,
+        textureWidth: width,
+        storageTexel: texel,
+        editorShaderTexelKey: 'splat.uv' as const,
+        runtimeShaderTexelKey: 'splat.index % width' as const,
+        shaderTexelMatch: true,
+        localCenter,
+        paletteIndexCpu: 1,
+        paletteMatrix: paletteMatrix.data.slice(),
+        centerAfterPalette,
+        matrixModel: matrixModel.data.slice(),
+        worldCenter: transformPoint(matrixModel, ...centerAfterPalette),
+        viewCenter,
+        sortCenterModelSpace: centerAfterPalette
+    };
+
+    const comparison = compareGaussianRenderTraces(stage, { ...stage });
+    assert.equal(comparison.divergenceStage, 'none (CPU-modeled render inputs match)');
+
+    console.log('[sca-animation-runtime] gaussian render trace PASS');
+};
+
 const main = () => {
     runNormalizationTests();
     runPlaybackTests();
@@ -346,6 +391,7 @@ const main = () => {
     runSharedOpacityStoreTests();
     runRigHostTests();
     runTriggerBehaviorTests();
+    runGaussianRenderTraceTests();
 
     console.log('\n========== SCA ANIMATION RUNTIME TEST REPORT ==========');
     console.log('Normalization: PASS');
@@ -354,6 +400,7 @@ const main = () => {
     console.log('Shared opacity store: PASS');
     console.log('Rig host: PASS');
     console.log('Trigger behavior: PASS');
+    console.log('Gaussian render trace: PASS');
     console.log('=======================================================\n');
 };
 

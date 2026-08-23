@@ -37,6 +37,12 @@ import { ScaRegion } from '../types/region';
 const PACKAGE_FILENAME = 'sca-runtime-package.zip';
 const PREVIEW_FILENAME = 'preview.html';
 
+const createScaRuntimeSerializeSettings = (events: Events): SerializeSettings => ({
+    maxSHBands: events.invoke('view.bands') as number,
+    keepWorldTransform: true,
+    skipTransformPalette: true
+});
+
 const SCA_RUNTIME_ASSET_FILENAMES = [
     'sca-runtime-capabilities.js',
     'sca-debug.js',
@@ -676,9 +682,7 @@ const buildRuntimeViewerPreviewHtml = async (
     } : undefined;
 
     const viewerConfig = resolveViewerConfig(project, fallbackInitial);
-    const serializeSettings: SerializeSettings = {
-        maxSHBands: events.invoke('view.bands') as number
-    };
+    const serializeSettings = createScaRuntimeSerializeSettings(events);
     const experienceSettings = buildViewerExperienceSettings(events, project);
 
     splatTransformLogger.setRenderer(createProgressRenderer('Building Runtime Viewer Preview', events));
@@ -801,9 +805,7 @@ const exportScaRuntimePackage = async (
     } : undefined;
 
     const viewerConfig = resolveViewerConfig(project, fallbackInitial);
-    const serializeSettings: SerializeSettings = {
-        maxSHBands: events.invoke('view.bands') as number
-    };
+    const serializeSettings = createScaRuntimeSerializeSettings(events);
 
     const experienceSettings = buildViewerExperienceSettings(events, project);
     console.log('[SCA] runtime package export preview:', {

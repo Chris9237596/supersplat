@@ -979,11 +979,15 @@ class ScaRegionsPanel extends Container {
                 return;
             }
 
-            this.events.fire(
-                'sca.rig.binding.rebind',
-                this.selectedId,
-                this.pendingBindMode
-            );
+            if (this.pendingBindMode === 'keep-world') {
+                this.events.fire('sca.rig.binding.rebindAtRest', this.selectedId);
+            } else {
+                this.events.fire(
+                    'sca.rig.binding.rebind',
+                    this.selectedId,
+                    this.pendingBindMode
+                );
+            }
         });
 
 

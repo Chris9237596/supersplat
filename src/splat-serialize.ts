@@ -54,6 +54,7 @@ type SerializeSettings = {
     keepStateData?: boolean;        // keep the state data array
     keepWorldTransform?: boolean;   // don't apply the world transform when resolving splat transforms
     keepColorTint?: boolean;        // refrain from applying color tints
+    skipTransformPalette?: boolean; // don't bake per-gaussian transform palette (SCA runtime neutral base)
 };
 
 type AnimTrack = {
@@ -267,7 +268,7 @@ class SplatTransformCache {
     getScale: (index: number) => Vec3;
     getSHRot: (index: number) => SHRotation;
 
-    constructor(splat: Splat, keepWorldTransform = false) {
+    constructor(splat: Splat, keepWorldTransform = false, skipTransformPalette = false) {
         const transforms = new Map<number, { transformIndex: number, mat: Mat4, rot: Quat, scale: Vec3, shRot: SHRotation }>();
         const indices = splat.transformTexture.getSource() as unknown as Uint32Array;
         const tmpMat = new Mat4();
@@ -297,7 +298,7 @@ class SplatTransformCache {
                 }
 
                 // combine with transform palette matrix
-                if (transform.transformIndex > 0) {
+                if (!skipTransformPalette && transform.transformIndex > 0) {
                     splat.transformPalette.getTransform(transform.transformIndex, tmpMat);
                     mat.mul2(mat, tmpMat);
                 }
@@ -384,7 +385,11 @@ class SingleSplat {
             // get the cached data entry for this splat
             if (splat !== cacheEntry?.splat) {
                 if (!cacheMap.has(splat)) {
-                    const transformCache = new SplatTransformCache(splat, serializeSettings.keepWorldTransform);
+                    const transformCache = new SplatTransformCache(
+                        splat,
+                        serializeSettings.keepWorldTransform,
+                        serializeSettings.skipTransformPalette
+                    );
 
                     const srcPropNames = getVertexProperties(splat.splatData);
                     const srcSHBands = calcSHBands(srcPropNames);

@@ -119,6 +119,7 @@ const computeSogGeometryCacheKey = (
     h = fnv1aUpdate(h, `rmInv:${settings.removeInvalid ?? false}`);
     h = fnv1aUpdate(h, `keepWT:${settings.keepWorldTransform ?? false}`);
     h = fnv1aUpdate(h, `keepTint:${settings.keepColorTint ?? false}`);
+    h = fnv1aUpdate(h, `skipPal:${settings.skipTransformPalette ?? false}`);
 
     for (const splat of splats) {
         h = fnv1aUpdate(h, hashSplatTransform(splat).toString(16));
@@ -173,6 +174,10 @@ const ensureCompressedSogGeometry = async (
     iterations: number,
     events?: Events
 ): Promise<EnsureCompressedSogResult> => {
+    if (serializeSettings.keepWorldTransform && serializeSettings.skipTransformPalette) {
+        console.log('[SCA RUNTIME EXPORT] neutral base: yes (world transform + rig palette not baked into SOG)');
+    }
+
     const lookupStartedAt = performance.now();
     const geometryKey = computeSogGeometryCacheKey(
         splats,
@@ -412,6 +417,7 @@ const getSogGeometryFingerprintInputs = (): string[] => {
         'serializeSettings.removeInvalid',
         'serializeSettings.keepWorldTransform',
         'serializeSettings.keepColorTint',
+        'serializeSettings.skipTransformPalette',
         'per-splat scaSplatId + entity transform',
         'per-splat vertex property storage buffers'
     ];

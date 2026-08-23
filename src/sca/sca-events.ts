@@ -255,6 +255,13 @@ const registerScaEvents = (events: Events): HotspotStore => {
         });
     });
 
+    events.on('sca.rig.binding.rebindAtRest', (regionId: string) => {
+        history.record(() => {
+            store.rebindRegionAtAuthoredRest(regionId);
+            notifyProjectChanged();
+        });
+    });
+
     events.function('sca.rig.getBinding', (regionId: string) => {
         return store.getRigBindingForRegion(regionId);
     });

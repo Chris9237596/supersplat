@@ -2,7 +2,7 @@ import { Mat4, Quat, Vec3 } from 'playcanvas';
 
 import { ScaRig, ScaRigBinding, ScaRigNode, ScaRigVec3 } from '../types/rig';
 
-import { evaluateFinalRigPose, requireEvaluatedNodePose, ScaRigEvaluatedPose } from './rig-pose';
+import { evaluateFinalRigPose, evaluateRigPose, requireEvaluatedNodePose, ScaRigEvaluatedPose } from './rig-pose';
 import { buildRigidRigMatrixFromPose, bindOffsetToMatrix, matrixToArray, matrixToPose } from './rig-transform';
 
 type ScaRigReparentMode = 'keep-world' | 'keep-local';
@@ -398,6 +398,22 @@ const createKeepWorldBindOffset = (rig: ScaRig, node: ScaRigNode) => {
     };
 };
 
+const computeKeepWorldBindOffsetMatrixFromAuthoredRest = (
+    rig: ScaRig,
+    node: ScaRigNode,
+    target = new Mat4()
+): Mat4 => {
+    return computeKeepWorldBindOffsetMatrixFromPose(rig, evaluateRigPose(rig), node, target);
+};
+
+const createKeepWorldBindOffsetFromAuthoredRest = (rig: ScaRig, node: ScaRigNode) => {
+    computeKeepWorldBindOffsetMatrixFromAuthoredRest(rig, node, matLocal);
+    return {
+        bindOffsetMatrix: matrixToArray(matLocal),
+        bindOffset: matrixToPose(matLocal)
+    };
+};
+
 export {
     ScaRigReparentMode,
     breakRigHierarchyCycles,
@@ -413,7 +429,9 @@ export {
     collectRigSubtreeNodeIds,
     computeKeepWorldBindOffset,
     computeKeepWorldBindOffsetMatrix,
+    computeKeepWorldBindOffsetMatrixFromAuthoredRest,
     createKeepWorldBindOffset,
+    createKeepWorldBindOffsetFromAuthoredRest,
     computeReparentLocalKeepWorld,
     getNodeHandleWorldEuler,
     getNodeHandleWorldPosition,

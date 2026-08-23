@@ -1,0 +1,663 @@
+{
+  "version": 1,
+  "hotspots": [
+    {
+      "id": "hotspot_01",
+      "name": "New Hotspotfddf",
+      "text": "afadfadfsadffffffffffffffff",
+      "position": [
+        -0.20278702686759553,
+        0.20487681311617845,
+        -0.6808178684572732
+      ],
+      "enabled": true,
+      "visual": {
+        "type": "annotation",
+        "visible": true
+      },
+      "hover": {
+        "enabled": false
+      },
+      "click": {
+        "enabled": true,
+        "action": {
+          "type": "event",
+          "eventName": "hotspotClicked"
+        }
+      },
+      "interaction": {
+        "clickable": true,
+        "showInNavigation": true
+      },
+      "camera": {
+        "initial": {
+          "position": [
+            0,
+            1,
+            -1
+          ],
+          "target": [
+            -0.20278702686759553,
+            0.20487681311617845,
+            -0.6808178684572732
+          ],
+          "fov": 60
+        }
+      }
+    },
+    {
+      "id": "hotspot_02",
+      "name": "New Hotspot",
+      "text": "",
+      "position": [
+        -0.4989234004934049,
+        0.9136036882386671,
+        0.5189630068100657
+      ],
+      "enabled": true,
+      "visual": {
+        "type": "annotation",
+        "visible": true
+      },
+      "hover": {
+        "enabled": false
+      },
+      "click": {
+        "enabled": true,
+        "action": {
+          "type": "event",
+          "eventName": "hotspotClicked"
+        }
+      },
+      "interaction": {
+        "clickable": true,
+        "showInNavigation": true
+      },
+      "camera": {
+        "initial": {
+          "position": [
+            0,
+            1,
+            -1
+          ],
+          "target": [
+            -0.4989234004934049,
+            0.9136036882386671,
+            0.5189630068100657
+          ],
+          "fov": 60
+        }
+      }
+    },
+    {
+      "id": "hotspot_03",
+      "name": "New Hotspot",
+      "text": "afdasdf",
+      "position": [
+        -0.12350852110560528,
+        0.2729367056612708,
+        0.4066410013332624
+      ],
+      "enabled": true,
+      "visual": {
+        "type": "annotation",
+        "visible": true
+      },
+      "hover": {
+        "enabled": false
+      },
+      "click": {
+        "enabled": true,
+        "action": {
+          "type": "event",
+          "eventName": "hotspotClicked"
+        }
+      },
+      "interaction": {
+        "clickable": true,
+        "showInNavigation": true
+      },
+      "camera": {
+        "initial": {
+          "position": [
+            0,
+            1,
+            -1
+          ],
+          "target": [
+            -0.12350852110560528,
+            0.2729367056612708,
+            0.4066410013332624
+          ],
+          "fov": 60
+        }
+      }
+    }
+  ],
+  "regions": [
+    {
+      "id": "region_02",
+      "name": "Region 2",
+      "enabled": true,
+      "source": {
+        "type": "gaussian-mask",
+        "scaSplatId": "splat_01",
+        "maskAsset": "regions/region_02.mask"
+      },
+      "capture": {
+        "gaussianCount": 77189
+      },
+      "interaction": {
+        "clickable": true,
+        "showCard": true,
+        "showInNavigation": true
+      },
+      "visual": {
+        "hoverTint": "#c6682a",
+        "hoverOpacity": 0.35,
+        "activeTint": "#4abaad",
+        "activeOpacity": 0.55
+      }
+    },
+    {
+      "id": "region_03",
+      "name": "Region 2",
+      "enabled": true,
+      "source": {
+        "type": "gaussian-mask",
+        "scaSplatId": "splat_01",
+        "maskAsset": "regions/region_03.mask"
+      },
+      "capture": {
+        "gaussianCount": 77189
+      },
+      "interaction": {
+        "clickable": true,
+        "showCard": true,
+        "showInNavigation": true
+      },
+      "visual": {
+        "hoverTint": "#ff6600",
+        "hoverOpacity": 0.35,
+        "activeTint": "#ff6600",
+        "activeOpacity": 0.55
+      }
+    },
+    {
+      "id": "region_04",
+      "name": "Region 3",
+      "text": "sssssssssssssssssssssssssssssssssss",
+      "enabled": true,
+      "source": {
+        "type": "gaussian-mask",
+        "scaSplatId": "splat_01",
+        "maskAsset": "regions/region_04.mask"
+      },
+      "capture": {
+        "gaussianCount": 77189
+      },
+      "interaction": {
+        "clickable": true,
+        "showCard": true,
+        "showInNavigation": true
+      },
+      "visual": {
+        "hoverTint": "#d6e316",
+        "hoverOpacity": 0.35,
+        "activeTint": "#00ffb3",
+        "activeOpacity": 0.55
+      }
+    },
+    {
+      "id": "region_05",
+      "name": "bpdy",
+      "enabled": true,
+      "source": {
+        "type": "gaussian-mask",
+        "scaSplatId": "splat_01",
+        "maskAsset": "regions/region_05.mask"
+      },
+      "capture": {
+        "gaussianCount": 77189
+      },
+      "interaction": {
+        "clickable": true,
+        "showCard": true,
+        "showInNavigation": true
+      },
+      "visual": {
+        "hoverTint": "#ffffff",
+        "hoverOpacity": 0.35,
+        "activeTint": "#0040ff",
+        "activeOpacity": 0.55
+      }
+    },
+    {
+      "id": "region_06",
+      "name": "S1",
+      "enabled": true,
+      "source": {
+        "type": "gaussian-mask",
+        "scaSplatId": "splat_01",
+        "maskAsset": "regions/region_06.mask"
+      },
+      "capture": {
+        "gaussianCount": 77189
+      },
+      "interaction": {
+        "clickable": true,
+        "showCard": true,
+        "showInNavigation": true
+      },
+      "visual": {
+        "hoverTint": "#ff6600",
+        "hoverOpacity": 0.35,
+        "activeTint": "#ff6600",
+        "activeOpacity": 0.55
+      }
+    },
+    {
+      "id": "region_07",
+      "name": "S2",
+      "enabled": true,
+      "source": {
+        "type": "gaussian-mask",
+        "scaSplatId": "splat_01",
+        "maskAsset": "regions/region_07.mask"
+      },
+      "capture": {
+        "gaussianCount": 77189
+      },
+      "interaction": {
+        "clickable": true,
+        "showCard": true,
+        "showInNavigation": true
+      },
+      "visual": {
+        "hoverTint": "#ff6600",
+        "hoverOpacity": 0.35,
+        "activeTint": "#ff6600",
+        "activeOpacity": 0.55
+      }
+    },
+    {
+      "id": "region_08",
+      "name": "S3",
+      "enabled": true,
+      "source": {
+        "type": "gaussian-mask",
+        "scaSplatId": "splat_01",
+        "maskAsset": "regions/region_08.mask"
+      },
+      "capture": {
+        "gaussianCount": 77189
+      },
+      "interaction": {
+        "clickable": true,
+        "showCard": true,
+        "showInNavigation": true
+      },
+      "visual": {
+        "hoverTint": "#ff6600",
+        "hoverOpacity": 0.35,
+        "activeTint": "#ff6600",
+        "activeOpacity": 0.55
+      }
+    }
+  ],
+  "splats": [
+    {
+      "scaSplatId": "splat_01",
+      "name": "scorpion.ply"
+    }
+  ],
+  "viewer": {
+    "camera": {
+      "initial": {
+        "position": [
+          -3.748030185699463,
+          1.4473371505737305,
+          -3.020763397216797
+        ],
+        "target": [
+          -0.1477848789442202,
+          0.3483173519475312,
+          0.15823179622568428
+        ],
+        "fov": 75
+      },
+      "animation": {
+        "type": "none",
+        "duration": 1.5,
+        "turntable": {
+          "duration": 10,
+          "direction": "clockwise",
+          "degrees": 360,
+          "loop": true
+        }
+      }
+    },
+    "navigation": {
+      "defaultMode": "orbit",
+      "allowedModes": [
+        "orbit"
+      ]
+    },
+    "interaction": {
+      "focusTransition": {
+        "duration": 0.8
+      },
+      "homeTransition": {
+        "duration": 1
+      }
+    },
+    "background": {
+      "type": "color",
+      "color": "#000000"
+    },
+    "hotspots": {
+      "showCards": true
+    },
+    "navigationTargets": {
+      "enabled": true,
+      "hotspots": true,
+      "regions": true
+    }
+  },
+  "rig": {
+    "version": 1,
+    "nodes": [
+      {
+        "id": "rig_01",
+        "name": "Rig Node 01",
+        "position": [
+          0.055274967101571815,
+          -0.1997850908589504,
+          0.5557502273607791
+        ],
+        "rotation": [
+          -12.030724549603798,
+          0,
+          0
+        ],
+        "pivot": [
+          0,
+          0,
+          0
+        ],
+        "rest": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "id": "rig_02",
+        "name": "Rig Node 02",
+        "position": [
+          0.1738172024488449,
+          -0.8759241104125977,
+          0.8062397837638855
+        ],
+        "rotation": [
+          18.131231276760982,
+          -46.59794311988401,
+          -0.19357972496615103
+        ],
+        "pivot": [
+          0,
+          0,
+          0
+        ],
+        "rest": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "id": "rig_03",
+        "name": "Rig Node 03",
+        "position": [
+          0.4639770984649658,
+          -0.8573083281517029,
+          0.30955642461776733
+        ],
+        "rotation": [
+          -161.32836763529718,
+          -8.132856060404356,
+          -2.7370290443896153
+        ],
+        "pivot": [
+          0,
+          0,
+          0
+        ],
+        "rest": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "id": "rig_04",
+        "name": "Rig Node 04",
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "pivot": [
+          0,
+          0,
+          0
+        ],
+        "rest": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    ],
+    "bindings": [
+      {
+        "regionId": "region_06",
+        "nodeId": "rig_01",
+        "mode": "rigid",
+        "bindMode": "keep-world",
+        "bindOffsetMatrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.9780359268188477,
+          0.20843617618083954,
+          0,
+          0,
+          -0.20843617618083954,
+          0.9780359268188477,
+          0,
+          -0.05527496710419655,
+          0.3112354576587677,
+          -0.5019012689590454,
+          1
+        ],
+        "bindOffset": {
+          "position": [
+            -0.05527496710419655,
+            0.3112354576587677,
+            -0.5019012689590454
+          ],
+          "rotation": [
+            12.030724429801712,
+            0,
+            0
+          ]
+        }
+      }
+    ]
+  },
+  "animations": [
+    {
+      "id": "animation_01",
+      "name": "Animation 1",
+      "duration": 2,
+      "tracks": [
+        {
+          "id": "track_01",
+          "targetType": "rig-node",
+          "nodeId": "rig_01",
+          "property": "rotation",
+          "keyframes": [
+            {
+              "id": "keyframe_01",
+              "time": 0,
+              "value": [
+                8.3417565028213,
+                -9.186284677773068,
+                60.72524065384219
+              ]
+            },
+            {
+              "id": "keyframe_02",
+              "time": 0.9435700075083783,
+              "value": [
+                -10.673034403197196,
+                -30.779368693487235,
+                -69.78192770093406
+              ]
+            }
+          ]
+        }
+      ],
+      "trigger": {
+        "type": "hotspot",
+        "targetId": "hotspot_01"
+      }
+    },
+    {
+      "id": "animation_02",
+      "name": "Animation 2",
+      "duration": 2,
+      "tracks": [
+        {
+          "id": "track_01",
+          "targetType": "rig-node",
+          "nodeId": "rig_01",
+          "property": "rotation",
+          "keyframes": [
+            {
+              "id": "keyframe_01",
+              "time": 0,
+              "value": [
+                29.532730849181295,
+                0,
+                0
+              ]
+            },
+            {
+              "id": "keyframe_02",
+              "time": 0.8483685233208877,
+              "value": [
+                -7.53253106537256,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "animation_03",
+      "name": "Animation 3",
+      "duration": 2,
+      "tracks": [
+        {
+          "id": "track_01",
+          "targetType": "rig-node",
+          "nodeId": "rig_04",
+          "property": "rotation",
+          "keyframes": [
+            {
+              "id": "keyframe_01",
+              "time": 0,
+              "value": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "animation_04",
+      "name": "Animation 4",
+      "duration": 2,
+      "tracks": [
+        {
+          "id": "track_01",
+          "targetType": "rig-node",
+          "nodeId": "rig_01",
+          "property": "rotation",
+          "keyframes": [
+            {
+              "id": "keyframe_01",
+              "time": 0,
+              "value": [
+                29.532730849181295,
+                0,
+                0
+              ]
+            },
+            {
+              "id": "keyframe_02",
+              "time": 0.7094049747328522,
+              "value": [
+                -6.852108673689549,
+                0,
+                0
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

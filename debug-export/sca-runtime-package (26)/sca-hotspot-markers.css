@@ -1,0 +1,250 @@
+/* Shared with src/sca/markers/sca-markers.scss — annotation-constants.ts values */
+:root {
+    --sca-hotspot-size: 25px;
+    --sca-hotspot-hit-size: 30px;
+    --sca-hotspot-hit-inset: 2.5px;
+    --sca-hotspot-border-width: 2px;
+    --sca-hotspot-fill: #000;
+    --sca-hotspot-border: #fff;
+    --sca-hotspot-selected-fill: rgb(255, 102, 0);
+    --sca-hotspot-label-font: bold 13px/1 Arial, Helvetica, sans-serif;
+}
+
+.sca-hotspot-markers-overlay {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 20;
+}
+
+.sca-hotspot-marker-anchor {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+}
+
+.sca-hotspot-marker-anchor.is-hidden {
+    display: none;
+}
+
+.sca-hotspot-marker-badge.pc-annotation-hotspot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: var(--sca-hotspot-hit-size);
+    height: var(--sca-hotspot-hit-size);
+    opacity: 1;
+    cursor: pointer;
+    pointer-events: auto;
+    user-select: none;
+    transform: translate(-50%, -50%);
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+    color: #fff;
+    font: var(--sca-hotspot-label-font);
+    line-height: 1;
+    text-align: center;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.sca-hotspot-marker-badge.pc-annotation-hotspot.is-not-clickable {
+    cursor: default;
+    pointer-events: none;
+}
+
+.sca-hotspot-marker-badge.pc-annotation-hotspot::before {
+    content: '';
+    position: absolute;
+    inset: var(--sca-hotspot-hit-inset);
+    border-radius: 50%;
+    background-color: var(--sca-hotspot-fill);
+    border: var(--sca-hotspot-border-width) solid var(--sca-hotspot-border);
+    box-sizing: border-box;
+    z-index: -1;
+}
+
+.sca-hotspot-marker-badge.pc-annotation-hotspot.is-selected::before {
+    background-color: var(--sca-hotspot-selected-fill);
+}
+
+.pc-annotation.sca-hotspot-marker-card {
+    display: block;
+    position: absolute;
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji';
+    pointer-events: none;
+    max-width: 200px;
+    word-wrap: break-word;
+    overflow-x: visible;
+    white-space: normal;
+    width: fit-content;
+    opacity: 1;
+    visibility: visible;
+    z-index: 2;
+    box-sizing: border-box;
+}
+
+.pc-annotation.sca-hotspot-marker-card.is-hidden {
+    display: none;
+}
+
+.sca-split-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+}
+
+.sca-nav-row {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.sca-nav-label {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    opacity: 0.65;
+    min-width: 64px;
+}
+
+.sca-nav-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sca-nav-prev,
+.sca-nav-next {
+  pointer-events: auto;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #E0DCDD;
+  background-color: rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
+}
+
+.sca-nav-prev:hover,
+.sca-nav-next:hover {
+  color: #fff;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.sca-nav-prev > svg,
+.sca-nav-next > svg {
+  display: block;
+}
+
+.sca-nav-prev > svg > g.stroke,
+.sca-nav-next > svg > g.stroke {
+  fill: none;
+  stroke: black;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.4;
+}
+
+.sca-nav-prev > svg > g.fill,
+.sca-nav-next > svg > g.fill {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sca-nav-prev[hidden],
+.sca-nav-next[hidden] {
+  display: none;
+}
+
+#annotationNav.desktop .sca-split-nav {
+    min-width: 280px;
+    padding: 6px 8px;
+}
+
+#annotationNav.desktop .sca-nav-row {
+    color: #fff;
+}
+
+#annotationNav.desktop .sca-nav-title {
+    color: #fff;
+    font-size: 14px;
+    min-width: 160px;
+    text-align: center;
+}
+
+#annotationNav.desktop .sca-nav-prev,
+#annotationNav.desktop .sca-nav-next {
+    width: 34px;
+    height: 34px;
+}
+
+#annotationNav.desktop .sca-nav-prev:hover,
+#annotationNav.desktop .sca-nav-next:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+}
+
+#annotationNav.desktop {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+#annotationNav.desktop > .hidden {
+    display: none !important;
+}
+
+.pc-annotation-title {
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.pc-annotation-text:empty {
+    display: none;
+}
+
+.pc-annotation.arrow-right::before,
+.pc-annotation.arrow-left::before {
+    content: '';
+    position: absolute;
+    top: var(--arrow-top, 50%);
+    transform: translateY(-50%);
+    border-top: 8px solid transparent;
+    border-bottom: 8px solid transparent;
+}
+
+.pc-annotation.arrow-right::before {
+    left: -8px;
+    border-right: 8px solid rgba(0, 0, 0, 0.8);
+}
+
+.pc-annotation.arrow-left::before {
+    right: -8px;
+    border-left: 8px solid rgba(0, 0, 0, 0.8);
+}
