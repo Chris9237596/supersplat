@@ -36,6 +36,8 @@ import { ScaRegion } from '../types/region';
 
 const PACKAGE_FILENAME = 'sca-runtime-package.zip';
 const PREVIEW_FILENAME = 'preview.html';
+/** Self-contained bundled entry for Storyline WebObject / file:// offline use. */
+const STORYLINE_FILENAME = 'storyline.html';
 
 const createScaRuntimeSerializeSettings = (events: Events): SerializeSettings => ({
     maxSHBands: events.invoke('view.bands') as number,
@@ -647,15 +649,16 @@ type RuntimeViewerPreviewResult = {
 };
 
 /**
- * Build the same self-contained preview.html the ZIP export uses, entirely in memory.
- * Uses unified GSplat export, runtime-remapped region masks, and patched viewer bundle.
+ * Build a self-contained bundled viewer HTML entry (html-bundle + patchPreviewHtml).
+ * Used for preview.html, storyline.html, and the in-editor runtime viewer preview.
  */
-const buildRuntimeViewerPreviewHtml = async (
+const buildRuntimeOfflineBundledHtml = async (
     splats: Splat[],
     project: ScaProject,
     events: Events,
     options: ScaRuntimePackageOptions = {},
-    shared?: ScaRuntimeExportSharedContext
+    shared?: ScaRuntimeExportSharedContext,
+    bundledFilename: string = STORYLINE_FILENAME
 ): Promise<RuntimeViewerPreviewResult> => {
     const useGaussianPickSpike = options.useGaussianPickSpike ?? false;
     const sogCompressionMode = options.sogCompressionMode ?? DEFAULT_SOG_COMPRESSION_MODE;
@@ -698,7 +701,7 @@ const buildRuntimeViewerPreviewHtml = async (
             sogCompressionMode,
             iterations: 10,
             outputFormat: 'html-bundle',
-            filename: PREVIEW_FILENAME,
+            filename: bundledFilename,
             experienceSettings,
             events,
             memFs: previewMemFs
@@ -706,9 +709,9 @@ const buildRuntimeViewerPreviewHtml = async (
 
         patchExportedViewerAssets(previewMemFs, useGaussianPickSpike);
 
-        const previewBytes = previewMemFs.results.get(PREVIEW_FILENAME);
-        if (!previewBytes) {
-            throw new Error('[SCA] bundled viewer export did not produce preview.html');
+        const bundledBytes = previewMemFs.results.get(bundledFilename);
+        if (!bundledBytes) {
+            throw new Error(`[SCA] bundled viewer export did not produce ${bundledFilename}`);
         }
 
         let exportProject: ScaProject;
@@ -738,8 +741,8 @@ const buildRuntimeViewerPreviewHtml = async (
             );
         }
 
-        const previewHtml = patchPreviewHtml(
-            new TextDecoder().decode(previewBytes),
+        const bundledHtml = patchPreviewHtml(
+            new TextDecoder().decode(bundledBytes),
             exportProject,
             runtimeAssets.scaCapabilitiesJs,
             runtimeAssets.scaDebugJs,
@@ -761,7 +764,7 @@ const buildRuntimeViewerPreviewHtml = async (
         );
 
         return {
-            html: previewHtml,
+            html: bundledHtml,
             exportProject,
             pickerMode: useGaussianPickSpike ? 'gaussian-index-spike' : 'production',
             sogBuildCount: exportResult.sogBuildCount,
@@ -772,6 +775,17 @@ const buildRuntimeViewerPreviewHtml = async (
         splatTransformLogger.unwindAll(true);
         throw err;
     }
+};
+
+/** Build preview.html using the same offline bundled pipeline as storyline.html. */
+const buildRuntimeViewerPreviewHtml = async (
+    splats: Splat[],
+    project: ScaProject,
+    events: Events,
+    options: ScaRuntimePackageOptions = {},
+    shared?: ScaRuntimeExportSharedContext
+): Promise<RuntimeViewerPreviewResult> => {
+    return buildRuntimeOfflineBundledHtml(splats, project, events, options, shared, PREVIEW_FILENAME);
 };
 
 const exportScaRuntimePackage = async (
@@ -948,22 +962,26 @@ const exportScaRuntimePackage = async (
             }
         }
 
+        const bundledResult = await buildRuntimeOfflineBundledHtml(
+            splats,
+            project,
+            events,
+            options,
+            {
+                runtimeAssets,
+                embeddedAssets,
+                exportProject
+            }
+        );
+        totalSogBuildCount += bundledResult.sogBuildCount;
+        totalCacheLookupMs += bundledResult.cacheLookupMs;
+        totalHtmlBundleMs += bundledResult.htmlBundleMs;
+
+        memFs.results.set(STORYLINE_FILENAME, encoder.encode(bundledResult.html));
+        console.log(`[SCA EXPORT] ${STORYLINE_FILENAME} ready (Storyline / file:// offline entry)`);
+
         if (includePreview) {
-            const previewResult = await buildRuntimeViewerPreviewHtml(
-                splats,
-                project,
-                events,
-                options,
-                {
-                    runtimeAssets,
-                    embeddedAssets,
-                    exportProject
-                }
-            );
-            totalSogBuildCount += previewResult.sogBuildCount;
-            totalCacheLookupMs += previewResult.cacheLookupMs;
-            totalHtmlBundleMs += previewResult.htmlBundleMs;
-            memFs.results.set(PREVIEW_FILENAME, encoder.encode(previewResult.html));
+            memFs.results.set(PREVIEW_FILENAME, encoder.encode(bundledResult.html));
         }
 
         fireExportStatus(events, {
@@ -1010,6 +1028,7 @@ export {
     patchPreviewHtml,
     patchViewerBundle,
     PREVIEW_FILENAME,
+    STORYLINE_FILENAME,
     resetRuntimeAssetFetchCache,
     RuntimeViewerPreviewResult,
     ScaExportPackageStatus,

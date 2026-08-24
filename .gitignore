@@ -6,3 +6,12 @@
 .vscode
 dist
 node_modules
+
+# SCA local workspace (reference projects, exports, parity reports)
+sca-workspace/project/*.ssproj
+sca-workspace/runtime/*
+!sca-workspace/runtime/latest/
+sca-workspace/runtime/latest/*
+!sca-workspace/runtime/latest/.gitkeep
+sca-workspace/compare/reports/*
+!sca-workspace/compare/reports/.gitkeep

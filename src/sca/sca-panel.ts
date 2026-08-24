@@ -163,7 +163,7 @@ class ScaPanel extends Container {
         });
         const includePreviewLabel = new Label({
             class: 'sca-export-preview-label',
-            text: 'Include standalone preview.html'
+            text: 'Include standalone preview.html (storyline.html always included for offline/Storyline)'
         });
 
         includePreviewRow.append(includePreviewInput);
