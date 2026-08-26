@@ -9,7 +9,9 @@ import { computeRegionAnchorFromIndices } from '../presentation/region-anchor';
 import { ScaRig, ScaRigBinding, ScaRigNode } from '../types/rig';
 import { ScaRegion } from '../types/region';
 
+import { resolveRigBindingOwners } from './rig-binding-ownership';
 import { buildEffectiveRigWorldMatrixFromPose, collectRigSubtreeNodeIds } from './rig-hierarchy';
+import { countIndexRanges } from './region-rig-topology';
 import { evaluateFinalRigPose, getAnimationPlaybackState, ScaRigEvaluatedPose } from './rig-pose';
 import { maybeLogRigMatrixCheck, evaluateEditorRigPoseAtTime } from './rig-matrix-check';
 import {
@@ -18,6 +20,10 @@ import {
     TARGET_REGION_ID
 } from './rig-transform-order-check';
 import { maybeLogEditorGaussianRenderTrace } from './rig-gaussian-trace';
+import {
+    RENDER_SEAM_PROBE_CONFIG,
+    scheduleEditorRenderSeamCapture
+} from './rig-render-seam-probe';
 import { maybeLogEditorRigDataParity } from './rig-data-parity-check';
 import { findSplatByScaSplatId } from '../regions/splat-identity';
 import {
@@ -248,6 +254,17 @@ class RegionRigApplier {
         }
 
         if (playback.previewActive) {
+            const region04Slot = this.slots.find((slot) => slot.regionId === RENDER_SEAM_PROBE_CONFIG.regionId);
+            if (region04Slot) {
+                scheduleEditorRenderSeamCapture({
+                    splat: region04Slot.splat,
+                    gaussianIndex: RENDER_SEAM_PROBE_CONFIG.editorGaussianIndex,
+                    paletteIndex: region04Slot.paletteIndex,
+                    playbackTime: playback.currentTime,
+                    animationClipId: playback.activeClipId
+                });
+            }
+
             const region06Slot = this.slots.find((slot) => slot.regionId === TARGET_REGION_ID);
             const region06GaussianIndex = region06Slot ?
                 findFirstGaussianIndexForRegion(region06Slot.gaussianIndices) :
@@ -317,9 +334,14 @@ class RegionRigApplier {
             left.regionId.localeCompare(right.regionId)
         ));
 
-        const ownerByGaussian = new Map<number, string>();
         const slotByKey = new Map<string, RigSplatSlot>();
-        const conflictRegions = new Set<string>();
+        const bindingClaims: Array<{
+            binding: ScaRigBinding;
+            region: ScaRegion;
+            splat: Splat;
+            ranges: IndexRanges;
+            memberCount: number;
+        }> = [];
 
         for (const binding of bindings) {
             const node = nodeById.get(binding.nodeId);
@@ -343,14 +365,41 @@ class RegionRigApplier {
                 continue;
             }
 
-            const slotKey = `${binding.nodeId}:${splat.uid}`;
+            bindingClaims.push({
+                binding,
+                region,
+                splat,
+                ranges,
+                memberCount: countIndexRanges(ranges)
+            });
+        }
+
+        const { ownerByGaussian, skippedRegions, unrelatedConflictRegions } = resolveRigBindingOwners(
+            rig,
+            bindingClaims.map((claim) => {
+                const gaussianIndices: number[] = [];
+                claim.ranges.forEach((index: number) => gaussianIndices.push(index));
+                return {
+                    regionId: claim.binding.regionId,
+                    nodeId: claim.binding.nodeId,
+                    memberCount: claim.memberCount,
+                    gaussianIndices
+                };
+            })
+        );
+
+        const assignedByGaussian = new Set<number>();
+
+        for (const claim of bindingClaims) {
+            const node = nodeById.get(claim.binding.nodeId)!;
+            const slotKey = `${claim.binding.nodeId}:${claim.splat.uid}`;
             let slot = slotByKey.get(slotKey);
             if (!slot) {
-                const paletteIndex = splat.transformPalette.alloc();
+                const paletteIndex = claim.splat.transformPalette.alloc();
                 slot = {
-                    splat,
-                    nodeId: binding.nodeId,
-                    regionId: binding.regionId,
+                    splat: claim.splat,
+                    nodeId: claim.binding.nodeId,
+                    regionId: claim.binding.regionId,
                     paletteIndex,
                     saved: [],
                     gaussianIndices: []
@@ -360,22 +409,21 @@ class RegionRigApplier {
             }
 
             const transformIndices = slot.splat.transformTexture.lock() as Uint16Array;
-            ranges.forEach((gaussianIndex: number) => {
+            claim.ranges.forEach((gaussianIndex: number) => {
                 if (gaussianIndex < 0 || gaussianIndex >= transformIndices.length) {
                     return;
                 }
 
-                const existingOwner = ownerByGaussian.get(gaussianIndex);
-                if (existingOwner && existingOwner !== binding.regionId) {
-                    conflictRegions.add(binding.regionId);
+                const owner = ownerByGaussian.get(gaussianIndex);
+                if (!owner || owner.nodeId !== claim.binding.nodeId) {
                     return;
                 }
 
-                if (existingOwner === binding.regionId) {
+                if (assignedByGaussian.has(gaussianIndex)) {
                     return;
                 }
 
-                ownerByGaussian.set(gaussianIndex, binding.regionId);
+                assignedByGaussian.add(gaussianIndex);
                 slot!.saved.push({
                     gaussianIndex,
                     transformIndex: transformIndices[gaussianIndex]
@@ -385,12 +433,18 @@ class RegionRigApplier {
             });
             slot.splat.transformTexture.unlock();
 
-            writeSlotEffectiveMatrix(rig, pose, slot, node, binding);
+            writeSlotEffectiveMatrix(rig, pose, slot, node, claim.binding);
         }
 
-        if (conflictRegions.size > 0) {
+        if (skippedRegions.size > 0) {
             console.warn(
-                `[SCA RIG] skipped overlapping rig bindings for regions: ${[...conflictRegions].join(', ')}`
+                `[SCA RIG] skipped overlapping rig bindings for regions: ${[...skippedRegions].sort().join(', ')}`
+            );
+        }
+
+        if (unrelatedConflictRegions.size > 0) {
+            console.warn(
+                `[SCA RIG] unrelated rig binding overlap resolved for regions: ${[...unrelatedConflictRegions].sort().join(', ')}`
             );
         }
 

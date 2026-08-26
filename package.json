@@ -33,6 +33,9 @@
         "test:sca-viewer-patch-visited": "npx tsx tools/sca-viewer-patch-visited-test.ts",
         "test:sca-state-content": "npx tsx tools/sca-state-content-test.ts",
         "test:sca-rig": "npx tsx tools/sca-rig-test.ts",
+        "test:sca-fixed-rig-parity": "npx tsx tools/sca-fixed-rig-parity-test.ts",
+        "test:sca-live-playback-parity": "npx tsx tools/sca-live-playback-parity-test.ts",
+        "test:sca-transform-chain-parity": "npx tsx tools/sca-transform-chain-parity-test.ts",
         "test:spike-gaussian-pick": "npx tsx tools/spike-gaussian-pick.mjs"
     },
     "engines": {

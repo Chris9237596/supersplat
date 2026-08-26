@@ -47,14 +47,14 @@ const logShaderMultiplicationOrderOnce = (): void => {
         editor: {
             transformIndexLookup: 'texelFetch(splatTransform, splat.uv, 0).r',
             paletteAssembly: 't[0..2] = texelFetch(transformPalette, ivec2(u, v), 0)',
-            paletteApply: 'return model * transpose(t)',
+            paletteApply: 'return model * t',
             centerModelView: 'mat4 modelView = matrix_view * applyPaletteTransform(matrix_model)',
             centerProject: 'modelView * vec4(modelCenter, 1.0)'
         },
         runtime: {
             transformIndexLookup: `texelFetch(uScaRigTransformIndex, ivec2(int(splat.index) % int(scaRigTransformIndexTexWidth), int(splat.index) / int(scaRigTransformIndexTexWidth)), 0).r`,
             paletteAssembly: 't[0..2] = texelFetch(uScaRigTransformPalette, ivec2(u, v), 0)',
-            paletteApply: 'return model * transpose(t)',
+            paletteApply: 'return model * t',
             centerModelView: 'mat4 modelView = matrix_view * applyPaletteTransform(matrix_model)',
             centerProject: 'modelView * vec4(modelCenter, 1.0)'
         },

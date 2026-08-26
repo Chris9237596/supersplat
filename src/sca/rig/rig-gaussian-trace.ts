@@ -96,14 +96,12 @@ const transformPoint = (matrix: Mat4, x: number, y: number, z: number): [number,
 
 const applyPaletteToLocalCenter = (paletteMatrix: Mat4, localCenter: [number, number, number]): [number, number, number] => {
     matPalette.copy(paletteMatrix);
-    matPalette.transpose();
     return transformPoint(matPalette, ...localCenter);
 };
 
 const buildShaderModelView = (matrixModel: Mat4, paletteMatrix: Mat4, matrixView?: Mat4): Mat4 => {
     matModel.copy(matrixModel);
     matPalette.copy(paletteMatrix);
-    matPalette.transpose();
     matModelView.mul2(matModel, matPalette);
     if (matrixView) {
         matModelView.mul2(matrixView, matModelView);

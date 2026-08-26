@@ -119,7 +119,7 @@ const vertexShader = /* glsl */ `
                 t[2] = texelFetch(transformPalette, ivec2(u + 2, v), 0);
                 t[3] = vec4(0.0, 0.0, 0.0, 1.0);
 
-                model = matrix_model * transpose(t);
+                model = matrix_model * t;
             }
 
             vec3 center = uintBitsToFloat(texelFetch(splatPosition, splatUV, 0).xyz);

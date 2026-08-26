@@ -126,9 +126,14 @@ import type { ScaRegion } from './region';
 import type { ScaRig, ScaRigNode } from './rig';
 import type { ScaAnimationClip } from './animation';
 
+type ScaRuntimeSplatQuat = [number, number, number, number];
+
 type ScaRuntimeSplatRef = {
     scaSplatId: string;
     name?: string;
+    position?: Vec3;
+    rotation?: ScaRuntimeSplatQuat;
+    scale?: Vec3;
 };
 
 /** SCA project.json root document (version 1). */
@@ -167,6 +172,7 @@ export {
     ScaNavigationMode,
     ScaProject,
     ScaRuntimeSplatRef,
+    ScaRuntimeSplatQuat,
     ScaStartAnimationType,
     ScaTurntableAnimation,
     ScaTurntableDirection,

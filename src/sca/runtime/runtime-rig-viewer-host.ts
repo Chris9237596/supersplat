@@ -8,12 +8,19 @@ import {
 } from 'playcanvas';
 
 import { buildEffectiveRigWorldMatrixFromPose } from '../rig/rig-hierarchy';
+import { resolveRigBindingOwners } from '../rig/rig-binding-ownership';
 import {
     findFirstGaussianIndexForRegion,
     registerRuntimeTransformOrderProbe,
     resetRuntimeTransformOrderProbe,
     TARGET_REGION_ID
 } from '../rig/rig-transform-order-check';
+import {
+    RENDER_SEAM_PROBE_CONFIG,
+    maybeCaptureRuntimeRenderSeamAtPreRender,
+    registerRuntimeRenderSeamProbe,
+    resetRenderSeamProbe
+} from '../rig/rig-render-seam-probe';
 import { maybeLogRuntimeRigDataParity } from '../rig/rig-data-parity-check';
 import { evaluateRuntimeRigPose } from './runtime-rig-pose';
 import { RuntimeRigHost, RuntimeRigPaletteBinding } from './runtime-rig-applier';
@@ -45,7 +52,7 @@ mat4 applyPaletteTransform(mat4 model) {
     t[2] = texelFetch(${SCA_RIG_TRANSFORM_PALETTE_UNIFORM}, ivec2(u + 2, v), 0);
     t[3] = vec4(0.0, 0.0, 0.0, 1.0);
 
-    return model * transpose(t);
+    return model * t;
 }
 `;
 
@@ -245,6 +252,13 @@ class RuntimeViewerTransformPalette {
             texture.upload();
         };
 
+        this.getTransform = (index: number, transform: Mat4) => {
+            const dst = transform.data;
+            for (let i = 0; i < 12; ++i) {
+                dst[PALETTE_MATRIX_IDX[i]] = data[index * 12 + i];
+            }
+        };
+
         this.alloc = (num = 1) => {
             const result = this.nextIdx;
             while (this.nextIdx + num > data.length / 12) {
@@ -265,6 +279,7 @@ class RuntimeViewerTransformPalette {
     }
 
     setTransform: (index: number, transform: Mat4) => void;
+    getTransform: (index: number, transform: Mat4) => void;
     alloc: (num?: number) => number;
     free: (num?: number) => void;
 
@@ -639,6 +654,14 @@ const resolveGsplatLayout = (
     };
 };
 
+const collectRegionBitsetMembers = function* (bitset: Uint8Array): Iterable<number> {
+    for (let index = 0; index < bitset.length; index++) {
+        if (bitset[index]) {
+            yield index;
+        }
+    }
+};
+
 const findRegionBitset = (lookup: RegionLookup, regionId: string): Uint8Array | null => {
     return lookup.entries.find((entry) => entry.regionId === regionId)?.bitset ?? null;
 };
@@ -901,10 +924,13 @@ const createRuntimeRigViewerHost = (
     const bindings = [...rig.bindings].sort((left, right) => left.regionId.localeCompare(right.regionId));
     const paletteByNodeId = new Map<string, number>();
     const slotByBindingKey = new Map<string, RuntimeRigSlot>();
-    const ownerByGaussian = new Map<number, string>();
     const slots: RuntimeRigSlot[] = [];
 
-    const indices = rigTransformIndexTexture.lock() as Uint16Array;
+    const bindingClaims: Array<{
+        binding: ScaRigBinding;
+        bitset: Uint8Array;
+        memberCount: number;
+    }> = [];
 
     for (const binding of bindings) {
         if (!nodeById.has(binding.nodeId)) {
@@ -916,6 +942,28 @@ const createRuntimeRigViewerHost = (
             continue;
         }
 
+        bindingClaims.push({
+            binding,
+            bitset,
+            memberCount: countBitsetMembers(bitset)
+        });
+    }
+
+    const { ownerByGaussian, skippedRegions, unrelatedConflictRegions } = resolveRigBindingOwners(
+        rig,
+        bindingClaims.map((claim) => ({
+            regionId: claim.binding.regionId,
+            nodeId: claim.binding.nodeId,
+            memberCount: claim.memberCount,
+            gaussianIndices: collectRegionBitsetMembers(claim.bitset)
+        }))
+    );
+
+    const assignedByGaussian = new Set<number>();
+    const indices = rigTransformIndexTexture.lock() as Uint16Array;
+
+    for (const claim of bindingClaims) {
+        const binding = claim.binding;
         const bindingKey = `${binding.nodeId}:${binding.regionId}`;
         let paletteIndex = paletteByNodeId.get(binding.nodeId);
         if (paletteIndex === undefined) {
@@ -936,20 +984,17 @@ const createRuntimeRigViewerHost = (
             slots.push(slot);
         }
 
-        for (let gaussianIndex = 0; gaussianIndex < bitset.length; gaussianIndex++) {
-            if (!bitset[gaussianIndex]) {
+        for (const gaussianIndex of collectRegionBitsetMembers(claim.bitset)) {
+            const owner = ownerByGaussian.get(gaussianIndex);
+            if (!owner || owner.nodeId !== binding.nodeId) {
                 continue;
             }
 
-            const existingOwner = ownerByGaussian.get(gaussianIndex);
-            if (existingOwner && existingOwner !== binding.regionId) {
-                continue;
-            }
-            if (existingOwner === binding.regionId) {
+            if (assignedByGaussian.has(gaussianIndex)) {
                 continue;
             }
 
-            ownerByGaussian.set(gaussianIndex, binding.regionId);
+            assignedByGaussian.add(gaussianIndex);
             slot.saved.push({
                 gaussianIndex,
                 transformIndex: indices[gaussianIndex] ?? 0
@@ -961,6 +1006,18 @@ const createRuntimeRigViewerHost = (
 
     rigTransformIndexTexture.unlock();
     rigTransformIndexTexture.upload();
+
+    if (skippedRegions.size > 0) {
+        console.warn(
+            `[SCA RUNTIME RIG] skipped overlapping rig bindings for regions: ${[...skippedRegions].sort().join(', ')}`
+        );
+    }
+
+    if (unrelatedConflictRegions.size > 0) {
+        console.warn(
+            `[SCA RUNTIME RIG] unrelated rig binding overlap resolved for regions: ${[...unrelatedConflictRegions].sort().join(', ')}`
+        );
+    }
 
     if (slots.length === 0) {
         rigTransformIndexTexture.destroy();
@@ -1001,6 +1058,56 @@ const createRuntimeRigViewerHost = (
         });
     } else {
         registerRuntimeTransformOrderProbe(null);
+    }
+
+    const region04Slot = slots.find((slot) => slot.regionId === RENDER_SEAM_PROBE_CONFIG.regionId);
+    let runtimeRenderSeamPreRenderHandler: (() => void) | null = null;
+    let runtimeRenderSeamCamera: { off?: (event: string, handler: () => void) => void } | null = null;
+    if (region04Slot && sortCentersState) {
+        const probeGaussianIndex = RENDER_SEAM_PROBE_CONFIG.runtimeGaussianIndex;
+        registerRuntimeRenderSeamProbe({
+            regionId: RENDER_SEAM_PROBE_CONFIG.regionId,
+            gaussianIndex: probeGaussianIndex,
+            paletteIndex: region04Slot.paletteIndex,
+            textureWidth: layout.width,
+            getLocalCenter: () => sortCentersState.readSourceCenter(probeGaussianIndex) ?? [0, 0, 0],
+            getEntityMatrix: () => component?.entity?.getWorldTransform?.() ?? new Mat4(),
+            getPaletteMatrix: (paletteIndex: number) => {
+                const matrix = new Mat4();
+                transformPalette.getTransform(paletteIndex, matrix);
+                return matrix;
+            },
+            readTransformIndex: (gaussianIndex: number) => {
+                const locked = rigTransformIndexTexture.lock() as Uint16Array;
+                const value = locked[gaussianIndex] ?? 0;
+                rigTransformIndexTexture.unlock();
+                return value;
+            },
+            getMaterial: () => material,
+            getCamera: () => {
+                const cameras = (app?.root?.findComponents?.('camera') ?? []) as Array<{
+                    camera?: { viewMatrix?: Mat4; projectionMatrix?: Mat4 };
+                }>;
+                return cameras[0] ?? null;
+            },
+            getCanvasSize: () => ({
+                width: app?.graphicsDevice?.width ?? 0,
+                height: app?.graphicsDevice?.height ?? 0
+            }),
+            getRenderFrameRequested: () => !!(app as { renderNextFrame?: number })?.renderNextFrame
+        });
+
+        const cameras = (app?.root?.findComponents?.('camera') ?? []) as Array<{
+            camera?: { on?: (event: string, handler: () => void) => void; off?: (event: string, handler: () => void) => void };
+        }>;
+        const cameraEntity = cameras[0];
+        if (cameraEntity?.camera?.on) {
+            runtimeRenderSeamCamera = cameraEntity.camera;
+            runtimeRenderSeamPreRenderHandler = () => maybeCaptureRuntimeRenderSeamAtPreRender();
+            cameraEntity.camera.on('preRenderLayer', runtimeRenderSeamPreRenderHandler);
+        }
+    } else {
+        registerRuntimeRenderSeamProbe(null);
     }
 
     const hostBindings: RuntimeRigPaletteBinding[] = slots.map((slot) => ({
@@ -1119,7 +1226,11 @@ const createRuntimeRigViewerHost = (
             applyPose(rigToApply, evaluateRuntimeRigPose(rigToApply, null, 0));
         },
         destroy: () => {
+            if (runtimeRenderSeamCamera && runtimeRenderSeamPreRenderHandler) {
+                runtimeRenderSeamCamera.off?.('preRenderLayer', runtimeRenderSeamPreRenderHandler);
+            }
             resetRuntimeTransformOrderProbe();
+            resetRenderSeamProbe();
             const locked = rigTransformIndexTexture.lock() as Uint16Array;
             const freedPalette = new Set<number>();
             for (const slot of slots) {

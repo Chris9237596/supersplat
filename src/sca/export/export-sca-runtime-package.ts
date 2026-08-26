@@ -19,7 +19,7 @@ import {
     resolveSogCompressionBackendLabel
 } from '../../splat-serialize';
 import { stringifyProjectJson } from '../serialize/project-json';
-import { ScaProject } from '../types/project';
+import { ScaProject, Vec3, type ScaRuntimeSplatQuat } from '../types/project';
 import { resolveViewerConfig } from '../viewer/viewer-config';
 import { backgroundAssetPath, parseHexColor } from '../viewer/viewer-background';
 import { ScaAssetStore } from '../store/sca-asset-store';
@@ -361,9 +361,15 @@ const buildRuntimeExportProject = (
     const runtimeSplats = splats.map((splat) => {
         const scene = splat.scene;
         const scaSplatId = splat.scaSplatId ?? (scene ? ensureScaSplatId(splat, scene) : 'splat_01');
+        const position = splat.entity.getLocalPosition();
+        const rotation = splat.entity.getLocalRotation();
+        const scale = splat.entity.getLocalScale();
         return {
             scaSplatId,
-            name: splat.name
+            name: splat.name,
+            position: [position.x, position.y, position.z] as Vec3,
+            rotation: [rotation.x, rotation.y, rotation.z, rotation.w] as ScaRuntimeSplatQuat,
+            scale: [scale.x, scale.y, scale.z] as Vec3
         };
     });
 

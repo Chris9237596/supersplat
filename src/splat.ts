@@ -22,6 +22,7 @@ import { vertexShader, fragmentShader, gsplatCenter } from './shaders/splat-shad
 import { State, SplatState } from './splat-state';
 import { Transform } from './transform';
 import { TransformPalette } from './transform-palette';
+import { maybeCaptureEditorRenderSeamAtPreRender } from './sca/rig/rig-render-seam-probe';
 
 const vec = new Vec3();
 const veca = new Vec3();
@@ -589,6 +590,8 @@ class Splat extends Element {
             this.scaRegionStateOverlayClr.b,
             this.scaRegionStateOverlayClr.a
         ]);
+
+        maybeCaptureEditorRenderSeamAtPreRender(this);
 
         if (this.visible && selected) {
             // render bounding box

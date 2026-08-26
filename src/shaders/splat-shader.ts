@@ -284,7 +284,7 @@ mat4 applyPaletteTransform(mat4 model) {
     t[2] = texelFetch(transformPalette, ivec2(u + 2, v), 0);
     t[3] = vec4(0.0, 0.0, 0.0, 1.0);
 
-    return model * transpose(t);
+    return model * t;
 }
 
 uniform mat4 matrix_model;

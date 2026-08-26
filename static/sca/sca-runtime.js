@@ -1645,6 +1645,91 @@
   }
 
   /**
+   * @param {object} viewer
+   * @returns {number[]|null}
+   */
+  function readGsplatModelMatrix(viewer) {
+    const entity = viewer?.global?.app?.root?.findComponents?.('gsplat')?.[0]?.entity
+    const data = entity?.getWorldTransform?.()?.data
+    return data && data.length >= 16 ? Array.from(data) : null
+  }
+
+  /**
+   * @param {object} viewer
+   * @param {number} timeoutMs
+   * @returns {Promise<object[]>}
+   */
+  async function waitForGsplatComponents(viewer, timeoutMs = 180000) {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const components = viewer?.global?.app?.root?.findComponents?.('gsplat') ?? []
+      if (components.length > 0 && components.every((component) => component?.entity)) {
+        return components
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    return []
+  }
+
+  /**
+   * Apply splat entity transforms exported in project.json (not baked into SOG).
+   * @param {object} viewer
+   * @param {object} project
+   */
+  async function applyExportedSplatTransforms(viewer, project) {
+    const splats = project?.splats
+    if (!Array.isArray(splats) || splats.length === 0) {
+      return
+    }
+
+    const components = await waitForGsplatComponents(viewer)
+    if (components.length === 0) {
+      console.warn('[SCA3D] no gsplat components — splat transforms not applied')
+      return
+    }
+
+    const splatById = new Map(
+      splats
+        .filter((entry) => typeof entry?.scaSplatId === 'string')
+        .map((entry) => [entry.scaSplatId, entry])
+    )
+
+    for (let index = 0; index < components.length; index += 1) {
+      const entity = components[index]?.entity
+      if (!entity) {
+        continue
+      }
+
+      const splatRef =
+        (components.length === 1 && splats.length === 1 ? splats[0] : null) ??
+        splatById.get(splats[index]?.scaSplatId) ??
+        splats[index] ??
+        null
+
+      if (!splatRef) {
+        continue
+      }
+
+      if (Array.isArray(splatRef.position) && splatRef.position.length === 3) {
+        entity.setLocalPosition(splatRef.position[0], splatRef.position[1], splatRef.position[2])
+      }
+
+      if (Array.isArray(splatRef.rotation) && splatRef.rotation.length === 4) {
+        entity.setLocalRotation(
+          splatRef.rotation[0],
+          splatRef.rotation[1],
+          splatRef.rotation[2],
+          splatRef.rotation[3]
+        )
+      }
+
+      if (Array.isArray(splatRef.scale) && splatRef.scale.length === 3) {
+        entity.setLocalScale(splatRef.scale[0], splatRef.scale[1], splatRef.scale[2])
+      }
+    }
+  }
+
+  /**
    * @param {{ canvas: HTMLCanvasElement, settingsJson: object, config: object, main: Function }} args
    */
   async function bootstrapViewer({ canvas, settingsJson, config, main }) {
@@ -1674,12 +1759,15 @@
 
     const viewer = await main(canvas, settingsForViewer, config)
 
+    await applyExportedSplatTransforms(viewer, project)
+
     window.SCA3D = window.SCA3D || {}
     window.SCA3D.state = window.SCA3D.state || {}
     window.SCA3D.state.project = project
     window.SCA3D.state.viewerConfig = viewerConfig
     window.SCA3D.state.hotspotById = hotspotById
     window.SCA3D.state.viewer = viewer
+    window.SCA3D.getGsplatModelMatrix = () => readGsplatModelMatrix(viewer)
     window.SCA3D.activateHotspot = (hotspotOrId, options) => activateScaHotspot(viewer, viewerConfig, hotspotOrId, options)
     window.SCA3D.activateRegion = (regionOrId, options) => activateScaRegion(viewer, viewerConfig, regionOrId, options)
     window.SCA3D.setActiveTarget = (target, options) => setActiveTarget(viewer, viewerConfig, target, options)

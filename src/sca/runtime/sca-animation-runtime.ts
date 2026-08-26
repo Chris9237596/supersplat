@@ -9,6 +9,10 @@ import {
     TARGET_REGION_ID
 } from '../rig/rig-transform-order-check';
 import { maybeLogRuntimeRigDataParity } from '../rig/rig-data-parity-check';
+import {
+    maybeCaptureRuntimeRenderSeamAfterApply,
+    RENDER_SEAM_PROBE_CONFIG
+} from '../rig/rig-render-seam-probe';
 
 import { evaluateRuntimeRigPose } from './runtime-rig-pose';
 import { RuntimeRigApplier } from './runtime-rig-applier';
@@ -248,6 +252,15 @@ class ScaRuntimeAnimationController {
             }
 
             this.host.rigApplier.applyPose(rig, pose);
+            const region04Binding = rig.bindings.find((binding) => binding.regionId === RENDER_SEAM_PROBE_CONFIG.regionId);
+            if (region04Binding) {
+                maybeCaptureRuntimeRenderSeamAfterApply({
+                    clipId: playback.clipId,
+                    playbackTime: playback.currentTime,
+                    nodeId: region04Binding.nodeId,
+                    regionId: region04Binding.regionId
+                });
+            }
             if (this.host.rigApplier.hasHost()) {
                 console.log('[SCA RUNTIME RIG] apply', {
                     clipId: playback.clipId,
